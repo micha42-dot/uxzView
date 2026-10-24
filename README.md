@@ -1,4 +1,4 @@
-![üxz logo](https://raw.githubusercontent.com/micha42-dot/uxzView/refs/heads/main/%C3%BCgz.png)
+<p align="center"><img src="https://raw.githubusercontent.com/micha42-dot/uxzView/refs/heads/main/%C3%BCgz.jpg" width="400"></p> 
 
 # üxzView
 
