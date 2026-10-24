@@ -1,0 +1,96 @@
+Window: "IrfanView", App: i_view64.exe.
+	0 Fenster IrfanView Secondary Actions: Raise
+		163 Menü Bild
+			164 Menüelement (disabled) Information... I ID: 1104
+			165 Menüelement Neues (leeres) Bild erstellen... Shift+N ID: 1105
+			166 Menüelement Panorama-Bild erstellen... ID: 1048
+			167 Menüelement (disabled) Links drehen L ID: 1145
+			168 Menüelement (disabled) Rechts drehen R ID: 1146
+			169 Menüelement (disabled) Fein-Rotation... Strg+U ID: 1076
+			170 Menüelement (disabled) Vertikal spiegeln V ID: 1191
+			171 Menüelement (disabled) Horizontal spiegeln H ID: 1102
+			172 Menüelement (disabled) Größe ändern... Strg+R ID: 1139
+			173 Menüelement (disabled) Farb-Rahmen hinzufügen (Leinwandgröße ändern)... Shift+V ID: 10
+			174 Menüelement (disabled) Schatten/Runde Ecken/Formen hinzufügen... ID: 164
+			175 Menüelement (disabled) Sechseck/Stern/Herz hinzufügen... ID: 165
+			176 Menüelement (disabled) Effekt-Rahmen hinzufügen... Strg+D ID: 91
+			177 Menüelement (disabled) Farbtiefe erhöhen... ID: 1106
+			178 Menüelement (disabled) Farbtiefe reduzieren... ID: 1059
+			179 Menüelement (disabled) In Graustufen umwandeln Strg+G ID: 1051
+			180 Menüelement Farbkanal anzeigen
+			181 Menüelement Negativ erstellen (Farben invertieren)
+			182 Menüelement (disabled) Farben ändern... Shift+G ID: 1050
+			183 Menüelement (disabled) Alpha/Transparenz bearbeiten oder setzen... ID: 188
+			184 Menüelement (disabled) Histogramm... Shift+H ID: 54
+			185 Menüelement (disabled) Farbe ersetzen... ID: 127
+			186 Menüelement (disabled) Kachelbild erstellen... ID: 128
+			187 Menüelement (disabled) Auto-Korrektur Shift+U ID: 42
+			188 Menüelement (disabled) Schärfen Shift+S ID: 1153
+			189 Menüelement (disabled) Rote Augen - Reduktion (Markierung) Shift+Y ID: 1133
+			190 Menüelement Effekte
+			191 Menüelement Adobe 8BF PlugIns
+			192 Menüelement Farben tauschen
+			193 Menüelement Palette
+		1 Symbolleiste
+			2 Kombinationsfeld (disabled, settable, string)
+				3 Bearbeiten (disabled, settable, string) ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche (disabled) Speichern unter
+			8 Schaltfläche (disabled) Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche (disabled) Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche (disabled) Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche (disabled) Vergrößern
+			18 Schaltfläche (disabled) Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text Kein Bild geladen (siehe Datei->Öffnen)
+		28 Titelleiste (settable, string) Value: IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		194 Menü Optionen
+			195 Menüelement Einstellungen... P ID: 1129
+			196 Menüelement Sprache ändern... ID: 1111
+			197 Menüelement Verknüpfungen ändern... ID: 1044
+			198 Menüelement Multimedia Player starten (PlugIn) ID: 1165
+			199 Menüelement (disabled) Animation stoppen/starten G ID: 1166
+			200 Menüelement (disabled) Extrahiere alle Bilder... ID: 1082
+			201 Menüelement (disabled) Extrahiere Bildteile/Kacheln... ID: 145
+			202 Menüelement Mehrseitige Bilder
+			203 Menüelement (disabled) Bild als EMail schicken... (PlugIn) Shift+M ID: 1151
+			204 Menüelement (disabled) JPG - verlustfreie Rotation... (PlugIn) Shift+J ID: 1109
+			205 Menüelement (disabled) JPG - verlustfreies Freistellen... (PlugIn) Strg+Shift+J ID: 52
+			206 Menüelement (disabled) JPG - EXIF-Aufnahmezeit ändern... (PlugIn) ID: 136
+			207 Menüelement (disabled) JPG - Neue EXIF-Daten erstellen... (PlugIn) ID: 173
+			208 Menüelement Fotografieren/Screenshot... C ID: 1047
+			209 Menüelement Hotfolder (Ordner überwachen)... ID: 144
+			210 Menüelement (disabled) OCR starten... (PlugIn) F9 ID: 80
+			211 Menüelement Sortiere Dateien im Verzeichnis
+			212 Menüelement Als Hinter&grundbild verwenden
+			213 Menüelement Minimieren M ID: 1115
+			214 Menüelement Immer im Vordergrund ID: 1042
+
+The focused UI element is 0 Fenster IrfanView Secondary Actions: Raise.

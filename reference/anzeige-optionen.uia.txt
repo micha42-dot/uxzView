@@ -1,0 +1,107 @@
+Window: "IrfanView", App: i_view64.exe.
+	0 Fenster IrfanView Secondary Actions: Raise
+		215 Menü Ansicht
+			216 Menüelement Statusleiste ein/aus Alt+Shift+S ID: 1195
+			217 Menüelement Symbolleiste ein/aus Alt+Shift+T ID: 1198
+			218 Menüelement Menüleiste ein/aus Alt+Shift+M ID: 1193
+			219 Menüelement Titelleiste ein/aus Alt+Shift+C ID: 1192
+			220 Menüelement Optionen für Symbolleiste anzeigen... ID: 50
+			221 Menüelement Anzeige-Optionen (Fenstermodus)
+			222 Menüelement (disabled) Vollbildmodus Eingabetaste ID: 1096
+			223 Menüelement Vollbild-Optionen anzeigen... ID: 44
+			224 Menüelement (disabled) Nächstes Bild im Verzeichnis Leertaste ID: 1125
+			225 Menüelement (disabled) Vorheriges Bild im Verzeichnis Rücktaste ID: 1131
+			226 Menüelement (disabled) Erstes Bild im Verzeichnis Strg+Pos1 ID: 1086
+			227 Menüelement (disabled) Letztes Bild im Verzeichnis Strg+Ende ID: 1112
+			228 Menüelement (disabled) Zufälliges Bild im Verzeichnis Strg+M ID: 1194
+			229 Menüelement Aktualisieren F5 ID: 1134
+			230 Menüelement (disabled) Automatik starten/stoppen Shift+A ID: 1203
+			231 Menüelement (disabled) Vergrößern + ID: 1204
+			232 Menüelement (disabled) Verkleinern - ID: 1205
+			233 Menüelement (disabled) Zoom-Faktor fixieren Shift+L ID: 1114
+			234 Menüelement (disabled) Scroll-Position beibehalten Strg+Shift+K ID: 55
+			235 Menüelement (disabled) Originalgröße Strg+H ID: 1206
+			236 Menüelement (disabled) Im HEX-Viewer anschauen F3 ID: 1154
+			237 Menüelement Mehrseitige Bilder
+		1 Symbolleiste
+			2 Kombinationsfeld (disabled, settable, string)
+				3 Bearbeiten (disabled, settable, string) ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche (disabled) Speichern unter
+			8 Schaltfläche (disabled) Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche (disabled) Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche (disabled) Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche (disabled) Vergrößern
+			18 Schaltfläche (disabled) Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text Kein Bild geladen (siehe Datei->Öffnen)
+		28 Titelleiste (settable, string) Value: IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		238 Menü Anzeige-Optionen (Fenstermodus)
+			239 Menüelement Fenster ans Bild anpassen (1:1, empfohlen) Shift+O ID: 1095
+			240 Menüelement Bild ans Fenster anpassen Shift+W ID: 1091
+			241 Menüelement Nur große Bilder ans Fenster anpassen ID: 1087
+			242 Menüelement Bilder an Fensterbreite anpassen ID: 99
+			243 Menüelement Bilder an Fensterhöhe anpassen ID: 100
+			244 Menüelement Kurze Bildseite ans Fenster anpassen ID: 123
+			245 Menüelement Fenster/Bild an Bildschirm anpassen F ID: 1090
+			246 Menüelement Nur große Bilder an Bildschirm anpassen Shift+F ID: 1088
+			247 Menüelement Bilder an Bildschirmbreite anpassen ID: 1094
+			248 Menüelement Bilder an Bildschirmhöhe anpassen ID: 1093
+			249 Menüelement Kurze Bildseite an Bildschirm anpassen ID: 124
+			250 Menüelement Kein Anpassen durchführen ID: 1089
+			251 Menüelement "Resample" für Anpassen benutzen (bessere Qualität) ID: 28
+			252 Menüelement "Resample" für Zoomen benutzen ID: 79
+			253 Menüelement Schärfen nach "Resample" anwenden ID: 121
+			254 Menüelement (Kleinere) Bilder zentriert anzeigen ID: 43
+		215 Menü Ansicht
+			216 Menüelement Statusleiste ein/aus Alt+Shift+S ID: 1195
+			217 Menüelement Symbolleiste ein/aus Alt+Shift+T ID: 1198
+			218 Menüelement Menüleiste ein/aus Alt+Shift+M ID: 1193
+			219 Menüelement Titelleiste ein/aus Alt+Shift+C ID: 1192
+			220 Menüelement Optionen für Symbolleiste anzeigen... ID: 50
+			221 Menüelement Anzeige-Optionen (Fenstermodus)
+			222 Menüelement (disabled) Vollbildmodus Eingabetaste ID: 1096
+			223 Menüelement Vollbild-Optionen anzeigen... ID: 44
+			224 Menüelement (disabled) Nächstes Bild im Verzeichnis Leertaste ID: 1125
+			225 Menüelement (disabled) Vorheriges Bild im Verzeichnis Rücktaste ID: 1131
+			226 Menüelement (disabled) Erstes Bild im Verzeichnis Strg+Pos1 ID: 1086
+			227 Menüelement (disabled) Letztes Bild im Verzeichnis Strg+Ende ID: 1112
+			228 Menüelement (disabled) Zufälliges Bild im Verzeichnis Strg+M ID: 1194
+			229 Menüelement Aktualisieren F5 ID: 1134
+			230 Menüelement (disabled) Automatik starten/stoppen Shift+A ID: 1203
+			231 Menüelement (disabled) Vergrößern + ID: 1204
+			232 Menüelement (disabled) Verkleinern - ID: 1205
+			233 Menüelement (disabled) Zoom-Faktor fixieren Shift+L ID: 1114
+			234 Menüelement (disabled) Scroll-Position beibehalten Strg+Shift+K ID: 55
+			235 Menüelement (disabled) Originalgröße Strg+H ID: 1206
+			236 Menüelement (disabled) Im HEX-Viewer anschauen F3 ID: 1154
+			237 Menüelement Mehrseitige Bilder
+
+The focused UI element is 0 Fenster IrfanView Secondary Actions: Raise.

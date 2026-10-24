@@ -1,0 +1,42 @@
+{
+  "source": "https://www.irfanview.net/help/guida/hlp_hotkeys.htm",
+  "verification": "official-online-help-2026-10-18; menu hotkeys separately verified in local 4.76 reference",
+  "aliases": {
+    "zoomIn": ["="],
+    "rename": ["F6"],
+    "refresh": ["U"],
+    "copy": ["Ctrl+Insert"],
+    "paste": ["Shift+Insert"]
+  },
+  "contextKeys": [
+    {"key":"Links / Rechts", "action":"Vorheriges / nächstes Bild; bei vergrößertem Bild horizontal scrollen", "context":"Bildansicht ohne Markierung"},
+    {"key":"Oben / Unten", "action":"Bild vertikal scrollen", "context":"Bildansicht"},
+    {"key":"Bild auf / Bild ab", "action":"Vorheriges / nächstes Bild; bei vertikalem Scrollbereich eine Bildschirmhöhe scrollen", "context":"Bildansicht"},
+    {"key":"Strg+Bild auf / Bild ab", "action":"Vorherige / nächste Seite, sonst vorheriges / nächstes Bild", "context":"Bildansicht"},
+    {"key":"Pos1 / Ende", "action":"Horizontal zum Rand scrollen, sonst erstes / letztes Bild", "context":"Bildansicht"},
+    {"key":"Shift+Pos1 / Ende", "action":"Erste / letzte Seite", "context":"Mehrseitiges Bild"},
+    {"key":"Strg+A", "action":"Ganzes Bild markieren / Markierung aufheben", "context":"Bildansicht"},
+    {"key":"Pfeiltasten", "action":"Markierung um einen Bildpixel verschieben", "context":"Markierung, keine Scrollleisten"},
+    {"key":"Shift+Pfeiltasten", "action":"Markierung um einen Bildpixel verschieben", "context":"Markierung"},
+    {"key":"Strg+Pfeiltasten", "action":"Markierung proportional vergrößern / verkleinern", "context":"Markierung"},
+    {"key":"Alt+Pfeiltasten", "action":"Breite / Höhe der Markierung verändern", "context":"Markierung"},
+    {"key":"Strg+Links / Rechts / Leertaste / Rücktaste", "action":"Um fünf Bilder springen", "context":"Ohne Markierung, ohne passenden Scrollbereich"},
+    {"key":"Strg+Ziffer / Strg+Shift+Ziffer", "action":"Um Ziffer Bilder vor / zurück springen; 0 entspricht 10", "context":"Bildansicht"},
+    {"key":"Shift+T", "action":"Zoom-Eingabefeld fokussieren", "context":"Sichtbare Symbolleiste"},
+    {"key":"Shift+P", "action":"Aktuellen Dateipfad kopieren", "context":"Geöffnete Datei"},
+    {"key":"Strg+N", "action":"Datei in einem weiteren IxView-Fenster öffnen", "context":"Geöffnete Datei"},
+    {"key":"F1", "action":"Diese Tastenkürzel-Hilfe", "context":"Hauptfenster"},
+    {"key":"A", "action":"Über IxView", "context":"Hauptfenster"}
+  ],
+  "mouse": [
+    {"key":"Linksklick / Rechtsklick", "action":"Vorheriges / nächstes Bild; Ziehen blättert nicht", "context":"Vollbild"},
+    {"key":"Links ziehen", "action":"Rechteck markieren", "context":"Bild"},
+    {"key":"Linksklick in Markierung", "action":"Markierten Bereich vergrößern (Lupe)", "context":"Markierung ohne festes Freistellverhältnis, außerhalb Vollbild"},
+    {"key":"Strg+Linksklick in Markierung", "action":"Markierung aufheben", "context":"Markierung"},
+    {"key":"Rechts ziehen in Markierung", "action":"Markierung verschieben; Strg nur vertikal, Shift nur horizontal", "context":"Markierung"},
+    {"key":"Rechts / Mitte ziehen außerhalb Markierung", "action":"Vergrößertes Bild verschieben", "context":"Bildansicht"},
+    {"key":"Strg+Mausrad", "action":"Zoom mit festgehaltenem Bildpunkt am Mauszeiger", "context":"Bildansicht"},
+    {"key":"Shift+Mausrad", "action":"Horizontal scrollen", "context":"Bildansicht"},
+    {"key":"Mausrad", "action":"Vertikal scrollen, sonst Bilder durchblättern", "context":"Bildansicht"}
+  ]
+}

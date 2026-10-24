@@ -1,0 +1,1393 @@
+{
+  "reference": {
+    "product": "IrfanView",
+    "version": "4.76.0.0",
+    "architecture": "x64",
+    "language": "Deutsch.dll 4.76",
+    "installation": "C:/Program Files/IrfanView",
+    "method": "Windows UI Automation plus visual inspection; no proprietary resources copied"
+  },
+  "policy": "Unimplemented commands stay in reference data and are omitted from the working UI. Access keys are null unless verified. Menu order remains a verified subsequence.",
+  "menus": [
+    {
+      "id": "datei",
+      "label": "&Datei",
+      "items": [
+        {
+          "label": "Öffnen...",
+          "originalId": 1126,
+          "shortcut": "O",
+          "command": "open",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Erneut öffnen",
+          "originalId": 1138,
+          "shortcut": "Shift+R",
+          "command": "reopen",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Letzte Dateien öffnen",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null,
+          "dynamic": "recent"
+        },
+        {
+          "label": "Letzte gespeicherte Dateien öffnen",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null,
+          "dynamic": "saved"
+        },
+        {
+          "label": "Öffnen mit externem Editor",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Öffnen als",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Thumbnails",
+          "originalId": 1178,
+          "shortcut": "T",
+          "command": "thumbnails",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Slideshow...",
+          "originalId": 1155,
+          "shortcut": "W",
+          "command": "slideshowDialog",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Starte Slideshow mit aktueller Dateiliste",
+          "originalId": 1147,
+          "shortcut": "Strg+W",
+          "command": "slideshow",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Batch(Stapel)-Konvertierung/Umbenennung...",
+          "originalId": 1046,
+          "shortcut": "B",
+          "command": "batch",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Dateien suchen...",
+          "originalId": 36,
+          "shortcut": "Strg+F",
+          "command": "find",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Umbenennen...",
+          "originalId": 1137,
+          "shortcut": "F2",
+          "command": "rename",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Verschieben...",
+          "originalId": 1116,
+          "shortcut": "F7",
+          "command": "move",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Kopieren...",
+          "originalId": 1053,
+          "shortcut": "F8",
+          "command": "fileCopy",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Löschen...",
+          "originalId": 1060,
+          "shortcut": "Entf",
+          "command": "delete",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Speichern (Original-Verzeichnis)",
+          "originalId": 1148,
+          "shortcut": "Strg+S",
+          "command": "save",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Speichern unter...",
+          "originalId": 1149,
+          "shortcut": "S",
+          "command": "saveAs",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Bilder vergleichen...",
+          "originalId": 72,
+          "shortcut": "",
+          "command": "compare",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Markierung speichern als...",
+          "originalId": 153,
+          "shortcut": "Strg+Shift+B",
+          "command": "saveSelection",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Drucken...",
+          "originalId": 1132,
+          "shortcut": "Strg+P",
+          "command": "print",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "TWAIN Quelle wählen...",
+          "originalId": 1040,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Scannen/Batch-Scannen...",
+          "originalId": 1041,
+          "shortcut": "Strg+Shift+A",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Copy Shop...",
+          "originalId": 1054,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Beenden",
+          "originalId": 1080,
+          "shortcut": "Esc",
+          "command": "exit",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "bearbeiten",
+      "label": "&Bearbeiten",
+      "items": [
+        {
+          "label": "Favoriten-Menüs",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Rückgängig",
+          "originalId": 1070,
+          "shortcut": "Strg+Z",
+          "command": "undo",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Wiederholen",
+          "originalId": 98,
+          "shortcut": "Strg+J",
+          "command": "redo",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Zeichnen-Dialog anzeigen",
+          "originalId": 60,
+          "shortcut": "F12",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Spezielle Markierung erstellen...",
+          "originalId": 5,
+          "shortcut": "Shift+C",
+          "command": "selection",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Maximierte Markierung erstellen (im Verhältnis: B:H)",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Letzte Markierung wiederherstellen",
+          "originalId": 190,
+          "shortcut": "",
+          "command": "restoreSelection",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Markierung maximieren und zentrieren",
+          "originalId": 69,
+          "shortcut": "",
+          "command": "maximizeSelection",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Umgekehrte Markierung verw. (für Effekte in Bild-Menü)",
+          "originalId": 185,
+          "shortcut": "",
+          "command": "invertSelection",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Form/Gitter in Markierung zeichnen",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Rasterlinien anzeigen",
+          "originalId": 126,
+          "shortcut": "",
+          "command": "grid",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Text einfügen...",
+          "originalId": 1061,
+          "shortcut": "Strg+T",
+          "command": "text",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Wasserzeichen/Deckfarbe einfügen...",
+          "originalId": 117,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Ausschneiden - Markierung",
+          "originalId": 1065,
+          "shortcut": "Strg+X",
+          "command": "cut",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Ausschneiden - außerhalb der Markierung",
+          "originalId": 1066,
+          "shortcut": "",
+          "command": "cutOutside",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Streifen einfügen/löschen (mit Markierung)",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Freistellen",
+          "originalId": 1064,
+          "shortcut": "Strg+Y",
+          "command": "crop",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Freistellen in Aspect-Ratio",
+          "command": "cropAspect"
+        },
+        {
+          "label": "Ränder automatisch beschneiden",
+          "originalId": 66,
+          "shortcut": "Strg+Shift+Y",
+          "command": "autoCrop",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Ränder autom. beschneiden - Markierung anzeigen",
+          "originalId": 169,
+          "shortcut": "",
+          "command": "autoSelect",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Sichtbaren Fensterbereich freistellen (wenn Scrollleisten sichtbar)",
+          "originalId": 192,
+          "shortcut": "",
+          "command": "cropViewport",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Sichtbaren Fensterbereich fotografieren",
+          "originalId": 83,
+          "shortcut": "",
+          "command": "captureViewport",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Kopieren",
+          "originalId": 1063,
+          "shortcut": "Strg+C",
+          "command": "copy",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Einfügen",
+          "originalId": 1069,
+          "shortcut": "Strg+V",
+          "command": "paste",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Spezielles Einfügen (seitlich anfügen)",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Anzeige löschen",
+          "originalId": 1067,
+          "shortcut": "D",
+          "command": "clear",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Zwischenablage leeren",
+          "originalId": 1062,
+          "shortcut": "",
+          "command": "clearClipboard",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "bild",
+      "label": "B&ild",
+      "items": [
+        {
+          "label": "Information...",
+          "originalId": 1104,
+          "shortcut": "I",
+          "command": "info",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Neues (leeres) Bild erstellen...",
+          "originalId": 1105,
+          "shortcut": "Shift+N",
+          "command": "new",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Panorama-Bild erstellen...",
+          "originalId": 1048,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Links drehen",
+          "originalId": 1145,
+          "shortcut": "L",
+          "command": "left",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Rechts drehen",
+          "originalId": 1146,
+          "shortcut": "R",
+          "command": "right",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Fein-Rotation...",
+          "originalId": 1076,
+          "shortcut": "Strg+U",
+          "command": "rotate",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Vertikal spiegeln",
+          "originalId": 1191,
+          "shortcut": "V",
+          "command": "vertical",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Horizontal spiegeln",
+          "originalId": 1102,
+          "shortcut": "H",
+          "command": "horizontal",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Größe ändern...",
+          "originalId": 1139,
+          "shortcut": "Strg+R",
+          "command": "resize",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Farb-Rahmen hinzufügen (Leinwandgröße ändern)...",
+          "originalId": 10,
+          "shortcut": "Shift+V",
+          "command": "canvas",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Schatten/Runde Ecken/Formen hinzufügen...",
+          "originalId": 164,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Sechseck/Stern/Herz hinzufügen...",
+          "originalId": 165,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Effekt-Rahmen hinzufügen...",
+          "originalId": 91,
+          "shortcut": "Strg+D",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Farbtiefe erhöhen...",
+          "originalId": 1106,
+          "shortcut": "",
+          "command": "increaseDepth",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Farbtiefe reduzieren...",
+          "originalId": 1059,
+          "shortcut": "",
+          "command": "reduceDepth",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "In Graustufen umwandeln",
+          "originalId": 1051,
+          "shortcut": "Strg+G",
+          "command": "grayscale",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Farbkanal anzeigen",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null,
+          "submenu": "kanal"
+        },
+        {
+          "label": "Negativ erstellen (Farben invertieren)",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null,
+          "submenu": "negativ"
+        },
+        {
+          "label": "Farben ändern...",
+          "originalId": 1050,
+          "shortcut": "Shift+G",
+          "command": "colors",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Alpha/Transparenz bearbeiten oder setzen...",
+          "originalId": 188,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Histogramm...",
+          "originalId": 54,
+          "shortcut": "Shift+H",
+          "command": "histogram",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Farbe ersetzen...",
+          "originalId": 127,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Kachelbild erstellen...",
+          "originalId": 128,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Auto-Korrektur",
+          "originalId": 42,
+          "shortcut": "Shift+U",
+          "command": "autoCorrect",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Schärfen",
+          "originalId": 1153,
+          "shortcut": "Shift+S",
+          "command": "sharpen",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Rote Augen - Reduktion (Markierung)",
+          "originalId": 1133,
+          "shortcut": "Shift+Y",
+          "command": "redEye",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Effekte",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Adobe 8BF PlugIns",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Farben tauschen",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null,
+          "submenu": "tauschen"
+        },
+        {
+          "label": "Palette",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "optionen",
+      "label": "&Optionen",
+      "items": [
+        {
+          "label": "Einstellungen...",
+          "originalId": 1129,
+          "shortcut": "P",
+          "command": "settings",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Sprache ändern...",
+          "originalId": 1111,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Verknüpfungen ändern...",
+          "originalId": 1044,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Multimedia Player starten (PlugIn)",
+          "originalId": 1165,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Animation stoppen/starten",
+          "originalId": 1166,
+          "shortcut": "G",
+          "command": "animation",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Extrahiere alle Bilder...",
+          "originalId": 1082,
+          "shortcut": "",
+          "command": "extract",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Extrahiere Bildteile/Kacheln...",
+          "originalId": 145,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Mehrseitige Bilder",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Bild als EMail schicken... (PlugIn)",
+          "originalId": 1151,
+          "shortcut": "Shift+M",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "JPG - verlustfreie Rotation... (PlugIn)",
+          "originalId": 1109,
+          "shortcut": "Shift+J",
+          "command": "jpegTransform",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "JPG - verlustfreies Freistellen... (PlugIn)",
+          "originalId": 52,
+          "shortcut": "Strg+Shift+J",
+          "command": "jpegCrop",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "JPG - EXIF-Aufnahmezeit ändern... (PlugIn)",
+          "originalId": 136,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "JPG - Neue EXIF-Daten erstellen... (PlugIn)",
+          "originalId": 173,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Fotografieren/Screenshot...",
+          "originalId": 1047,
+          "shortcut": "C",
+          "command": "capture",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Hotfolder (Ordner überwachen)...",
+          "originalId": 144,
+          "shortcut": "",
+          "command": "hotfolder",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "OCR starten... (PlugIn)",
+          "originalId": 80,
+          "shortcut": "F9",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Sortiere Dateien im Verzeichnis",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Als Hinter&grundbild verwenden",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Minimieren",
+          "originalId": 1115,
+          "shortcut": "M",
+          "command": "minimize",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Immer im Vordergrund",
+          "originalId": 1042,
+          "shortcut": "",
+          "command": "onTop",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "ansicht",
+      "label": "&Ansicht",
+      "items": [
+        {
+          "label": "Statusleiste ein/aus",
+          "originalId": 1195,
+          "shortcut": "Alt+Shift+S",
+          "command": "statusbar",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Symbolleiste ein/aus",
+          "originalId": 1198,
+          "shortcut": "Alt+Shift+T",
+          "command": "toolbar",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Menüleiste ein/aus",
+          "originalId": 1193,
+          "shortcut": "Alt+Shift+M",
+          "command": "menubar",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Titelleiste ein/aus",
+          "originalId": 1192,
+          "shortcut": "Alt+Shift+C",
+          "command": "titlebar",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Optionen für Symbolleiste anzeigen...",
+          "originalId": 50,
+          "shortcut": "",
+          "command": "settings",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Anzeige-Optionen (Fenstermodus)",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null,
+          "submenu": "anzeige-optionen"
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Vollbildmodus",
+          "originalId": 1096,
+          "shortcut": "Eingabetaste",
+          "command": "fullscreen",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Vollbild-Optionen anzeigen...",
+          "originalId": 44,
+          "shortcut": "",
+          "command": "settings",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Nächstes Bild im Verzeichnis",
+          "originalId": 1125,
+          "shortcut": "Leertaste",
+          "command": "next",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Vorheriges Bild im Verzeichnis",
+          "originalId": 1131,
+          "shortcut": "Rücktaste",
+          "command": "previous",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Erstes Bild im Verzeichnis",
+          "originalId": 1086,
+          "shortcut": "Strg+Pos1",
+          "command": "first",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Letztes Bild im Verzeichnis",
+          "originalId": 1112,
+          "shortcut": "Strg+Ende",
+          "command": "last",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Zufälliges Bild im Verzeichnis",
+          "originalId": 1194,
+          "shortcut": "Strg+M",
+          "command": "random",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Aktualisieren",
+          "originalId": 1134,
+          "shortcut": "F5",
+          "command": "refresh",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Automatik starten/stoppen",
+          "originalId": 1203,
+          "shortcut": "Shift+A",
+          "command": "slideshow",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Vergrößern",
+          "originalId": 1204,
+          "shortcut": "+",
+          "command": "zoomIn",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Verkleinern",
+          "originalId": 1205,
+          "shortcut": "-",
+          "command": "zoomOut",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Zoom-Faktor fixieren",
+          "originalId": 1114,
+          "shortcut": "Shift+L",
+          "command": "lockZoom",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Scroll-Position beibehalten",
+          "originalId": 55,
+          "shortcut": "Strg+Shift+K",
+          "command": "lockScroll",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Originalgröße",
+          "originalId": 1206,
+          "shortcut": "Strg+H",
+          "command": "original",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Im HEX-Viewer anschauen",
+          "originalId": 1154,
+          "shortcut": "F3",
+          "command": "hex",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Mehrseitige Bilder",
+          "originalId": 0,
+          "shortcut": "",
+          "command": null,
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "anzeige-optionen",
+      "label": "Anzeige-Optionen (Fenstermodus)",
+      "items": [
+        {
+          "label": "Fenster ans Bild anpassen (1:1, empfohlen)",
+          "originalId": 1095,
+          "shortcut": "Shift+O",
+          "command": "fitOriginal",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Bild ans Fenster anpassen",
+          "originalId": 1091,
+          "shortcut": "Shift+W",
+          "command": "fitWindow",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Nur große Bilder ans Fenster anpassen",
+          "originalId": 1087,
+          "shortcut": "",
+          "command": "fitLarge",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Bilder an Fensterbreite anpassen",
+          "originalId": 99,
+          "shortcut": "",
+          "command": "fitWidth",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Bilder an Fensterhöhe anpassen",
+          "originalId": 100,
+          "shortcut": "",
+          "command": "fitHeight",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Kurze Bildseite ans Fenster anpassen",
+          "originalId": 123,
+          "shortcut": "",
+          "command": "fitShort",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Fenster/Bild an Bildschirm anpassen F",
+          "originalId": 1090,
+          "shortcut": "",
+          "command": "fitScreen",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Nur große Bilder an Bildschirm anpassen",
+          "originalId": 1088,
+          "shortcut": "Shift+F",
+          "command": "fitScreenLarge",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Bilder an Bildschirmbreite anpassen",
+          "originalId": 1094,
+          "shortcut": "",
+          "command": "fitScreenWidth",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Bilder an Bildschirmhöhe anpassen",
+          "originalId": 1093,
+          "shortcut": "",
+          "command": "fitScreenHeight",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Kurze Bildseite an Bildschirm anpassen",
+          "originalId": 124,
+          "shortcut": "",
+          "command": "fitScreenShort",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Kein Anpassen durchführen",
+          "originalId": 1089,
+          "shortcut": "",
+          "command": "noFit",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "\"Resample\" für Anpassen benutzen (bessere Qualität)",
+          "originalId": 28,
+          "shortcut": "",
+          "command": "smoothFit",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "\"Resample\" für Zoomen benutzen",
+          "originalId": 79,
+          "shortcut": "",
+          "command": "smooth",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Schärfen nach \"Resample\" anwenden",
+          "originalId": 121,
+          "shortcut": "",
+          "command": "sharpenDisplay",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "(Kleinere) Bilder zentriert anzeigen",
+          "originalId": 43,
+          "shortcut": "",
+          "command": "center",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "kanal",
+      "label": "Farbkanal anzeigen",
+      "items": [
+        {
+          "label": "Rot",
+          "originalId": 95,
+          "shortcut": "",
+          "command": "channel0",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Grün",
+          "originalId": 96,
+          "shortcut": "",
+          "command": "channel1",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Blau",
+          "originalId": 97,
+          "shortcut": "",
+          "command": "channel2",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Alpha",
+          "originalId": 111,
+          "shortcut": "",
+          "command": "channel3",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "negativ",
+      "label": "Negativ erstellen (Farben invertieren)",
+      "items": [
+        {
+          "label": "Alle Farbkanäle",
+          "originalId": 1052,
+          "shortcut": "Strg+Shift+N",
+          "command": "negativeAll",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Roten Farbkanal",
+          "originalId": 132,
+          "shortcut": "",
+          "command": "negative0",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Grünen Farbkanal",
+          "originalId": 133,
+          "shortcut": "",
+          "command": "negative1",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "Blauen Farbkanal",
+          "originalId": 134,
+          "shortcut": "",
+          "command": "negative2",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    },
+    {
+      "id": "tauschen",
+      "label": "Farben tauschen",
+      "items": [
+        {
+          "label": "RGB -> RBG",
+          "originalId": 1144,
+          "shortcut": "",
+          "command": "swap12",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "RGB -> BGR",
+          "originalId": 1140,
+          "shortcut": "",
+          "command": "swap02",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "RGB -> BRG",
+          "originalId": 1141,
+          "shortcut": "",
+          "command": "cycleBRG",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "RGB -> GRB",
+          "originalId": 1143,
+          "shortcut": "",
+          "command": "swap01",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        },
+        {
+          "label": "RGB -> GBR",
+          "originalId": 1142,
+          "shortcut": "",
+          "command": "cycleGBR",
+          "verification": "observed-ui-2026-10-17",
+          "accessKey": null
+        }
+      ]
+    }
+  ]
+}

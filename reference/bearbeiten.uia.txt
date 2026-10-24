@@ -1,0 +1,96 @@
+Window: "IrfanView", App: i_view64.exe.
+	0 Fenster IrfanView Secondary Actions: Raise
+		109 Menü Datei
+			110 Menüelement Öffnen... O ID: 1126
+			111 Menüelement (disabled) Erneut öffnen Shift+R ID: 1138
+			112 Menüelement Letzte Dateien öffnen
+			113 Menüelement Letzte gespeicherte Dateien öffnen
+			114 Menüelement Öffnen mit externem Editor
+			115 Menüelement Öffnen als
+			116 Menüelement Thumbnails T ID: 1178
+			117 Menüelement Slideshow... W ID: 1155
+			118 Menüelement (disabled) Starte Slideshow mit aktueller Dateiliste Strg+W ID: 1147
+			119 Menüelement Batch(Stapel)-Konvertierung/Umbenennung... B ID: 1046
+			120 Menüelement Dateien suchen... Strg+F ID: 36
+			121 Menüelement (disabled) Umbenennen... F2 ID: 1137
+			122 Menüelement (disabled) Verschieben... F7 ID: 1116
+			123 Menüelement (disabled) Kopieren... F8 ID: 1053
+			124 Menüelement (disabled) Löschen... Entf ID: 1060
+			125 Menüelement (disabled) Speichern (Original-Verzeichnis) Strg+S ID: 1148
+			126 Menüelement (disabled) Speichern unter... S ID: 1149
+			127 Menüelement (disabled) Bilder vergleichen... ID: 72
+			128 Menüelement (disabled) Markierung speichern als... Strg+Shift+B ID: 153
+			129 Menüelement (disabled) Drucken... Strg+P ID: 1132
+			130 Menüelement TWAIN Quelle wählen... ID: 1040
+			131 Menüelement Scannen/Batch-Scannen... Strg+Shift+A ID: 1041
+			132 Menüelement Copy Shop... ID: 1054
+			133 Menüelement Beenden Esc ID: 1080
+		1 Symbolleiste
+			2 Kombinationsfeld (disabled, settable, string)
+				3 Bearbeiten (disabled, settable, string) ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche (disabled) Speichern unter
+			8 Schaltfläche (disabled) Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche (disabled) Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche (disabled) Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche (disabled) Vergrößern
+			18 Schaltfläche (disabled) Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text Kein Bild geladen (siehe Datei->Öffnen)
+		28 Titelleiste (settable, string) Value: IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		134 Menü Bearbeiten
+			135 Menüelement Favoriten-Menüs
+			136 Menüelement (disabled) Rückgängig Strg+Z ID: 1070
+			137 Menüelement (disabled) Wiederholen Strg+J ID: 98
+			138 Menüelement (disabled) Zeichnen-Dialog anzeigen F12 ID: 60
+			139 Menüelement (disabled) Spezielle Markierung erstellen... Shift+C ID: 5
+			140 Menüelement Maximierte Markierung erstellen (im Verhältnis: B:H)
+			141 Menüelement (disabled) Letzte Markierung wiederherstellen ID: 190
+			142 Menüelement (disabled) Markierung maximieren und zentrieren ID: 69
+			143 Menüelement Umgekehrte Markierung verw. (für Effekte in Bild-Menü) ID: 185
+			144 Menüelement Form/Gitter in Markierung zeichnen
+			145 Menüelement Rasterlinien anzeigen ID: 126
+			146 Menüelement (disabled) Text einfügen... Strg+T ID: 1061
+			147 Menüelement (disabled) Wasserzeichen/Deckfarbe einfügen... ID: 117
+			148 Menüelement (disabled) Ausschneiden - Markierung Strg+X ID: 1065
+			149 Menüelement (disabled) Ausschneiden - außerhalb der Markierung ID: 1066
+			150 Menüelement Streifen einfügen/löschen (mit Markierung)
+			151 Menüelement (disabled) Freistellen Strg+Y ID: 1064
+			152 Menüelement (disabled) Ränder automatisch beschneiden Strg+Shift+Y ID: 66
+			153 Menüelement (disabled) Ränder autom. beschneiden - Markierung anzeigen ID: 169
+			154 Menüelement (disabled) Sichtbaren Fensterbereich freistellen (wenn Scrollleisten sichtbar) ID: 192
+			155 Menüelement (disabled) Sichtbaren Fensterbereich fotografieren ID: 83
+			156 Menüelement (disabled) Kopieren Strg+C ID: 1063
+			157 Menüelement Einfügen Strg+V ID: 1069
+			158 Menüelement Spezielles Einfügen (seitlich anfügen)
+			159 Menüelement (disabled) Anzeige löschen D ID: 1067
+			160 Menüelement Zwischenablage leeren ID: 1062
+
+The focused UI element is 0 Fenster IrfanView Secondary Actions: Raise.
