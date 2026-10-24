@@ -1,0 +1,242 @@
+cmake_minimum_required(VERSION 3.24)
+if(CMAKE_HOST_APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum target macOS version")
+endif()
+project(IxView VERSION 0.4.4 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+include(GNUInstallDirs)
+include(CTest)
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Concurrent PrintSupport Svg)
+qt_standard_project_setup()
+include(cmake/Dependencies.cmake)
+add_library(ixcore STATIC
+    src/core/image_document.cpp src/core/codec_registry.cpp src/core/processing.cpp src/core/localization.cpp
+    src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp
+    src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
+    src/core/file_journal.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/plugin_store.cpp
+    src/core/app_storage.cpp src/core/extension_storage.cpp src/core/tool_store.cpp src/core/recognition_input.cpp
+    src/core/image_loading.cpp)
+target_include_directories(ixcore PUBLIC src)
+target_link_libraries(ixcore PUBLIC Qt6::Core Qt6::Gui Qt6::Concurrent PRIVATE IxView::TurboJPEG)
+if(TARGET IxView::Exiv2)
+    target_link_libraries(ixcore PRIVATE IxView::Exiv2)
+    target_compile_definitions(ixcore PRIVATE IX_HAVE_EXIV2)
+endif()
+add_library(ixui STATIC src/ui/image_view.cpp src/ui/fullscreen_info.cpp src/ui/resize_dialog.cpp src/ui/dialogs.cpp
+    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
+target_link_libraries(ixui PUBLIC ixcore Qt6::Widgets Qt6::PrintSupport Qt6::Svg)
+target_compile_definitions(ixui PUBLIC QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII
+    IXVIEW_VERSION="${PROJECT_VERSION}")
+qt_add_executable(IxView WIN32 MACOSX_BUNDLE src/main.cpp resources/app.qrc)
+if(WIN32)
+    enable_language(RC)
+    configure_file(resources/windows/app.rc.in uxzView.rc @ONLY)
+    if(MINGW)
+        # This icon-only resource needs no Qt includes/defines. Avoid windres'
+        # broken quoting of full preprocessor paths and inherited include lists.
+        get_filename_component(ix_rc_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        get_filename_component(ix_rc_cpp "${CMAKE_CXX_COMPILER}" NAME)
+        if(CMAKE_HOST_WIN32)
+            set(ix_rc_path "${ix_rc_bin};$ENV{PATH}")
+        else()
+            set(ix_rc_path "${ix_rc_bin}:$ENV{PATH}")
+        endif()
+        set(ix_icon_object "${CMAKE_CURRENT_BINARY_DIR}/uxzView-icon.o")
+        add_custom_command(OUTPUT "${ix_icon_object}"
+            COMMAND "${CMAKE_COMMAND}" -E env "PATH=${ix_rc_path}" "${CMAKE_RC_COMPILER}"
+                "--preprocessor=${ix_rc_cpp}" --preprocessor-arg=-E --preprocessor-arg=-xc
+                --preprocessor-arg=-DRC_INVOKED -O coff
+                -i "${CMAKE_CURRENT_BINARY_DIR}/uxzView.rc" -o "${ix_icon_object}"
+            DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/uxzView.rc" resources/uxzView.ico VERBATIM)
+        set_source_files_properties("${ix_icon_object}" PROPERTIES GENERATED TRUE EXTERNAL_OBJECT TRUE)
+        target_sources(IxView PRIVATE "${ix_icon_object}")
+    else()
+        target_sources(IxView PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/uxzView.rc")
+    endif()
+elseif(APPLE)
+    target_sources(IxView PRIVATE resources/uxzView.icns)
+    set_source_files_properties(resources/uxzView.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(IxView PROPERTIES MACOSX_BUNDLE_ICON_FILE uxzView.icns)
+endif()
+target_link_libraries(IxView PRIVATE ixui)
+
+# RAW preview is a lazy optional module; ordinary image viewing never maps LibRaw.
+find_path(IX_LIBRAW_INCLUDE libraw/libraw.h)
+find_library(IX_LIBRAW_LIBRARY NAMES raw_r)
+if(IX_LIBRAW_INCLUDE AND IX_LIBRAW_LIBRARY)
+    add_library(ixrawpreview MODULE src/modules/raw_preview.cpp)
+    set_target_properties(ixrawpreview PROPERTIES PREFIX "")
+    target_include_directories(ixrawpreview PRIVATE ${IX_LIBRAW_INCLUDE})
+    target_link_libraries(ixrawpreview PRIVATE Qt6::Core Qt6::Gui ${IX_LIBRAW_LIBRARY})
+    target_compile_definitions(ixcore PRIVATE IX_RAW_PREVIEW_MODULE="$<TARGET_FILE_NAME:ixrawpreview>")
+    add_dependencies(IxView ixrawpreview)
+endif()
+# Network and its dependencies are mapped only when the manager is opened.
+find_package(Qt6 6.8 QUIET COMPONENTS Network)
+if(TARGET Qt6::Network)
+    add_library(ixextensions MODULE src/modules/extension_manager.cpp)
+    set_target_properties(ixextensions PROPERTIES PREFIX "")
+    target_link_libraries(ixextensions PRIVATE ixcore Qt6::Widgets Qt6::Network)
+    target_compile_definitions(ixui PRIVATE IX_EXTENSIONS_MODULE="$<TARGET_FILE_NAME:ixextensions>")
+    add_dependencies(IxView ixextensions)
+endif()
+foreach(module ixrawpreview ixextensions)
+    if(TARGET ${module})
+        if(APPLE)
+            set_target_properties(${module} PROPERTIES INSTALL_RPATH "@loader_path/../../Frameworks")
+            install(TARGETS ${module} LIBRARY DESTINATION "uxzView.app/Contents/PlugIns/IxView")
+        elseif(WIN32)
+            install(TARGETS ${module} LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        else()
+            set_target_properties(${module} PROPERTIES INSTALL_RPATH "$ORIGIN/..")
+            install(TARGETS ${module} LIBRARY DESTINATION "lib/IxView")
+        endif()
+    endif()
+endforeach()
+set_target_properties(IxView PROPERTIES
+    OUTPUT_NAME "uxzView"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "org.ixview.IxView"
+    MACOSX_BUNDLE_BUNDLE_NAME "üxzView"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/Info.plist.in")
+foreach(target ixcore ixui IxView)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endforeach()
+if(BUILD_TESTING)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+    find_package(TIFF REQUIRED)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/output)
+    qt_add_executable(ixview_benchmarks tests/bench_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_benchmarks PRIVATE ixui Qt6::Test)
+    qt_add_executable(ixview_tests tests/test_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_tests PRIVATE ixui Qt6::Test TIFF::TIFF)
+    target_compile_definitions(ixview_tests PRIVATE IX_TEST_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output")
+    foreach(module ixrawpreview ixextensions)
+        if(TARGET ${module})
+            add_dependencies(ixview_tests ${module})
+            add_dependencies(ixview_benchmarks ${module})
+        endif()
+    endforeach()
+    if(TARGET ixextensions)
+        target_compile_definitions(ixview_tests PRIVATE IX_TEST_EXTENSIONS_MODULE="$<TARGET_FILE_NAME:ixextensions>")
+    endif()
+    if(TARGET IxView::Exiv2)
+        target_link_libraries(ixview_tests PRIVATE IxView::Exiv2)
+        target_compile_definitions(ixview_tests PRIVATE IX_TEST_EXIV2)
+    endif()
+    add_test(NAME ixview_tests COMMAND ixview_tests -platform offscreen
+        -o ${CMAKE_CURRENT_BINARY_DIR}/test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/test-results.xml,junitxml)
+    qt_add_executable(ixview_workflow_tests tests/workflow_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_workflow_tests PRIVATE ixui Qt6::Test)
+    target_compile_definitions(ixview_workflow_tests PRIVATE
+        IX_WORKFLOW_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output"
+        IX_WORKFLOW_RAW_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/build/quality-fixtures")
+    add_test(NAME ixview_workflow_tests COMMAND ixview_workflow_tests -platform offscreen
+        -o ${CMAKE_CURRENT_BINARY_DIR}/workflow-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/workflow-test-results.xml,junitxml)
+    qt_add_executable(ixview_quality_tests tests/quality_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_quality_tests PRIVATE ixui Qt6::Test)
+    target_compile_definitions(ixview_quality_tests PRIVATE
+        IX_QUALITY_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output"
+        IX_RAW_MANIFEST="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/raw-manifest.json"
+        IX_RAW_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/build/quality-fixtures")
+    find_path(IX_LCMS_INCLUDE lcms2.h)
+    find_library(IX_LCMS_LIBRARY NAMES lcms2)
+    if(IX_LCMS_INCLUDE AND IX_LCMS_LIBRARY)
+        target_include_directories(ixview_quality_tests PRIVATE ${IX_LCMS_INCLUDE})
+        target_link_libraries(ixview_quality_tests PRIVATE ${IX_LCMS_LIBRARY})
+        target_compile_definitions(ixview_quality_tests PRIVATE IX_QUALITY_LCMS)
+    endif()
+    foreach(module ixrawpreview ixextensions)
+        if(TARGET ${module})
+            add_dependencies(ixview_quality_tests ${module})
+        endif()
+    endforeach()
+    add_test(NAME ixview_quality_tests COMMAND ixview_quality_tests -platform offscreen
+        -o ${CMAKE_CURRENT_BINARY_DIR}/quality-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/quality-test-results.xml,junitxml)
+    qt_add_executable(ixview_storage_tests tests/storage_ixview.cpp)
+    target_link_libraries(ixview_storage_tests PRIVATE ixcore Qt6::Test)
+    target_compile_definitions(ixview_storage_tests PRIVATE
+        IX_STORAGE_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output")
+    add_test(NAME ixview_storage_tests COMMAND ixview_storage_tests
+        -o ${CMAKE_CURRENT_BINARY_DIR}/storage-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/storage-test-results.xml,junitxml)
+    qt_add_executable(ixview_extension_tests tests/extensions_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_extension_tests PRIVATE ixui Qt6::Test)
+    target_compile_definitions(ixview_extension_tests PRIVATE
+        IX_EXTENSION_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output"
+        IX_TOOL_PACKS="${CMAKE_CURRENT_SOURCE_DIR}/dist/tools")
+    if(TARGET ixextensions)
+        add_dependencies(ixview_extension_tests ixextensions)
+        target_compile_definitions(ixview_extension_tests PRIVATE IX_TEST_EXTENSIONS_MODULE="$<TARGET_FILE_NAME:ixextensions>")
+    endif()
+    add_test(NAME ixview_extension_tests COMMAND ixview_extension_tests -platform offscreen
+        -o ${CMAKE_CURRENT_BINARY_DIR}/extension-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/extension-test-results.xml,junitxml)
+endif()
+# Standard install layout supports Qt's native deployment tools on all desktop hosts.
+install(TARGETS IxView BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(WIN32)
+    install(DIRECTORY scripts/windows/ DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+if(APPLE)
+    set(IX_DOC_DIR "uxzView.app/Contents/Resources/docs")
+else()
+    set(IX_DOC_DIR "${CMAKE_INSTALL_DATADIR}/IxView")
+endif()
+install(FILES LICENSE README.md PROJECT_STATUS.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
+    DESTINATION ${IX_DOC_DIR})
+install(DIRECTORY docs/ DESTINATION "${IX_DOC_DIR}/docs"
+    FILES_MATCHING PATTERN "*.md" PATTERN "WORK_IN_PROGRESS.md" EXCLUDE)
+if(UNIX AND NOT APPLE)
+    install(FILES resources/linux/org.ixview.IxView.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES resources/ixview.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+        RENAME org.ixview.IxView.svg)
+endif()
+option(IX_DEPLOY_QT "Bundle runtime libraries/plugins during native cmake install" OFF)
+if(IX_DEPLOY_QT)
+    set(ix_deploy_modules "")
+    foreach(module ixrawpreview ixextensions)
+        if(TARGET ${module})
+            if(APPLE)
+                string(APPEND ix_deploy_modules " \"uxzView.app/Contents/PlugIns/IxView/$<TARGET_FILE_NAME:${module}>\"")
+            else()
+                string(APPEND ix_deploy_modules " \"$<TARGET_FILE:${module}>\"")
+            endif()
+        endif()
+    endforeach()
+    if(APPLE)
+        set(ix_deploy_executable "uxzView.app")
+        set(ix_deploy_conf "")
+    else()
+        set(ix_deploy_executable "$<TARGET_FILE:IxView>")
+        set(ix_deploy_conf "GENERATE_QT_CONF")
+    endif()
+    qt_generate_deploy_script(TARGET IxView OUTPUT_SCRIPT ix_deploy_script CONTENT
+        "qt_deploy_runtime_dependencies(EXECUTABLE \"${ix_deploy_executable}\" ${ix_deploy_conf} ADDITIONAL_MODULES ${ix_deploy_modules})")
+    install(SCRIPT ${ix_deploy_script})
+endif()
+set(CPACK_PACKAGE_NAME "uxzView")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VENDOR "IxView contributors")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_GENERATOR "TGZ")
+if(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+endif()
+include(CPack)

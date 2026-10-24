@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "source": "https://raw.pixls.us/",
+  "fixtures": [
+    {
+      "file": "canon-eos7d.cr2",
+      "make": "Canon",
+      "model": "EOS 7D",
+      "mode": "RAW (3:2)",
+      "megapixels": 17.92,
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "url": "https://raw.pixls.us/getfile.php/131/nice/Canon%20-%20EOS%207D%20-%20RAW%20%283:2%29.CR2",
+      "sha256": "b5e47c5fcf7332ac03e0134926f17a338a42e68c1fd7f83e16f45f4b767544e8",
+      "width": 5202,
+      "height": 3464,
+      "dimension_reference": "LibRaw raw-identify from scripts/sdk-lock.json"
+    },
+    {
+      "file": "nikon-d7000.nef",
+      "make": "Nikon",
+      "model": "D7000",
+      "mode": "14bit 14bit compressed (Lossless) (3:2)",
+      "megapixels": 16.37,
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "url": "https://raw.pixls.us/getfile.php/958/nice/Nikon%20-%20D7000%20-%2014bit%2014bit%20compressed%20%28Lossless%29%20%283:2%29.NEF",
+      "sha256": "639945753240005d80488c0462c01e73a7ab82c96d3d1cdb6661f02e1b3c1319",
+      "width": 4948,
+      "height": 3280,
+      "dimension_reference": "LibRaw raw-identify from scripts/sdk-lock.json"
+    },
+    {
+      "file": "sony-a6000.arw",
+      "make": "Sony",
+      "model": "ILCE-6000",
+      "mode": "12bit 12bit compressed (3:2)",
+      "megapixels": 24.34,
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "url": "https://raw.pixls.us/getfile.php/1971/nice/Sony%20-%20ILCE-6000%20-%2012bit%2012bit%20compressed%20%283:2%29.ARW",
+      "sha256": "ce8b4957281a817d52a07a691e2468567b6c78223bd0b514ffc1c65b002b8d89",
+      "width": 6024,
+      "height": 4024,
+      "dimension_reference": "LibRaw raw-identify from scripts/sdk-lock.json"
+    },
+    {
+      "file": "pentax-k10d.pef",
+      "make": "Pentax",
+      "model": "K10D",
+      "mode": "12bit 12bit compressed (3:2)",
+      "megapixels": 10.33,
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "url": "https://raw.pixls.us/getfile.php/2239/nice/Pentax%20-%20K10D%20-%2012bit%2012bit%20compressed%20%283:2%29.PEF",
+      "sha256": "e35ae4154a468be3154f5f462e884ba5941f010d3e8f23d347fbec14809f44d3",
+      "width": 3896,
+      "height": 2616,
+      "dimension_reference": "LibRaw raw-identify from scripts/sdk-lock.json"
+    },
+    {
+      "file": "pentax-k10d.dng",
+      "make": "Pentax",
+      "model": "K10D",
+      "mode": "12bit 12bit uncompressed (3:2)",
+      "megapixels": 10.33,
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "url": "https://raw.pixls.us/getfile.php/2768/nice/Pentax%20-%20K10D%20-%2012bit%2012bit%20uncompressed%20%283:2%29.DNG",
+      "sha256": "e7ea961edfea725ad2753f261d20da5e6addd5d641e5bcbc373999710f27941f",
+      "width": 3896,
+      "height": 2616,
+      "dimension_reference": "LibRaw raw-identify from scripts/sdk-lock.json"
+    }
+  ]
+}
