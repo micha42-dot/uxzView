@@ -1,3 +1,5 @@
+![üxz logo](https://raw.githubusercontent.com/micha42-dot/uxzView/refs/heads/main/%C3%BCgz.png)
+
 # üxzView
 
 üxzView is an image viewer for Windows 10/11, Linux and macOS, built with C++20 and Qt 6. Inspired by IrfanView and nomacs.
