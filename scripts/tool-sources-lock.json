@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "sources": {
+    "zxing": {
+      "url": "https://codeload.github.com/zxing-cpp/zxing-cpp/tar.gz/refs/tags/v3.0.0",
+      "file": "zxing-cpp-3.0.0.tar.gz",
+      "bytes": 1038544,
+      "sha256": "a1b387f9968a26a1821e7d11d7021ed71e5316fac2487b2a65f1a53a5cde5efc"
+    },
+    "leptonica": {
+      "url": "https://codeload.github.com/DanBloomberg/leptonica/tar.gz/refs/tags/1.85.0",
+      "file": "leptonica-1.85.0.tar.gz",
+      "bytes": 13685574,
+      "sha256": "c01376bce0379d4ea4bc2ec5d5cbddaa49e2f06f88242619ab8c059e21adf233"
+    },
+    "tesseract": {
+      "url": "https://codeload.github.com/tesseract-ocr/tesseract/tar.gz/refs/tags/5.5.3",
+      "file": "tesseract-5.5.3.tar.gz",
+      "bytes": 1916037,
+      "sha256": "9218e62793116d42a9f6d14cd9348518b27f382096eea3d0f2d1a24616bb5884"
+    }
+  },
+  "models": {
+    "eng": {
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata",
+      "file": "eng.traineddata",
+      "bytes": 4113088,
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    },
+    "deu": {
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/deu.traineddata",
+      "file": "deu.traineddata",
+      "bytes": 1525436,
+      "sha256": "19d219bbb6672c869d20a9636c6816a81eb9a71796cb93ebe0cb1530e2cdb22d"
+    },
+    "fra": {
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/fra.traineddata",
+      "file": "fra.traineddata",
+      "bytes": 1130365,
+      "sha256": "ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca"
+    },
+    "kor": {
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/kor.traineddata",
+      "file": "kor.traineddata",
+      "bytes": 1677415,
+      "sha256": "6b85e11d9bbf07863b97b3523b1b112844c43e713df8b66418a081fd1060b3b2"
+    },
+    "jpn": {
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/jpn.traineddata",
+      "file": "jpn.traineddata",
+      "bytes": 2471260,
+      "sha256": "1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d"
+    }
+  },
+  "models_revision": "87416418657359cb625c412a48b6e1d6d41c29bd",
+  "model_license": {
+    "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/LICENSE",
+    "file": "tessdata-LICENSE",
+    "bytes": 11358,
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  }
+}
