@@ -6,6 +6,8 @@
 
 **Currently in development.** Prebuilt packages currently target Windows x64 only. You can also build üxzView from source for Linux and macOS; native builds on those platforms still need validation.
 
+<p align="center"><img src="https://raw.githubusercontent.com/micha42-dot/uxzView/refs/heads/main/example.jpg"></p>  
+
 ## Features
 
 - Fast folder browsing, keyboard navigation and image caching.
