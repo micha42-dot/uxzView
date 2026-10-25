@@ -1,0 +1,155 @@
+name: Desktop builds
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Test SDK installer, translations and registry generation offline
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - uses: actions/cache@v4
+        with:
+          path: .deps/cache
+          key: windows-sdk-${{ hashFiles('scripts/sdk-lock.json') }}
+      - name: Install locked project SDK
+        run: python scripts/bootstrap_sdk.py
+      - name: Build and test
+        shell: pwsh
+        run: |
+          python scripts/fetch_quality_fixtures.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/build_tool_packs.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:IX_REQUIRE_RAW = '1'
+          $env:IX_REQUIRE_TOOLS = '1'
+          ./scripts/build.ps1 -Test
+      - name: Assemble and verify portable runtime
+        shell: pwsh
+        run: |
+          python scripts/format_matrix.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/deploy.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:IX_REQUIRE_RAW = '1'
+          $env:IX_REQUIRE_TOOLS = '1'
+          python scripts/verify_portable.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/package.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: development-windows-x64
+          path: |
+            dist/*.zip
+            dist/SHA256.json
+            build/*test-results.*
+            tests/output/*.png
+            tests/output/format-capabilities.json
+  unix:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            host: linux
+            qt_arch: linux_gcc_64
+            cpu: x86_64
+            artifact: linux-x86_64
+            qt_archives: qtbase qtsvg qttools qttranslations icu qtwayland
+          - name: macOS Apple Silicon
+            os: macos-15
+            host: mac
+            qt_arch: clang_64
+            cpu: arm64
+            artifact: macos-arm64
+            qt_archives: qtbase qtsvg qttools qttranslations
+          - name: macOS Intel
+            os: macos-15-intel
+            host: mac
+            qt_arch: clang_64
+            cpu: x86_64
+            artifact: macos-x86_64
+            qt_archives: qtbase qtsvg qttools qttranslations
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config libturbojpeg0-dev libexiv2-dev libtiff-dev libraw-dev liblcms2-dev libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libfontconfig1-dev desktop-file-utils
+      - name: macOS libraries
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja pkg-config jpeg-turbo exiv2 libtiff libraw little-cms2
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: ${{ matrix.host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: qtimageformats
+          archives: ${{ matrix.qt_archives }}
+          cache: true
+      - name: Configure
+        shell: bash
+        env:
+          BUILD_CPU: ${{ matrix.cpu }}
+        run: |
+          prefixes="$QT_ROOT_DIR"
+          options=()
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            prefixes="$prefixes;$(brew --prefix);$(brew --prefix jpeg-turbo);$(brew --prefix exiv2);$(brew --prefix libtiff)"
+            options+=("-DCMAKE_OSX_ARCHITECTURES=$BUILD_CPU" "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0")
+          fi
+          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIX_DEPLOY_QT=ON "-DCMAKE_PREFIX_PATH=$prefixes" "${options[@]}"
+      - name: Build
+        run: cmake --build build/native --parallel 3
+      - name: Test
+        run: ctest --test-dir build/native --output-on-failure
+      - name: Install runtime
+        run: cmake --install build/native --prefix "${{ github.workspace }}/dist/native"
+      - name: Installed runtime smoke check
+        shell: bash
+        run: |
+          unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH LD_LIBRARY_PATH DYLD_LIBRARY_PATH QML2_IMPORT_PATH
+          export QT_QPA_PLATFORM=offscreen
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            dist/native/uxzView.app/Contents/MacOS/uxzView --version
+          else
+            dist/native/bin/uxzView --version
+            desktop-file-validate dist/native/share/applications/org.ixview.IxView.desktop
+          fi
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            app=dist/native/uxzView.app/Contents/MacOS/uxzView
+          else
+            app=dist/native/bin/uxzView
+          fi
+          "$app" --probe-image tests/fixtures/smoke.png > build/native/installed-image-probe.json
+          python3 -c 'import json; d=json.load(open("build/native/installed-image-probe.json")); assert (d["width"],d["height"],d["pages"],d["format"]) == (4,3,1,"png"), d'
+      - name: Package native runtime
+        shell: bash
+        run: python3 scripts/package_native.py --name "uxzView-${{ matrix.artifact }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: development-${{ matrix.artifact }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256.json
+            build/native/test-results.*
+            build/native/quality-test-results.*
+            build/native/installed-image-probe.json
+            tests/output/*.png
+            tests/output/format-capabilities.json

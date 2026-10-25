@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=üxzView
+Comment=Image viewer and editor
+Comment[de]=Bildbetrachter und Bildbearbeitung
+Exec=uxzView %f
+Icon=org.ixview.IxView
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/jpeg;image/png;image/gif;image/tiff;image/bmp;image/webp;image/svg+xml;
+StartupWMClass=IxView

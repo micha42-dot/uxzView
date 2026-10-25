@@ -1,0 +1,92 @@
+Window: "*Zwischenablage - IrfanView", App: i_view64.exe.
+	0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise
+		468 Menü Farben tauschen
+			469 Menüelement RGB -> RBG ID: 1144
+			470 Menüelement RGB -> BGR ID: 1140
+			471 Menüelement RGB -> BRG ID: 1141
+			472 Menüelement RGB -> GRB ID: 1143
+			473 Menüelement RGB -> GBR ID: 1142
+		427 Menü Bild
+			428 Menüelement Information... I ID: 1104
+			429 Menüelement Neues (leeres) Bild erstellen... Shift+N ID: 1105
+			430 Menüelement Panorama-Bild erstellen... ID: 1048
+			431 Menüelement Links drehen L ID: 1145
+			432 Menüelement Rechts drehen R ID: 1146
+			433 Menüelement Fein-Rotation... Strg+U ID: 1076
+			434 Menüelement Vertikal spiegeln V ID: 1191
+			435 Menüelement Horizontal spiegeln H ID: 1102
+			436 Menüelement Größe ändern... Strg+R ID: 1139
+			437 Menüelement Farb-Rahmen hinzufügen (Leinwandgröße ändern)... Shift+V ID: 10
+			438 Menüelement Schatten/Runde Ecken/Formen hinzufügen... ID: 164
+			439 Menüelement Sechseck/Stern/Herz hinzufügen... ID: 165
+			440 Menüelement Effekt-Rahmen hinzufügen... Strg+D ID: 91
+			441 Menüelement Farbtiefe erhöhen... ID: 1106
+			442 Menüelement Farbtiefe reduzieren... ID: 1059
+			443 Menüelement In Graustufen umwandeln Strg+G ID: 1051
+			444 Menüelement Farbkanal anzeigen
+			445 Menüelement Negativ erstellen (Farben invertieren)
+			446 Menüelement Farben ändern... Shift+G ID: 1050
+			447 Menüelement Alpha/Transparenz bearbeiten oder setzen... ID: 188
+			448 Menüelement Histogramm... Shift+H ID: 54
+			449 Menüelement Farbe ersetzen... ID: 127
+			450 Menüelement Kachelbild erstellen... ID: 128
+			451 Menüelement Auto-Korrektur Shift+U ID: 42
+			452 Menüelement Schärfen Shift+S ID: 1153
+			453 Menüelement Rote Augen - Reduktion (Markierung) Shift+Y ID: 1133
+			454 Menüelement Effekte
+			455 Menüelement Adobe 8BF PlugIns
+			456 Menüelement Farben tauschen
+			457 Menüelement Palette
+		1 Symbolleiste
+			2 Kombinationsfeld (settable, string) Value: 100.0
+				3 Bearbeiten (settable, string) Value: 100.0 ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche Speichern unter
+			8 Schaltfläche Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche Vergrößern
+			18 Schaltfläche Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text 100 x 100 x 24 BPP
+			281 Text Das ist keine Datei
+			282 Text 100 %
+			283 Text Das ist keine Datei / 29.34 KB
+			284 Text Das ist keine Datei
+			285 Text
+		28 Titelleiste (settable, string) Value: *Zwischenablage - IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		474 Dialogfeld IrfanView Secondary Actions: Raise
+			475 Schaltfläche OK ID: 2
+			476 Bild ID: 20
+			477 Text Diese Funktion arbeitet nur mit einer Markierung. Erstellen Sie zuerst eine Markierung im Bild, mit der linken Maustaste. ID: 65535
+			478 Titelleiste (settable, string) Value: IrfanView
+				479 Schaltfläche Schließen
+
+The focused UI element is 0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise.

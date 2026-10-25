@@ -1,0 +1,2 @@
+// The executable icon is independent of Qt's runtime window icon.
+1 ICON "@CMAKE_CURRENT_SOURCE_DIR@/resources/uxzView.ico"

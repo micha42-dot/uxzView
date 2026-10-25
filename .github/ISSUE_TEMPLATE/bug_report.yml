@@ -1,0 +1,24 @@
+name: Fehler melden
+description: Einen reproduzierbaren Fehler in üxzView beschreiben
+body:
+  - type: input
+    id: version
+    attributes:
+      label: üxzView-Version
+      description: Unter Hilfe → Über üxzView; bei Eigenbau zusätzlich Commit angeben.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Betriebssystem und Architektur
+      placeholder: Windows 11 x64 / Ubuntu 24.04 x64 / macOS 15 arm64
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Schritte, erwartetes und tatsächliches Ergebnis
+      description: Bei Bildproblemen Dateiformat und Decoder nennen. Nur Bilder und Protokolle beifügen, die öffentlich geteilt werden dürfen; persönliche Pfade und Metadaten entfernen.
+    validations:
+      required: true

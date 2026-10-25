@@ -1,0 +1,118 @@
+Window: "*Zwischenablage - IrfanView", App: i_view64.exe.
+	0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise
+		1 Symbolleiste
+			2 Kombinationsfeld (settable, string) Value: 100.0
+				3 Bearbeiten (settable, string) Value: 100.0 ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche Speichern unter
+			8 Schaltfläche Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche Vergrößern
+			18 Schaltfläche Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text 100 x 100 x 24 BPP
+			281 Text Das ist keine Datei
+			282 Text 100 %
+			283 Text Das ist keine Datei / 29.34 KB
+			284 Text Das ist keine Datei
+			285 Text
+		28 Titelleiste (settable, string) Value: *Zwischenablage - IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		358 Dialogfeld Farben ändern Secondary Actions: Raise
+			359 Gruppe Helligkeit: ID: 1217
+			360 Schieberegler (settable, float) Helligkeit: Value: 50 ID: 1897
+				361 Schaltfläche Seite nach links
+				362 Miniatur Position
+				363 Schaltfläche Seite nach rechts
+			364 Bearbeiten (settable, string) Value: 0 ID: 1653
+			365 Gruppe Kontrast: ID: 1218
+			366 Schieberegler (settable, float) Kontrast: Value: 50 ID: 1898
+				367 Schaltfläche Seite nach links
+				368 Miniatur Position
+				369 Schaltfläche Seite nach rechts
+			370 Bearbeiten (settable, string) Value: 0 ID: 1654
+			371 Gruppe Gamma-Korrektur: ID: 1220
+			372 Schieberegler (settable, float) Gamma-Korrektur: Value: 14 ID: 1899
+				373 Schaltfläche Seite nach links
+				374 Miniatur Position
+				375 Schaltfläche Seite nach rechts
+			376 Bearbeiten (settable, string) Value: 1.00 ID: 1655
+			377 Gruppe Farbsättigung: ID: 1221
+			378 Schieberegler (settable, float) Farbsättigung: Value: 50 ID: 1903
+				379 Schaltfläche Seite nach links
+				380 Miniatur Position
+				381 Schaltfläche Seite nach rechts
+			382 Bearbeiten (settable, string) Value: 0 ID: 1659
+			383 Gruppe Farb-Balancierung: ID: 1219
+			384 Text R: ID: 65535
+			385 Schieberegler (settable, float) R: Value: 50 ID: 1902
+				386 Schaltfläche Seite nach links
+				387 Miniatur Position
+				388 Schaltfläche Seite nach rechts
+			389 Bearbeiten (settable, string) Value: 0 ID: 1658
+			390 Text G: ID: 65535
+			391 Schieberegler (settable, float) G: Value: 50 ID: 1901
+				392 Schaltfläche Seite nach links
+				393 Miniatur Position
+				394 Schaltfläche Seite nach rechts
+			395 Bearbeiten (settable, string) Value: 0 ID: 1657
+			396 Text B: ID: 65535
+			397 Schieberegler (settable, float) B: Value: 50 ID: 1900
+				398 Schaltfläche Seite nach links
+				399 Miniatur Position
+				400 Schaltfläche Seite nach rechts
+			401 Bearbeiten (settable, string) Value: 0 ID: 1656
+			402 Gruppe Profile: ID: 1222
+			403 Kombinationsfeld (settable, string) Profile: ID: 3268
+				404 Bearbeiten (settable, string) Profile: ID: 1001
+				405 Schaltfläche Öffnen ID: DropDown
+			406 Schaltfläche Laden ID: 3269
+			407 Schaltfläche Löschen ID: 3271
+			408 Schaltfläche Speichern ID: 3270
+			409 Schaltfläche Auf Bild anwenden ID: 1514
+			410 Schaltfläche Standardwerte ID: 1865
+			411 Kontrollkästchen Werte speichern ID: 3181
+			412 Schaltfläche OK ID: 1
+			413 Schaltfläche Abbrechen ID: 2
+			414 Text Originalbild ID: 65535
+			415 Text Neues Bild ID: 65535
+			416 Bild Neues Bild ID: 1609
+			417 Bild ID: 1608
+			418 Gruppe ID: 65535
+			419 Text Info: Klicken Sie ins Originalbild (heller Bereich) um Weißabgleich zu ändern (RGB-Werte) ID: 3273
+			420 Gruppe Info: Klicken Sie ins Originalbild (heller Bereich) um Weißabgleich zu ändern (RGB-Werte) ID: 65535
+			421 Titelleiste (settable, string) Value: Farben ändern
+				422 Menüleiste Systemmenü ID: MenuBar
+					423 Menüelement Systemmenü
+				424 Schaltfläche (disabled) Minimieren
+				425 Schaltfläche Maximieren
+				426 Schaltfläche Schließen
+
+The focused UI element is 0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise.

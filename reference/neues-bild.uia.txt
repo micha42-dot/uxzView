@@ -1,0 +1,70 @@
+Window: "IrfanView", App: i_view64.exe.
+	0 Fenster IrfanView Secondary Actions: Raise
+		1 Symbolleiste
+			2 Kombinationsfeld (disabled, settable, string)
+				3 Bearbeiten (disabled, settable, string) ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche (disabled) Speichern unter
+			8 Schaltfläche (disabled) Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche (disabled) Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche (disabled) Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche (disabled) Vergrößern
+			18 Schaltfläche (disabled) Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text Kein Bild geladen (siehe Datei->Öffnen)
+		28 Titelleiste (settable, string) Value: IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		255 Dialogfeld Neues Bild erzeugen Secondary Actions: Raise
+			256 Bearbeiten (settable, string) Value: 100 ID: 1774
+			257 Bearbeiten (settable, string) Value: 100 ID: 1773
+			258 Bearbeiten (settable, string) Value: 96 ID: 1775
+			259 Bearbeiten (settable, string) Value: 96 ID: 1776
+			260 Schaltfläche Hintergrundfarbe ID: 1771
+			261 Optionsfeld (selectable) Schwarz/Weiß (1 BPP) ID: 1767
+			262 Optionsfeld (selectable) 16 Farben (4 BPP) ID: 1768
+			263 Optionsfeld (selectable) 256 Farben (8 BPP) ID: 1769
+			264 Optionsfeld (selectable) 16,7 Million. Farben (24 BPP) ID: 1770
+			265 Optionsfeld (selectable) 16,7 Million Farben (32 BPP) (Alpha Layer) ID: 1710
+			266 Kontrollkästchen (disabled) Hintergrund ist transparent ID: 1566
+			267 Kontrollkästchen Graustufen erstellen ID: 1772
+			268 Schaltfläche OK ID: 1
+			269 Schaltfläche Abbrechen ID: 2
+			270 Text Bildbreite: ID: 65535
+			271 Gruppe Parameter setzen: ID: 65535
+			272 Text Bildhöhe: ID: 65535
+			273 Gruppe Farben: ID: 65535
+			274 Text Pixel ID: 65535
+			275 Text Pixel ID: 65535
+			276 Text ID: 1766
+			277 Text X-DPI: ID: 65535
+			278 Text Y-DPI: ID: 65535
+			279 Titelleiste (settable, string) Value: Neues Bild erzeugen
+				280 Schaltfläche Schließen
+
+The focused UI element is 0 Fenster IrfanView Secondary Actions: Raise.

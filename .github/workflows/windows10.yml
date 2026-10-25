@@ -1,0 +1,43 @@
+name: Validate on Windows 10
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows10:
+    # A real Windows 10 machine is required. Hosted Windows Server runners
+    # cannot establish compatibility with the Windows 10 desktop.
+    runs-on: [self-hosted, Windows, X64, ixview-windows10]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require Windows 10 desktop build 1809 or newer
+        shell: pwsh
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem
+          $build = [int]$os.BuildNumber
+          if ($os.ProductType -ne 1 -or $build -lt 17763 -or $build -ge 22000) {
+            throw 'This validation requires an actual Windows 10 desktop (1809 or newer).'
+          }
+          $os | Select-Object Caption, Version, BuildNumber | ConvertTo-Json | Set-Content platform-result.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Build and validate portable release candidate
+        shell: pwsh
+        run: ./scripts/prepare_release.ps1 -BootstrapSDK
+      - name: Native Windows desktop regressions
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          python scripts/validate.py --suite native --require-assets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows10-validation
+          path: |
+            platform-result.json
+            build/*test-results.*
+            build/native-*.txt
+            build/native-*.xml
+            build/validation-summary.json

@@ -1,0 +1,114 @@
+Window: "*Zwischenablage - IrfanView", App: i_view64.exe.
+	0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise
+		1 Symbolleiste
+			2 Kombinationsfeld (settable, string) Value: 100.0
+				3 Bearbeiten (settable, string) Value: 100.0 ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche Speichern unter
+			8 Schaltfläche Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche Vergrößern
+			18 Schaltfläche Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text 100 x 100 x 24 BPP
+			281 Text Das ist keine Datei
+			282 Text 100 %
+			283 Text Das ist keine Datei / 29.34 KB
+			284 Text Das ist keine Datei
+			285 Text
+		28 Titelleiste (settable, string) Value: *Zwischenablage - IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		286 Dialogfeld Größe ändern Secondary Actions: Raise
+			287 Bearbeiten (settable, string) Value: 100 ID: 1859
+			288 Bearbeiten (settable, string) Value: 100 ID: 1857
+			289 Optionsfeld (selectable) Pixel ID: 1815
+			290 Optionsfeld (selectable) cm ID: 1808
+			291 Optionsfeld (selectable) inch ID: 1814
+			292 Bearbeiten (disabled, settable, string) Value: 100.00 ID: 1796
+			293 Bearbeiten (disabled, settable, string) Value: 100.00 ID: 1795
+			294 Bearbeiten (disabled, settable, string) Value: 4.00 ID: 3116
+			295 Optionsfeld (selectable) Neue Größe: ID: 1851
+			296 Optionsfeld (selectable) Prozentsatz vom Original: ID: 1850
+			297 Optionsfeld (selectable) Größe in MegaPixel setzen: ID: 3113
+			298 Kontrollkästchen Proportional ID: 1518
+			299 Kontrollkästchen Schärfen nach Resample anwenden ID: 1519
+			300 Kontrollkästchen DPI auf neue Größe anpassen (proport.) ID: 1520
+			301 Text DPI:
+			302 Bearbeiten (settable, string) DPI: Value: 96 ID: 1849
+			303 Gruppe Einige Standard-Dimensionen: (Pixel):
+			304 Kombinationsfeld (settable, string) Einige Standard-Dimensionen: (Pixel): Value: Neue Größe: ID: 1860
+				305 Text (settable, string) Einige Standard-Dimensionen: (Pixel): Value: Neue Größe:
+				306 Schaltfläche Öffnen ID: DropDown
+			307 Optionsfeld (selectable) 640 x 480 ID: 1844
+			308 Optionsfeld (selectable) 800 x 600 ID: 1845
+			309 Optionsfeld (selectable) 1024 x 768 ID: 1846
+			310 Optionsfeld (selectable) 1280 x 720 (HD) ID: 1863
+			311 Optionsfeld (selectable) 1920 x 1080 (FHD) ID: 1848
+			312 Optionsfeld (selectable) 3840 x 2160 (4K) ID: 1865
+			313 Optionsfeld (selectable) 7680 x 4320 (8K) ID: 1866
+			314 Optionsfeld (selectable) An Bildschirm anpassen ID: 1853
+			315 Optionsfeld (selectable) Bildschirmgröße (nicht proportional) ID: 1852
+			316 Schaltfläche Halb ID: 1856
+			317 Schaltfläche Doppelt ID: 1855
+			318 Schaltfläche Seiten vertauschen ID: 1861
+			319 Schaltfläche Zu Standards hinzuf. ID: 1862
+			320 Optionsfeld (selectable) Resample (bessere Qualität), Filter: ID: 1988
+			321 Optionsfeld (selectable) Resize (schneller) ID: 1989
+			322 Kombinationsfeld (settable, string) Value: Lanczos (langsam) ID: 1843
+				323 Text (settable, string) Value: Lanczos (langsam)
+				324 Schaltfläche Öffnen ID: DropDown
+			325 Kontrollkästchen Schnellen Filter fürs Verkleinern verwenden ID: 3274
+			326 Kontrollkästchen Gamma bei Resample verbessern (siehe Hilfe) ID: 1983
+			327 Schaltfläche OK ID: 1
+			328 Schaltfläche Abbrechen ID: 2
+			329 Text Breite:
+			330 Gruppe Breite:
+			331 Text Breite:
+			332 Text Höhe:
+			333 Gruppe Höhe:
+			334 Text % Höhe:
+			335 Text %
+			336 Gruppe %
+			337 Gruppe Methode:
+			338 Gruppe Methode:
+			339 Text Einheit:
+			340 Text (verwendet 'Proportional')
+			341 Text (Automatik für cm/inch)
+			342 Gruppe (Automatik für cm/inch)
+			343 Gruppe
+			344 Text MegaPixel
+			345 Text 100 x 100 Pixel ID: 1854
+			346 Text 100 x 100 Pixel ID: 1858
+			347 Text Neue Größe:
+			348 Text Aktuelle Größe:
+			349 Titelleiste (settable, string) Value: Größe ändern
+				350 Schaltfläche Schließen
+
+The focused UI element is 0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise.

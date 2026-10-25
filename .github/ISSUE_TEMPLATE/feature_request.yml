@@ -1,0 +1,10 @@
+name: Verbesserung vorschlagen
+description: Eine konkrete Verbesserung für üxzView vorschlagen
+body:
+  - type: textarea
+    id: request
+    attributes:
+      label: Anwendungsfall und gewünschtes Verhalten
+      description: Welche Aufgabe soll einfacher werden? Bei Tastenkürzeln Betriebssystem nennen.
+    validations:
+      required: true

@@ -1,0 +1,83 @@
+Window: "*Zwischenablage - IrfanView", App: i_view64.exe.
+	0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise
+		1 Symbolleiste
+			2 Kombinationsfeld (settable, string) Value: 100.0
+				3 Bearbeiten (settable, string) Value: 100.0 ID: 1001
+				4 Schaltfläche Öffnen ID: DropDown
+			5 Schaltfläche Öffnen
+			6 Schaltfläche Slideshow
+			7 Schaltfläche Speichern unter
+			8 Schaltfläche Drucken
+			9 Schaltfläche (disabled) Datei löschen
+			10 Schaltfläche (disabled) Markierung ausschneiden
+			11 Schaltfläche Kopieren
+			12 Schaltfläche Einfügen
+			13 Schaltfläche (disabled) Rückgängig
+			14 Schaltfläche Bild-Information
+			15 Menüelement (disabled)
+			16 Menüelement (disabled)
+			17 Schaltfläche Vergrößern
+			18 Schaltfläche Verkleinern
+			19 Schaltfläche (disabled) Vorheriges Bild im Verzeichnis
+			20 Schaltfläche (disabled) Nächstes Bild im Verzeichnis
+			21 Schaltfläche (disabled) Vorherige Seite
+			22 Schaltfläche (disabled) Nächste Seite
+			23 Schaltfläche Einstellungen
+			24 Schaltfläche Über IrfanView
+		25 Bereich
+		26 Statusleiste ID: 1999
+			27 Text 100 x 100 x 24 BPP
+			281 Text Das ist keine Datei
+			282 Text 100 %
+			283 Text Das ist keine Datei / 29.34 KB
+			284 Text Das ist keine Datei
+			285 Text
+		28 Titelleiste (settable, string) Value: *Zwischenablage - IrfanView
+			29 Menüleiste Systemmenü ID: MenuBar
+				30 Menüelement Systemmenü
+			31 Schaltfläche Minimieren
+			32 Schaltfläche Maximieren
+			33 Schaltfläche Schließen
+		102 Menüleiste Anwendungsmenü ID: MenuBar
+			103 Menüelement Datei
+			104 Menüelement Bearbeiten
+			105 Menüelement Bild
+			106 Menüelement Optionen
+			107 Menüelement Ansicht
+			108 Menüelement Hilfe
+		480 Dialogfeld Rotate by angle Secondary Actions: Raise
+			481 Text Angle:
+			482 Bearbeiten (settable, string) Angle: Value: 45 ID: 1395
+			483 Netz Spin2 ID: 1029
+				484 Schaltfläche Mehr ID: MoreButton
+				485 Schaltfläche Weniger ID: LessButton
+			486 Kontrollkästchen Keep original image/canvas size ID: 1420
+			487 Kontrollkästchen (disabled) Keep original image as background ID: 1421
+			488 Kontrollkästchen Use new rotation method (faster for large images without antialiasing) ID: 1422
+			489 Kontrollkästchen Enable antialiasing (better quality but slower) ID: 1423
+			490 Kontrollkästchen Select maximal old image in the result image ID: 1424
+			491 Kontrollkästchen Apply Sharpen after rotation: ID: 1425
+			492 Bearbeiten (settable, string) Value: 20 ID: 1433
+			493 Schaltfläche Choose ID: 1500
+			494 Schaltfläche OK ID: 1
+			495 Schaltfläche Cancel ID: 2
+			496 Text ID: 1501
+			497 Gruppe ID: 1415
+			498 Text Set background color: (4, 8, 24 BPP images)
+			499 Text (between -360.0 - 360.0 deg; step: 0.1 deg, with CTRL: 1 deg)
+			500 Text (between -360.0 - 360.0 deg; step: 0.1 deg, with CTRL: 1 deg) ID: 1690
+			501 Text ID: 1456
+			502 Text Original image ID: 1417
+			503 Text New image ID: 1418
+			504 Text (1 - 99)
+			505 Text 3) Click into the image (main window) to select a background color.
+			506 Gruppe Hints:
+			507 Text 4) You can also use the Paint PlugIn (Edit menu) for lines/rotation.
+			508 Text 1) Use left mouse button to draw a straight line in the original image. Use right mouse button to apply/rotate.
+			509 Text 2) Use right mouse button in the new image to reset the angle.
+			510 Titelleiste (settable, string) Value: Rotate by angle
+				511 Menüleiste Systemmenü ID: MenuBar
+					512 Menüelement Systemmenü
+				513 Schaltfläche Schließen
+
+The focused UI element is 0 Fenster *Zwischenablage - IrfanView Secondary Actions: Raise.
