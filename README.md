@@ -1,8 +1,12 @@
+<p align="center"><img src="ügz.jpg" width="400"></p>
+
 # üxzView
 
 üxzView is an image viewer for Windows 10/11, Linux and macOS, built with C++20 and Qt 6. Inspired by IrfanView and nomacs.
 
 **Currently in development.** Prebuilt packages currently target Windows x64 only. You can also build üxzView from source for Linux and macOS; native builds on those platforms still need validation.
+
+<p align="center"><img src="example.jpg"></p>
 
 ## Features
 
