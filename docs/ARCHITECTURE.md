@@ -56,6 +56,25 @@ Document, thumbnail, display and animation caches have separate budgets. These a
 
 Resize image-buffer estimates distinguish native nearest-neighbor copying from 16-bit separable filtering and account for overlapping conversions/sharpening. Weight tables, allocator overhead and concurrent operations are additional costs. Derived DPI respects the UI range; processing rejects invalid density conversions before allocation.
 
+## First-image presentation
+
+`ImageDocument::sourceModified` is the last-write time observed on a successful
+read, retained with that loaded revision through cache/edit history. Status
+refreshes format this value without polling the filesystem. Reopening/reloading
+refreshes it. Save/rename workers return revision, timestamp and size together;
+install these in both the active document and applicable history. Selection
+exports and copies keep the active source unchanged. See the
+[source-state review](REVIEW_2026-10-26.md) for tests and concurrency limits.
+
+The first image must not wait for folder-format discovery on the GUI thread.
+MainWindow requests `discoverImageFormats` for its directory jobs; the default
+scanner resolves registry/plugin metadata on its worker. Explicit extension
+filters retain their existing semantics (an empty explicit filter lists all
+files). Discovery reuses the registry's thread-safe static key cache and does
+not instantiate every decoder. Folder results still obey cancellation and
+generation ownership. Recent-file and directory settings share one write scope
+when installing an image; unchanged values are not rewritten.
+
 ## Recognition ownership
 
 `ToolStore` validates packages and acquires per-job leases that pin engines/models against removal. `ToolDialog` owns the temporary directory, cancellation token, process, timeout, bounded output and result controls. `prepareRecognitionInput` in `core/recognition_input.*` owns selection export and model staging without UI/settings access. It returns an error string and leaves partial files for the directory owner to remove. Its PPM export deliberately flattens transparency to white and produces 8-bit input for the existing text protocols; original pixels are unchanged.

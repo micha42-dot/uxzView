@@ -204,6 +204,8 @@ ImageResult CodecRegistry::read(const QString &p, int page) const {
             auto result = c->read(p, page);
             if (result.ok() && !PluginStore::formatEnabled(normalized(result.document.format)))
                 return {{}, IX_TEXT("Dieses Format wurde in der Plugin-Verwaltung deaktiviert.")};
+            if (result.ok())
+                result.document.sourceModified = QFileInfo(p).lastModified();
             return result;
         }
     return {{}, IX_TEXT("Kein passender Decoder gefunden.")};

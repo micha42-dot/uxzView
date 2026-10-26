@@ -292,3 +292,100 @@ Semaphore-controlled regressions confirm that three requests run only the active
 The optional command-search model now retains its items while typing. A persistent-index regression and model reset/insertion observers verify that further query characters reuse the existing source rows. Action text, availability and destruction update those rows directly, so avoiding reconstruction does not leave stale states. The earlier code invalidated those rows on every keystroke; the initial regression also reproduced empty-Enter replay and stale/deleted actions. The alias table is shared and immutable. The model remains loaded while the optional search widget exists; this removes allocation churn, not all steady-state memory.
 
 Neighbor previews also retain the current-image label, and gallery filtering stops after the first unmatched term. These changes avoid unnecessary work without a timing claim for whole-image decoding or large folders. Whole-JSON catalog snapshots, rebuilding all filtered list items and filesystem-stat calls in GUI status refreshes remain significant candidates. See [the efficiency/style review](REVIEW_0.4.8.md).
+
+## First image in an already-running window (2026-10-25)
+
+The subsequent [26 October review](REVIEW_2026-10-26.md) removes repeated status
+timestamp queries from the GUI thread and adds bounded per-process diagnostics.
+Its full Windows/DPI validation supersedes the narrower validation below.
+The original timeout remains unexplained; the new tooling retains checkpoints
+for any recurrence. The historical before/after timings below remain tied to
+their original profiler/window conditions.
+
+The first installation of a document synchronously resolved all folder image
+extensions on the GUI thread. That reads every image-format plugin's metadata,
+even though only the opened image's decoder is needed before painting. A traced
+4x3 PNG run spent 125.87 ms in folder setup after the image was decoded. Two
+separate settings scopes also wrote recent files and the last folder; the
+isolated INI profile spent 47.09 ms there. Command/status refreshes were below
+one millisecond each in that sample.
+
+MainWindow now requests format discovery on the existing low-priority directory
+worker. Explicit scanner filters keep their previous behavior. The first image
+can paint while the folder is indexed; queued navigation still waits for its
+valid snapshot. Recent-file/directory updates share one QSettings scope and
+unchanged values are not written. The decode, metadata, precision, color
+conversion and original-image ownership paths are unchanged.
+
+`ixview_benchmarks` has an early `--profile-first-open` mode that avoids preparing
+the unrelated large-image/10,000-file fixtures. It creates a temporary INI
+profile, shows an empty window for 200 ms, opens one selected file three times
+and clears document caches before each open. Only the first sample in each
+fresh process is compared below. A viewport paint event schedules an observation
+after drawing; this is not proof of compositor/display completion. A GUI timer
+records the largest heartbeat gap during the open. OS caches are not cleared.
+
+Windows 11, Qt 6.11.2 Release, same retained baseline and corrected benchmark,
+alternating before/after order. PNG is the 4x3 smoke fixture; JPEG is the
+1920x1041 README example. Medians in milliseconds:
+
+| Mode | Image | First paint before | First paint after | GUI gap before | GUI gap after |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Offscreen, five samples | PNG | 232.89 | 67.35 | 204.06 | 51.61 |
+| Offscreen, five samples | JPEG | 337.34 | 113.22 | 291.05 | 68.39 |
+| Windows windows, three samples | PNG | 141.02 | 68.57 | 123.76 | 60.64 |
+| Windows windows, three samples | JPEG | 152.47 | 84.30 | 115.04 | 32.04 |
+
+These measurements establish reduced first-image presentation delay for these
+fixtures and this profile, not faster decoding or a guarantee for all images.
+Native JPEG document-install observation varied from 25.78 ms before to 38.41 ms
+after despite the shorter total presentation time; no decoder speedup is
+claimed. Native/offscreen environments and background load differ, so compare
+each row internally. Larger files, cold disks, network paths and antivirus
+effects remain outside this measurement.
+
+An initial sandboxed native baseline took 1671.10 ms, and a corrected sandboxed
+benchmark process subsequently timed out after 40 seconds. The precise cause
+of that timeout is unknown. A traced corrected native run outside the sandbox
+and all 12 subsequent alternating native benchmark processes completed. The
+failed attempt is not folded into the successful native medians and is not
+treated as a proven sandbox-only issue. Its preceding sample is preserved as
+`build/first-open-native-sandbox-before.json` and its temporary profile as
+`build/first-open-RxgzXL`.
+
+Raw comparisons: `build/first-open-comparison.json`,
+`build/first-open-native-comparison.json` and the individual JSON samples.
+Trace: `build/first-open-traced-detail.log`. The baseline executable is
+`build/first-open-before.exe`, retained solely for reproducing the comparison.
+
+```powershell
+./build/ixview_benchmarks.exe build/first-open.json --profile-first-open example.jpg -platform windows
+# Optional stage diagnostics, written without file paths:
+$env:IX_PROFILE_IMAGE_LOAD='1'
+$env:QT_FORCE_STDERR_LOGGING='1'
+# Run the benchmark or app, then remove these variables after profiling.
+```
+
+The new workflow regression checks discovery, non-image exclusion, explicit PNG
+filtering and empty-filter compatibility. The full local core run passes 30
+Python tests and all five Qt suites: 155 main, 49 workflow, 13 quality, 12 storage
+and 17 extension checks (246 total), with required RAW/tools and no skips.
+Evidence: `build/first-open-core-validation.log`, `build/validation-summary.json`
+and the retained suite reports. Four native navigation/fit/fullscreen command
+cases plus setup/cleanup pass (six checks), as do all 49 native workflow checks.
+The fullscreen test reports unavailable desktop-pixel readback, so this session
+does not verify its cover color or establish flicker-free presentation.
+
+The deployed SDK-free runtime also passes all 246 Qt checks without failures
+or skips, actual QR/OCR processes with all five models, and relocated
+profile/tool startup. Evidence: `build/first-open-native-test-results.txt`,
+`build/first-open-native-workflow-test-results.txt` and
+`build/first-open-portable.log`. Linux, macOS, Windows 10 and the unresolved
+macOS workflow failure still require their separate validation.
+
+The README images are also explicitly selected for public sources and installed
+documentation. A regression checks local HTML image references against both
+selections. This does not change image content or viewer decoding; it preserves
+the README's existing assets when preparing the updated package. Release-note
+generation refers to maintained evidence rather than repeating stale fixed
+test counts.

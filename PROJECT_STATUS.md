@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.4.8 · Stand: 25.10.2026**
+**Version 0.4.8 · Stand: 26.10.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -17,6 +17,12 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Noch unveröffentlicht: Die Statusleiste verwendet den Zeitstempel der geladenen Dateirevision ohne erneute Dateisystemabfragen beim Zoomen/Auswählen. Speichern und Umbenennen liefern Dateistand und Attribute aus dem Worker; Undo behält den Zielbezug. Neue begrenzte Lade-Diagnosen sichern auch bei Prozessfehlern Teilprotokolle und Checkpoints. Alle 20 Windows-Prüfschritte mit 35 Python- und 248 Qt-Prüfungen bestehen, einschließlich vier DPI-Skalierungen. [Prüfung vom 26.10.](docs/REVIEW_2026-10-26.md).
+
+- Noch unveröffentlicht: Die Formatliste für die erste Ordnerindizierung wird im Worker statt vor der Bildanzeige im GUI-Thread ermittelt. Verlauf und letzter Ordner werden gemeinsam und nur bei Änderungen geschrieben. Gemessene erste Zeichnung im Windows-Fenster: PNG 141 → 69 ms, JPEG 152 → 84 ms (je drei Vergleichsläufe, begrenzte Stichprobe). Alle 30 Python- und 246 Qt-Prüfungen des lokalen Kernlaufs bestehen. README-Bilder bleiben auch in Export und mitgelieferter Dokumentation erhalten. [Messung und Grenzen](docs/PERFORMANCE.md#first-image-in-an-already-running-window-2026-10-25).
+
+- Noch unveröffentlicht: Python-Release-Tests ohne vorhandenes Ausgabeverzeichnis, Exiv2-0.27-Zeigerprüfung und plattformfeste Dialogautomatisierung korrigiert; vollständige CI-Testprotokolle ergänzt. Lokal bestehen 29 Python-Tests und 245 Qt-Prüfungen. Die Bestätigung durch Linux-/macOS-CI und die konkrete Ursache des bisherigen macOS-Workflow-Fehlers bleiben offen. [CI-Prüfung](docs/CI_REPAIR_2026-10-25.md).
 
 - 0.4.8 hält die Befehlsliste beim Tippen stabil und aktualisiert ihre Zustände direkt. Leeres Enter löst keinen alten Treffer mehr aus. Bildverwaltung und Vorschaumarkierung sind gestrafft, Farbnamen übersetzt; abgebrochene Indizierungen melden keinen Erfolg. [Effizienz- und Stilprüfung](docs/REVIEW_0.4.8.md).
 
@@ -37,9 +43,9 @@ Die Änderungshistorie steht im [Changelog](CHANGELOG.md). Befunde, Messwerte un
 
 ## Prüfung
 
-Letzte vollständige Prüfrunde auf Windows 11: **155 Funktions-, 13 Qualitäts-, 12 Speicher-, 17 Erweiterungs- und 48 Ablaufprüfungen** sowohl im Entwicklungsbuild als auch im portablen Paket ohne SDK-Pfade; insgesamt je 245 Qt-Prüfungen einschließlich Setup/Cleanup und datengetriebener Fälle. Dazu 27 Python-Tests und alle 20 Schritte des gemeinsamen Entwicklungs-/Windows-Prüflaufs, einschließlich 100/125/150/200 Prozent Skalierung.
+Aktueller lokaler Kandidat auf Windows 11: **155 Funktions-, 13 Qualitäts-, 12 Speicher-, 17 Erweiterungs- und 51 Ablaufprüfungen** sowohl im Entwicklungsbuild als auch im portablen Paket ohne SDK-Pfade; insgesamt je 248 Qt-Prüfungen einschließlich Setup/Cleanup und datengetriebener Fälle. Dazu 35 Python-Tests und alle 20 Schritte des Entwicklungs-/Windows-Prüflaufs einschließlich 100/125/150/200 Prozent Skalierung. Keine Fehler oder übersprungenen Fälle. Erfolgreiche Fensterprüfungen auf diesem Rechner garantieren keine flackerfreie Ausgabe auf jeder GPU.
 
-Die vollständige Prüfrunde für 0.4.8 umfasst auch die überarbeiteten Icons; die zusätzliche native DPI-Prüfung und alle bisherigen Datei-/Navigationsregressionen bleiben Bestandteil des Ablaufs.
+Die aktuelle SDK-freie portable Fassung besteht auch echte OCR-/QR-Prozesse mit allen fünf Modellen und den Profil-/Werkzeugumzug. Die bisherigen Datei-/Navigationsregressionen bleiben Bestandteil des Ablaufs. Der frühere einzelne native Mess-Timeout bleibt ungeklärt; sechs neue Diagnoseprozesse liefen erfolgreich durch und erhalten künftig bei Fehlern Checkpoints und Teilprotokolle.
 
 Fünf echte CR2-/NEF-/ARW-/PEF-/DNG-Dateien, vier unabhängige LittleCMS-Referenzen, HDR-/HEIC- und PSD-Composites sowie echte OCR-/QR-Prozesse sind enthalten. Der Windows-Codec-Bericht enthält 94 Formatschlüssel und 32 synthetische Encoder-Rundläufe. Das belegt keine vollständige Unterstützung sämtlicher Formatvarianten. Details: [Qualität](docs/QUALITY.md), [Formate](docs/FORMAT_COMPATIBILITY.md), [Plattformen](docs/PLATFORMS.md).
 

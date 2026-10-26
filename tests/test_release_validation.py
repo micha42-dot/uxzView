@@ -1,4 +1,5 @@
 import hashlib
+from html.parser import HTMLParser
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,11 +20,33 @@ from build_tool_packs import pack
 from package_native import archive_stage
 
 
+class ReadmeSourceTests(unittest.TestCase):
+    def test_local_readme_images_are_in_public_sources(self):
+        class Images(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.sources = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag == 'img':
+                    self.sources.extend(value for key, value in attrs if key == 'src')
+        root = Path(__file__).resolve().parents[1]
+        parser = Images()
+        parser.feed((root / 'README.md').read_text(encoding='utf-8'))
+        selected = set(source_files(root))
+        documentation = set(documentation_files(root))
+        for source in parser.sources:
+            if '://' not in source and not source.startswith('data:'):
+                with self.subTest(image=source):
+                    self.assertIn(root / source, selected)
+                    self.assertIn(root / source, documentation)
+
+
 class ReleaseRuntimeTests(unittest.TestCase):
     def setUp(self):
-        output = Path(__file__).resolve().parent / 'output'
-        output.mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(prefix='run-release-', dir=output)
+        # Use the platform temporary directory, independent of CMake creating
+        # tests/output. addCleanup also removes fixtures when setUp fails.
+        self.temporary = tempfile.TemporaryDirectory(prefix='uxzview-release-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.runtime = self.root / 'dist/uxzView'
@@ -196,7 +219,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
 
 class BundledToolsTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='run-bundle-', dir=Path(__file__).resolve().parent / 'output')
+        self.temporary = tempfile.TemporaryDirectory(prefix='uxzview-bundle-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.runtime = self.root / 'dist/uxzView'

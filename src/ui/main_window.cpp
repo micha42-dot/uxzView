@@ -27,6 +27,7 @@
 #include "tool_dialog.h"
 #include <QCollator>
 #include <QColorSpace>
+#include <QElapsedTimer>
 #include <QScopeGuard>
 #include <QtConcurrent>
 #include <QtPrintSupport>
@@ -36,6 +37,17 @@
 #include <stdexcept>
 namespace ix {
 namespace {
+void updateRecentSetting(QSettings &settings, const QString &key, const QString &path) {
+    const auto setting = QStringLiteral("files/") + key;
+    const auto previous = settings.value(setting).toStringList();
+    auto list = previous;
+    list.removeAll(path);
+    list.prepend(path);
+    while (list.size() > 15)
+        list.removeLast();
+    if (list != previous)
+        settings.setValue(setting, list);
+}
 QKeySequence shortcut(QString s) {
     s.replace(QStringLiteral("Strg"), QStringLiteral("Ctrl"));
     s.replace(QStringLiteral("Entf"), QStringLiteral("Del"));
@@ -88,6 +100,8 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
     buildExtraFeatures();
     for (int i = 0; i < 6; ++i) {
         auto *label = new QLabel;
+        if (i == 4)
+            label->setObjectName(QStringLiteral("sourceModifiedStatus"));
         label->setFrameStyle(QFrame::Panel | QFrame::Sunken);
         label->setMargin(2);
         statusBar()->addWidget(label, i == 0 ? 3 : 2);
@@ -749,12 +763,7 @@ void MainWindow::buildExtraFeatures() {
 }
 void MainWindow::updateRecent(const QString &key, const QString &path) {
     QSettings s;
-    auto list = s.value(QStringLiteral("files/") + key).toStringList();
-    list.removeAll(path);
-    list.prepend(path);
-    while (list.size() > 15)
-        list.removeLast();
-    s.setValue(QStringLiteral("files/") + key, list);
+    updateRecentSetting(s, key, path);
 }
 void MainWindow::showError(const QString &error) {
     QMessageBox::warning(this, QStringLiteral("üxzView"), localized(error));
@@ -825,6 +834,16 @@ void MainWindow::openPath(const QString &path, int pageIndex, bool checkChanges)
         same && pageIndex != document_.page && !document_.modified ? WorkMode::Page : WorkMode::Load);
 }
 void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHistory) {
+    const bool profileLoad = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
+    QElapsedTimer loadTimer;
+    if (profileLoad) loadTimer.start();
+    qint64 previousStage = 0;
+    const auto stage = [&](const char *name) {
+        if (!profileLoad) return;
+        const auto now = loadTimer.nsecsElapsed();
+        qInfo("ix-load install %s %.3f ms", name, (now - previousStage) / 1e6);
+        previousStage = now;
+    };
     if (clearHistory) {
         undo_.clear();
         redo_.clear();
@@ -848,13 +867,23 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
         view_->horizontalScrollBar()->setValue(sx);
         view_->verticalScrollBar()->setValue(sy);
     }
+    stage("view");
     if (!document_.path.isEmpty()) {
-        updateRecent(QStringLiteral("recent"), document_.path);
-        QSettings().setValue(QStringLiteral("files/directory"), QFileInfo(document_.path).absolutePath());
+        // One settings instance coalesces portable INI writes. Reopening the
+        // current file need not rewrite an unchanged history/directory at all.
+        QSettings settings;
+        updateRecentSetting(settings, QStringLiteral("recent"), document_.path);
+        const auto directory = QFileInfo(document_.path).absolutePath();
+        if (settings.value(QStringLiteral("files/directory")).toString() != directory)
+            settings.setValue(QStringLiteral("files/directory"), directory);
     }
+    stage("recent");
     refreshFiles();
+    stage("directory");
     refreshState();
+    stage("commands");
     updateStatus();
+    stage("status");
     view_->setFocus(Qt::OtherFocusReason);
     if (document_.animated && !document_.modified && animationPlaying_)
         animationTimer_.start(document_.delayMs);
@@ -900,7 +929,7 @@ void MainWindow::refreshFiles(bool force) {
     directoryWatcher_.addPath(directory);
     indexReady_ = false;
     const bool latest = !watchedFolder_.isEmpty();
-    directoryIndex_->request({directory, registry_.extensions(), sorting, reverse, latest});
+    directoryIndex_->request({directory, {}, sorting, reverse, latest, true});
 }
 void MainWindow::navigate(int direction) {
     if (activity_.busy()) {
@@ -1062,7 +1091,7 @@ void MainWindow::updateStatus() {
     status_[4]->setText(
         document_.path.isEmpty()
             ? QString()
-            : QFileInfo(document_.path).lastModified().toString(QStringLiteral("dd.MM.yyyy HH:mm")));
+            : document_.sourceModified.toString(QStringLiteral("dd.MM.yyyy HH:mm")));
     auto s = view_->selection();
     status_[5]->setText(
         s.isEmpty() ? (document_.pageCount > 1

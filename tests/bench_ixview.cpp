@@ -21,6 +21,85 @@
 #include <QtWidgets>
 #include <vector>
 namespace {
+class FirstImagePaint final : public QObject {
+  public:
+    std::function<void()> completed;
+    bool pending = false;
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::Paint && pending) {
+            pending = false;
+            QTimer::singleShot(0, this, [this] { if (completed) completed(); });
+        }
+        return false;
+    }
+};
+QJsonObject profileFirstOpen(const QString &path) {
+    qInfo("ix-first-open profile-start");
+    QTemporaryDir profile(QDir::current().filePath(QStringLiteral("build/first-open-XXXXXX")));
+    if (!profile.isValid() || !QFileInfo(path).isFile())
+        return {{QStringLiteral("error"), QStringLiteral("Missing image or temporary profile")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, profile.path());
+    qApp->setProperty("ixStorageData", profile.path());
+    qInfo("ix-first-open create-window");
+    ix::MainWindow window;
+    window.resize(1200, 800);
+    window.setAttribute(Qt::WA_ShowWithoutActivating);
+    window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+    qInfo("ix-first-open show-window");
+    window.show();
+    QTest::qWait(200); // The window is already running before the measured open.
+    qInfo("ix-first-open window-ready exposed=%d", window.windowHandle() && window.windowHandle()->isExposed());
+    auto *view = window.findChild<ix::ImageView *>();
+    FirstImagePaint observer;
+    view->viewport()->installEventFilter(&observer);
+    QJsonArray samples;
+    for (int pass = 0; pass < 3; ++pass) {
+        qInfo("ix-first-open pass %d start", pass);
+        ix::ImageLoadCache::clear(); // Repeat decoding, not just cache retrieval.
+        QEventLoop loop;
+        QTimer heartbeat, deadline;
+        QElapsedTimer elapsed;
+        double installed = -1, painted = -1, previousBeat = 0, maxGap = 0;
+        auto ready = QObject::connect(view, &ix::ImageView::selectionChanged, &loop, [&] {
+            if (window.document().path == path && !window.document().empty() && installed < 0) {
+                installed = elapsed.nsecsElapsed() / 1e6;
+                observer.pending = true;
+            }
+        });
+        observer.completed = [&] {
+            painted = elapsed.nsecsElapsed() / 1e6;
+            loop.quit();
+        };
+        QObject::connect(&heartbeat, &QTimer::timeout, &loop, [&] {
+            const double now = elapsed.nsecsElapsed() / 1e6;
+            maxGap = std::max(maxGap, now - previousBeat);
+            previousBeat = now;
+        });
+        deadline.setSingleShot(true);
+        QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
+        elapsed.start();
+        heartbeat.start(1);
+        deadline.start(30000);
+        window.openPath(path);
+        const double submitted = elapsed.nsecsElapsed() / 1e6;
+        loop.exec();
+        observer.completed = {};
+        QObject::disconnect(ready);
+        if (painted < 0)
+            return {{QStringLiteral("error"), QStringLiteral("Image was not painted within 30 seconds")}};
+        qInfo("ix-first-open pass %d painted", pass);
+        samples.append(QJsonObject{{QStringLiteral("open_return_ms"), submitted},
+            {QStringLiteral("document_install_ms"), installed},
+            {QStringLiteral("paint_completed_ms"), painted},
+            {QStringLiteral("max_gui_heartbeat_gap_ms"), maxGap}});
+        QTest::qWait(50);
+    }
+    qInfo("ix-first-open destroy-window");
+    return {{QStringLiteral("samples"), samples},
+        {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"), QStringLiteral("Already-running empty window, isolated default profile, three opens of the same image with document caches cleared. First sample includes lazy initialization. Paint completion is an event-loop observation, not a compositor/display measurement. OS file caches are not cleared.")}};
+}
 QJsonObject profileRawCache() {
     const auto folder = qEnvironmentVariable("IX_RAW_FIXTURES",
         QCoreApplication::applicationDirPath() + QStringLiteral("/quality-fixtures"));
@@ -392,6 +471,14 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-first-open"))) {
+        const auto input = QFileInfo(app.arguments().value(3)).absoluteFilePath();
+        const auto report = profileFirstOpen(input);
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-raw-cache"))) {
         QFile out(app.arguments().value(1));
         if (!out.open(QIODevice::WriteOnly)) return 4;

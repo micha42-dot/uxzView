@@ -2,6 +2,7 @@
 // Copyright (C) 2026 IxView contributors
 #pragma once
 #include "metadata.h"
+#include <QDateTime>
 #include <QImage>
 #include <QMap>
 #include <QString>
@@ -23,6 +24,7 @@ struct ImageDocument {
     QString metadataWarning;
     std::shared_ptr<const Metadata> metadata;
     qint64 fileBytes = 0;
+    QDateTime sourceModified;
     double dpiX() const;
     double dpiY() const;
     bool empty() const {

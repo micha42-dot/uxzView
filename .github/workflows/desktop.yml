@@ -45,6 +45,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/package.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Print complete test diagnostics
+        if: failure()
+        run: python scripts/report_test_logs.py --build-dir build
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -53,6 +56,7 @@ jobs:
             dist/*.zip
             dist/SHA256.json
             build/*test-results.*
+            build/Testing/Temporary/*.log
             tests/output/*.png
             tests/output/format-capabilities.json
   unix:
@@ -85,6 +89,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Test build and release scripts offline
+        run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
@@ -141,6 +150,9 @@ jobs:
       - name: Package native runtime
         shell: bash
         run: python3 scripts/package_native.py --name "uxzView-${{ matrix.artifact }}"
+      - name: Print complete test diagnostics
+        if: failure()
+        run: python scripts/report_test_logs.py --build-dir build/native
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -148,8 +160,8 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.sha256.json
-            build/native/test-results.*
-            build/native/quality-test-results.*
+            build/native/*test-results.*
+            build/native/Testing/Temporary/*.log
             build/native/installed-image-probe.json
             tests/output/*.png
             tests/output/format-capabilities.json

@@ -9,5 +9,5 @@ try {
  if($LASTEXITCODE -ne 0){throw 'CMake-Konfiguration fehlgeschlagen'}
  cmake --build build --parallel 4
  if($LASTEXITCODE -ne 0){throw 'Build fehlgeschlagen'}
- if($Test){ctest --test-dir build --output-on-failure;if($LASTEXITCODE -ne 0){Get-Content -LiteralPath 'build/test-results.txt' -ErrorAction SilentlyContinue;throw 'Tests fehlgeschlagen'}}
+ if($Test){ctest --test-dir build --output-on-failure;if($LASTEXITCODE -ne 0){python scripts/report_test_logs.py --build-dir build;throw 'Tests fehlgeschlagen'}}
 } finally { Pop-Location }

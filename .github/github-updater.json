@@ -3,7 +3,7 @@
   "files": [
     "CMakeLists.txt", "CMakePresets.json", ".clang-format", ".gitignore",
     ".gitattributes", ".editorconfig", "LICENSE", "README.md", "PROJECT_STATUS.md",
-    "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md"
+    "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "ügz.jpg", "example.jpg"
   ],
   "folders": ["src", "resources", "reference", "scripts", "docs", "tests", "cmake", ".github"],
   "exclude": [

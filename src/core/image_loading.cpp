@@ -4,6 +4,8 @@
 #include "preview_service.h"
 #include "processing.h"
 #include <QColorSpace>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <stdexcept>
 namespace ix {
 QImage displayImage(const QImage &image, bool manageColor, bool sharpen) {
@@ -18,6 +20,12 @@ QImage displayImage(const QImage &image, bool manageColor, bool sharpen) {
 }
 PreparedImage loadImage(const CodecRegistry &registry, const ImageLoadRequest &request,
                         const std::function<void(QImage)> &preview) {
+    const bool profile = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
+    QElapsedTimer timer;
+    if (profile) {
+        timer.start();
+        qInfo("ix-load worker started");
+    }
     auto result = ImageLoadCache::read(registry, request.path, request.page, [&] {
         // A cached original is already ready: avoid decoding/publishing a
         // smaller RAW preview before returning those full-resolution pixels.
@@ -26,8 +34,10 @@ PreparedImage loadImage(const CodecRegistry &registry, const ImageLoadRequest &r
             if (!pixels.isNull()) preview(std::move(pixels));
         }
     });
+    if (profile) qInfo("ix-load worker decode %.3f ms", timer.nsecsElapsed() / 1e6);
     if (!result.ok()) return {{}, {}, result.error};
     auto display = displayImage(result.document.pixels, request.manageColor, request.sharpenDisplay);
+    if (profile) qInfo("ix-load worker prepared %.3f ms", timer.nsecsElapsed() / 1e6);
     return {std::move(result.document), std::move(display), {}};
 }
 } // namespace ix

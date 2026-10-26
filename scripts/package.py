@@ -117,13 +117,7 @@ An image viewer inspired by IrfanView and nomacs. Previously named IxView; exist
 
 ## Changes and validation
 
-- Reuse command-search rows and update action state/lifetime directly.
-- Guard empty-query invocation and choose available default matches.
-- Simplify thumbnail labels, translate color marks and offer an explicit duplicate-result Open button.
-- Retain preview markers, keep placeholder symbols small and report catalog cancellation accurately.
-- Retain the directory-cancellation, save/revision and portable-tool guards from preceding maintenance releases.
-
-Both development and SDK-free portable builds pass 155 functional, 13 quality, 12 storage, 17 extension and 48 workflow checks, including setup/cleanup and data-driven cases. All 27 Python checks and the public native Windows-11 validation, including four DPI scales, pass. Coverage includes five real RAW files, independent color references and actual installed OCR/QR tools. See `docs/QUALITY.md` and `docs/REVIEW_0.4.8.md` for evidence and limits; the complete history is in `CHANGELOG.md`.
+See `CHANGELOG.md` for the included changes. `docs/PERFORMANCE.md` records measured performance changes and their scope; `docs/QUALITY.md` and the review reports record test evidence and remaining gaps. Packaging validates runtime/source integrity; it does not itself establish successful tests on every supported platform.
 
 Native Windows 10, Linux and macOS validation remains outstanding. Complete camera metadata preservation, calibrated monitor profiles and broad desktop/DPI testing are not established. Format availability does not guarantee every variant. GPL-3.0-or-later; third-party libraries retain their licenses.
 """

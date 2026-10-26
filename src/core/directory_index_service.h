@@ -16,6 +16,9 @@ struct DirectoryRequest {
     int sorting = 0;
     bool reverse = false;
     bool findLatest = false;
+    // Discover plugin keys on the worker instead of delaying the first paint.
+    // Otherwise use extensions verbatim, including an intentionally empty list.
+    bool discoverImageFormats = false;
 };
 
 // GUI-thread owner of one cancellable scan and at most one pending request.

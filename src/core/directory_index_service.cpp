@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "directory_index_service.h"
+#include "codec_registry.h"
 #include "localization.h"
 #include <QFutureWatcher>
 #include <QPointer>
@@ -20,7 +21,10 @@ DirectoryIndexService::DirectoryIndexService(QObject *parent, Scanner scanner)
     qRegisterMetaType<DirectorySnapshot>();
     if (!scanner_)
         scanner_ = [](const DirectoryRequest &request, const std::atomic_bool *cancel) {
-            return scanDirectory(request.directory, request.extensions, request.sorting,
+            if (cancel && cancel->load()) return DirectorySnapshot{};
+            const auto extensions = request.discoverImageFormats ? CodecRegistry().extensions()
+                                                                 : request.extensions;
+            return scanDirectory(request.directory, extensions, request.sorting,
                                  request.reverse, cancel, request.findLatest);
         };
     pool_.setMaxThreadCount(1);

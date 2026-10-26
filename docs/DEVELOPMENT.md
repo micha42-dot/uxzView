@@ -53,7 +53,33 @@ Targeted regressions can run directly:
 python -m unittest discover -s tests -p "test_release_validation.py" -v
 ```
 
+CTest keeps complete QtTest text and JUnit reports in the build directory. The
+QtTest file loggers do not also write their contents to CTest's captured stdout.
+After a failure, run `python scripts/report_test_logs.py --build-dir build/native`
+(or `--build-dir build` on Windows). This prints all five suites and CTest's
+`Testing/Temporary/LastTest.log`, including partial reports after a crash.
+Desktop CI prints these on failure and uploads all `*test-results.*` plus CTest
+logs even when compilation or testing fails. Inspect `workflow-test-results.txt`
+before diagnosing a workflow-suite failure from its exit code alone.
+
+Python release fixtures use self-cleaning platform temporary directories and do
+not depend on CMake having created `tests/output`. UI save-dialog tests must use
+isolated destinations, select the Qt file-name editor explicitly, and submit
+only once; do not silence application overwrite warnings to automate a test.
+On macOS, Qt's About box can be modeless, so observe and close its visible window
+asynchronously rather than expecting `activeModalWidget()` or a blocking call.
+
 ## Diagnose and measure
+
+For intermittent first-image delays, use
+`python scripts/measure_first_open.py --platform windows --samples 3` on Windows
+or omit `--platform` for offscreen diagnostics. It preserves per-process logs,
+partial reports and the last checkpoint on failure, kills a timed-out process
+after 40 seconds and stops further samples. Images and output location can be
+selected with `--image` (repeatable) and `--output`. It enables stage tracing in
+child processes, not in the calling shell. These traced, nonactivating-window
+runs are diagnostics rather than a direct comparison to earlier untraced
+benchmarks. Keep the raw evidence for failures as well as successes.
 
 Toolbar artwork lives in `src/ui/icons.cpp`: original 24-unit vectors with rounded 1.65-unit strokes and roughly 18-unit silhouettes. Keep counters open at the smallest 20 px setting; distinguish related commands by shape, not color. Use the desktop palette for active/disabled states and retain the DPI-aware pixmap cache. Bump its artwork revision when changing paths. The existing `outlineIconsAndZoomSemantics` check produces `tests/output/icon-set.png` in light/dark colors and checks DPI variants; inspect it alongside the `renderUi` toolbar capture. The image placeholder stays at most 32 logical pixels, centered in larger thumbnail canvases; its raster cache revision is `v4`. Keep icon keys stable so action wiring and accessibility names remain intact.
 

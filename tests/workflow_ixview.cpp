@@ -347,6 +347,101 @@ class WorkflowTests : public QObject {
         QTRY_COMPARE(ready.size(), 1);
         QCOMPARE(ready.first().first().value<ix::DirectorySnapshot>().directory, QStringLiteral("good"));
     }
+    void directoryWorkerDiscoversFormatsAndRetainsExplicitFilters() {
+        const auto png = photo(QStringLiteral("worker-formats/photo.png"), Qt::blue);
+        const auto jpeg = photo(QStringLiteral("worker-formats/photo.jpg"), Qt::red);
+        QVERIFY(!png.isEmpty() && !jpeg.isEmpty());
+        const auto folder = QFileInfo(png).absolutePath();
+        QFile unrelated(folder + QStringLiteral("/notes.txt"));
+        QVERIFY(unrelated.open(QIODevice::WriteOnly));
+        QCOMPARE(unrelated.write("not an image"), qint64(12));
+        unrelated.close();
+        ix::DirectoryIndexService service;
+        QSignalSpy ready(&service, &ix::DirectoryIndexService::ready);
+        service.request({folder, {}, 0, false, false, true});
+        QTRY_COMPARE(ready.size(), 1);
+        const auto discovered = ready.last().first().value<ix::DirectorySnapshot>();
+        QCOMPARE(discovered.files.size(), 2);
+        QVERIFY(discovered.files.contains(png) && discovered.files.contains(jpeg));
+        service.request({folder, {QStringLiteral("png")}, 0});
+        QTRY_COMPARE(ready.size(), 2);
+        QCOMPARE(ready.last().first().value<ix::DirectorySnapshot>().files, QStringList{png});
+        service.request({folder, {}, 0});
+        QTRY_COMPARE(ready.size(), 3);
+        const auto unfiltered = ready.last().first().value<ix::DirectorySnapshot>();
+        QCOMPARE(unfiltered.files.size(), 3);
+        QVERIFY(unfiltered.files.contains(folder + QStringLiteral("/notes.txt")));
+    }
+    void statusTimestampTracksLoadedRevisionInsteadOfPollingDisk() {
+        const auto path = photo(QStringLiteral("timestamp/source.png"), Qt::blue);
+        QVERIFY(!path.isEmpty());
+        auto changeTime = [&](const QDateTime &time) {
+            QFile file(path);
+            return file.open(QIODevice::ReadWrite) && file.setFileTime(time, QFileDevice::FileModificationTime);
+        };
+        QVERIFY(changeTime(QDateTime::fromSecsSinceEpoch(1600000000, QTimeZone::UTC)));
+        const auto originalTime = QFileInfo(path).lastModified();
+        ix::MainWindow window;
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        QCOMPARE(window.document().sourceModified, originalTime);
+        auto *label = window.findChild<QLabel *>(QStringLiteral("sourceModifiedStatus"));
+        QVERIFY(label);
+        QCOMPARE(label->text(), originalTime.toString(QStringLiteral("dd.MM.yyyy HH:mm")));
+        QVERIFY(changeTime(originalTime.addDays(2)));
+        const auto changedTime = QFileInfo(path).lastModified();
+        QVERIFY(changedTime != originalTime);
+        auto *view = window.findChild<ix::ImageView *>();
+        view->setZoom(2);
+        view->setSelection(QRect(1, 1, 10, 10));
+        QCOMPARE(label->text(), originalTime.toString(QStringLiteral("dd.MM.yyyy HH:mm")));
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().sourceModified == changedTime);
+        QCOMPARE(label->text(), changedTime.toString(QStringLiteral("dd.MM.yyyy HH:mm")));
+    }
+    void renamedDocumentAndUndoRetainTargetFileState() {
+        const auto source = photo(QStringLiteral("timestamp-rename/source.png"), Qt::blue);
+        const auto target = temporary_.filePath(QStringLiteral("timestamp-rename/target.png"));
+        QVERIFY(!source.isEmpty());
+        ix::MainWindow window(nullptr, temporary_.filePath(QStringLiteral("timestamp-journal")));
+        window.openPath(source);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == source);
+        window.dispatch(QStringLiteral("right"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        bool handled = false;
+        QString error;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QTimer driver;
+        connect(&driver, &QTimer::timeout, &window, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (elapsed.elapsed() > 10000) {
+                error = QStringLiteral("Rename dialog timed out");
+                if (dialog) dialog->reject();
+            } else if (auto *input = qobject_cast<QInputDialog *>(dialog); input && !handled) {
+                handled = true;
+                input->setTextValue(QStringLiteral("target.png"));
+                input->accept();
+            } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
+                error = message->text();
+                message->reject();
+            }
+        });
+        driver.start(10);
+        window.dispatch(QStringLiteral("rename"));
+        driver.stop();
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(handled);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == target);
+        const auto modified = QFileInfo(target).lastModified();
+        QCOMPARE(window.document().sourceModified, modified);
+        QCOMPARE(window.document().sourceRevision, ix::imageFileKey(target));
+        window.dispatch(QStringLiteral("undo"));
+        QTRY_VERIFY(!window.isBusy() && window.document().pixels.size() == QSize(96, 64));
+        QCOMPARE(window.document().path, target);
+        QCOMPARE(window.document().sourceModified, modified);
+        QCOMPARE(window.document().fileBytes, QFileInfo(target).size());
+    }
     void mainWindowUsesDirectoryIndexService() {
         const auto path = photo(QStringLiteral("index-service/one.png"), Qt::blue);
         QVERIFY(!path.isEmpty());
@@ -932,6 +1027,7 @@ class WorkflowTests : public QObject {
         QTRY_COMPARE(window.document().pixels.size(), QSize(113, 71));
         QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::blue));
         QCOMPARE(window.document().sourceRevision, ix::imageFileKey(target));
+        QCOMPARE(window.document().sourceModified, QFileInfo(target).lastModified());
         QVERIFY(!window.document().modified);
     }
     void exportKeepsPixelsProfileAndExistingFileOnFailure() {

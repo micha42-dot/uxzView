@@ -7,6 +7,22 @@
 #include <QtConcurrent>
 #include <QtWidgets>
 namespace ix {
+namespace {
+struct SourceFileState {
+    QString revision;
+    QDateTime modified;
+    qint64 bytes = 0;
+};
+SourceFileState observeSource(const QString &path) {
+    const QFileInfo file(path);
+    return {imageFileKey(path), file.lastModified(), file.size()};
+}
+void applySource(ImageDocument &document, const SourceFileState &source) {
+    document.sourceRevision = source.revision;
+    document.sourceModified = source.modified;
+    document.fileBytes = source.bytes;
+}
+} // namespace
 bool MainWindow::confirmDiscard(bool changingImage) {
     if (!document_.modified ||
         (changingImage && !QSettings().value(QStringLiteral("navigation/askToSave"), false).toBool()))
@@ -85,16 +101,20 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     QProgressDialog progress(IX_TEXT("Bild wird gespeichert …"), QString(), 0, 0, this);
     progress.setCancelButton(nullptr);
     progress.setWindowModality(Qt::ApplicationModal);
-    QFutureWatcher<QString> watcher;
+    struct SaveResult { QString error; SourceFileState source; };
+    QFutureWatcher<SaveResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QProgressDialog::accept);
     auto registry = registry_;
     watcher.setFuture(QtConcurrent::run([=] {
-        return registry.save(output, path, format, 95, true, targetRevision);
+        SaveResult result{registry.save(output, path, format, 95, true, targetRevision), {}};
+        if (result.error.isEmpty() && !selection)
+            result.source = observeSource(path);
+        return result;
     }));
     progress.exec();
-    auto error = watcher.result();
-    if (!error.isEmpty()) {
-        showError(error);
+    const auto result = watcher.result();
+    if (!result.error.isEmpty()) {
+        showError(result.error);
         return false;
     }
     updateRecent(QStringLiteral("saved"), path);
@@ -108,8 +128,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         document_.loopCount = 0;
         document_.format = format;
         document_.sourceHasExif = document_.metadata && metadataWritable(format);
-        document_.fileBytes = QFileInfo(path).size();
-        document_.sourceRevision = imageFileKey(document_.path);
+        applySource(document_, result.source);
         for (auto &d : undo_) {
             d.modified = true;
             d.path = document_.path;
@@ -119,8 +138,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             d.animated = false;
             d.delayMs = 100;
             d.loopCount = 0;
-            d.fileBytes = document_.fileBytes;
-            d.sourceRevision = document_.sourceRevision;
+            applySource(d, result.source);
             d.sourceHasExif = d.metadata && metadataWritable(format);
         }
         redo_.clear();
@@ -198,7 +216,7 @@ void MainWindow::fileOperation(const QString &op) {
     QProgressDialog progress(IX_TEXT("Datei wird verarbeitet …"), QString(), 0, 0, this);
     progress.setCancelButton(nullptr);
     progress.setWindowModality(Qt::ApplicationModal);
-    struct FileResult { QString error; bool sourceUnchanged; };
+    struct FileResult { QString error; bool sourceUnchanged; SourceFileState target; };
     QFutureWatcher<FileResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
     const auto revision = document_.sourceRevision;
@@ -209,7 +227,10 @@ void MainWindow::fileOperation(const QString &op) {
         auto error = FileJournal(journalRoot).perform(op == QStringLiteral("fileCopy") ? QStringLiteral("copy")
                                                                                     : QStringLiteral("move"),
                                                     source, target);
-        return FileResult{error, unchanged};
+        FileResult result{error, unchanged, {}};
+        if (error.isEmpty() && unchanged && op != QStringLiteral("fileCopy"))
+            result.target = observeSource(target);
+        return result;
     }));
     progress.exec();
     const auto result = watcher.result();
@@ -226,10 +247,10 @@ void MainWindow::fileOperation(const QString &op) {
             d.path = target;
         document_.path = target;
         if (result.sourceUnchanged) {
-            document_.sourceRevision = imageFileKey(target);
+            applySource(document_, result.target);
             for (auto *history : {&undo_, &redo_})
                 for (auto &entry : *history)
-                    entry.sourceRevision = document_.sourceRevision;
+                    applySource(entry, result.target);
         } else
             reconcileFilePath();
         refreshFiles();

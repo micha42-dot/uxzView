@@ -1,5 +1,18 @@
 # Änderungen
 
+## Unreleased
+
+- Keep filesystem timestamps with the loaded document, refresh source state on worker-side save/rename completion and retain it through Undo. Zoom/selection status updates no longer query the file's last-write time.
+- Add bounded first-open diagnostic runs with retained partial reports/checkpoints, stale-result rejection and five subprocess regressions. Benchmark windows no longer automatically take focus.
+
+- Resolve folder image-format keys on the existing scan worker so plugin metadata discovery no longer blocks the first image paint. Coalesce recent-file/directory settings updates and avoid unchanged writes.
+- Add a repeatable first-open benchmark for an already-running window. Keep both README image assets in public exports and installed documentation.
+
+- Use self-cleaning platform temporary directories for Python release fixtures, including fresh CI checkouts without `tests/output`.
+- Accept both Exiv2 0.27 `auto_ptr` and newer `unique_ptr` results without changing metadata handling.
+- Isolate Save-as fixtures, submit file dialogs once and fail promptly on unexpected save dialogs. Keep the saved destination through Undo and retain user overwrite warnings.
+- Observe the modeless macOS About window in the branding test. Print and upload complete reports for all five Qt suites and run Python checks on every desktop CI platform.
+
 ## 0.4.8
 
 - Keep command-search rows instead of rebuilding the model on every keystroke. Track action text/enabled state and remove destroyed actions immediately.

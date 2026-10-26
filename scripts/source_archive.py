@@ -31,7 +31,10 @@ def documentation_files(root=ROOT):
     """Use the same privacy rules for shipped documentation and source archives."""
     for path in source_files(root):
         relative = path.relative_to(root)
-        if (len(relative.parts) == 1 and (path.suffix == '.md' or path.name == 'LICENSE')) or (
+        # Root image assets explicitly selected by the public policy accompany
+        # README.md in both installed documentation and source archives.
+        if (len(relative.parts) == 1 and (path.suffix.lower() in {
+                '.md', '.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.bmp'} or path.name == 'LICENSE')) or (
                 relative.parts[0] == 'docs' and path.suffix == '.md'):
             yield path
 

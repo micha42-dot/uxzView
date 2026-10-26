@@ -171,7 +171,7 @@ std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warni
         auto image = Exiv2::ImageFactory::open(reinterpret_cast<const Exiv2::byte *>(bytes.constData()),
                                                size_t(bytes.size()));
 #endif
-        if (!image)
+        if (image.get() == nullptr)
             return {};
         image->readMetadata();
         auto md = std::make_shared<Metadata>();
@@ -209,7 +209,7 @@ QByteArray attachMetadata(QByteArray encoded, const Metadata &md, QSize size, do
             return encoded;
         auto image = Exiv2::ImageFactory::open(reinterpret_cast<const Exiv2::byte *>(encoded.constData()),
                                                size_t(encoded.size()));
-        if (!image) {
+        if (image.get() == nullptr) {
             error = QStringLiteral("Metadaten-Encoder unterstützt das Zielformat nicht.");
             return {};
         }

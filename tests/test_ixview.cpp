@@ -3376,8 +3376,11 @@ class IxTests : public QObject {
         QCOMPARE(QSet<QString>(shown.begin(), shown.end()).size(), 3);
     }
     void saveAsUndoKeepsNewDestination() {
-        const auto source = dir(QStringLiteral("save-as-source.png"));
-        const auto target = dir(QStringLiteral("save-as-target.png"));
+        QTemporaryDir files(dir(QStringLiteral("save-as-XXXXXX")));
+        QVERIFY(files.isValid());
+        const auto source = files.filePath(QStringLiteral("source.png"));
+        const auto target = files.filePath(QStringLiteral("target.png"));
+        QVERIFY(!QFileInfo::exists(target));
         QVERIFY(pattern().save(source));
         auto originalHash = ix::sha256File(source);
         ix::MainWindow window;
@@ -3389,22 +3392,62 @@ class IxTests : public QObject {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         auto restore =
             qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
+        bool submitted = false;
+        QString dialogError;
+        QElapsedTimer deadline;
+        deadline.start();
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
-            for (auto *widget : QApplication::topLevelWidgets())
-                if (auto *dialog = qobject_cast<QFileDialog *>(widget); dialog && dialog->isVisible()) {
-                    dialog->selectFile(target);
+            auto *modal = QApplication::activeModalWidget();
+            if (deadline.elapsed() > 10000 && dialogError.isEmpty())
+                dialogError = QStringLiteral("Save-as did not finish within 10 seconds");
+            if (auto *message = qobject_cast<QMessageBox *>(modal)) {
+                if (dialogError.isEmpty())
+                    dialogError = QStringLiteral("Unexpected save-as dialog: %1: %2")
+                                      .arg(message->windowTitle(), message->text());
+                message->reject();
+            } else if (auto *dialog = qobject_cast<QFileDialog *>(modal)) {
+                if (!dialogError.isEmpty()) {
+                    dialog->reject();
+                } else if (!submitted) {
+                    // selectFile() and repeated queued accepts can race the
+                    // dialog's directory model. Set the Qt editor explicitly
+                    // and submit exactly once, before entering any nested loop.
+                    auto *editor = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+                    if (!editor) {
+                        dialogError = QStringLiteral("Expected a non-native save dialog with fileNameEdit");
+                        dialog->reject();
+                        return;
+                    }
+                    editor->setText(target);
+                    submitted = true;
                     QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
                 }
+            } else if (auto *dialog = qobject_cast<QDialog *>(modal);
+                       dialog && (!dialogError.isEmpty() || !qobject_cast<QProgressDialog *>(dialog))) {
+                if (dialogError.isEmpty())
+                    dialogError = QStringLiteral("Unexpected modal widget: %1").arg(dialog->windowTitle());
+                dialog->reject();
+            }
         });
         timer.start(20);
         window.dispatch(QStringLiteral("saveAs"));
         timer.stop();
+        QVERIFY2(dialogError.isEmpty(), qPrintable(dialogError));
+        QVERIFY(submitted);
+        QVERIFY(QFileInfo::exists(target));
+        const auto savedTime = QFileInfo(target).lastModified();
+        QCOMPARE(window.document().sourceModified, savedTime);
         QCOMPARE(window.document().path, target);
+        QCOMPARE(window.document().pixels.size(), QSize(48, 64));
+        QVERIFY(!window.document().modified);
         window.dispatch(QStringLiteral("undo"));
         QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy(), 10000);
         QCOMPARE(window.document().path, target);
         QCOMPARE(window.document().pixels.size(), QSize(64, 48));
+        QVERIFY(window.document().modified);
+        QCOMPARE(QImage(target).size(), QSize(48, 64));
+        QCOMPARE(window.document().sourceModified, savedTime);
         QCOMPARE(ix::sha256File(source), originalHash);
     }
     void batchPlanGuardsContentInAdditionToTimestamps() {
@@ -3505,17 +3548,19 @@ class IxTests : public QObject {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         auto restore =
             qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
+        bool selected = false;
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
-            for (auto *widget : QApplication::topLevelWidgets())
-                if (auto *dialog = qobject_cast<QFileDialog *>(widget); dialog && dialog->isVisible()) {
-                    dialog->selectFile(target);
-                    QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
-                }
+            if (auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget()); dialog && !selected) {
+                selected = true;
+                dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(target);
+                QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+            }
         });
         timer.start(20);
         window.dispatch(QStringLiteral("saveSelection"));
         timer.stop();
+        QVERIFY(selected);
         QCOMPARE(QImage(target).size(), QSize(20, 20));
         auto result = Exiv2::ImageFactory::open(target.toStdString());
         result->readMetadata();
@@ -4077,15 +4122,27 @@ class IxTests : public QObject {
         window.activateWindow();
         QTRY_VERIFY(window.isActiveWindow());
         view->setFocus();
-        QTimer::singleShot(0, &window, [&] {
-            if (auto *d = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
-                brandCorrect = d->text().contains(QStringLiteral("Von IrfanView und nomacs inspiriert.")) &&
-                               !d->text().contains(QStringLiteral("Reimplementierung"));
-                d->accept();
-            }
+        bool aboutOpened = false;
+        QString aboutText;
+        QTimer aboutDriver;
+        connect(&aboutDriver, &QTimer::timeout, &window, [&] {
+            // QMessageBox::about can be modeless on macOS. Observe the visible
+            // window instead of requiring activeModalWidget or synchronous exec.
+            for (auto *widget : QApplication::topLevelWidgets())
+                if (auto *dialog = qobject_cast<QMessageBox *>(widget); dialog && dialog->isVisible()) {
+                    aboutOpened = true;
+                    aboutText = dialog->text();
+                    brandCorrect = aboutText.contains(QStringLiteral("Von IrfanView und nomacs inspiriert.")) &&
+                                   !aboutText.contains(QStringLiteral("Reimplementierung"));
+                    aboutDriver.stop();
+                    dialog->accept();
+                    break;
+                }
         });
+        aboutDriver.start(10);
         QTest::keyClick(view, Qt::Key_A);
-        QVERIFY(brandCorrect);
+        QTRY_VERIFY_WITH_TIMEOUT(aboutOpened, 2000);
+        QVERIFY2(brandCorrect, qPrintable(aboutText));
         QVERIFY(window.findChild<QAction *>(QStringLiteral("zoomIn"))
                     ->shortcuts()
                     .contains(QKeySequence(QStringLiteral("="))));
