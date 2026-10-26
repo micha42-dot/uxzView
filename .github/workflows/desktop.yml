@@ -48,7 +48,7 @@ jobs:
       - name: Print complete test diagnostics
         if: failure()
         run: python scripts/report_test_logs.py --build-dir build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: development-windows-x64
@@ -153,7 +153,7 @@ jobs:
       - name: Print complete test diagnostics
         if: failure()
         run: python scripts/report_test_logs.py --build-dir build/native
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: development-${{ matrix.artifact }}

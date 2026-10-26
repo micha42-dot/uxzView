@@ -39,7 +39,7 @@ jobs:
       - name: Build, test and prepare Windows assets
         shell: pwsh
         run: ./scripts/prepare_release.ps1 -BootstrapSDK
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-release-candidate
           path: |
