@@ -9,7 +9,7 @@ jobs:
     # cannot establish compatibility with the Windows 10 desktop.
     runs-on: [self-hosted, Windows, X64, ixview-windows10]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Require Windows 10 desktop build 1809 or newer
         shell: pwsh
         run: |
