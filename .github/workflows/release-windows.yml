@@ -29,7 +29,7 @@ jobs:
           $tagCommit = git rev-parse "refs/tags/$env:RELEASE_TAG^{commit}"
           if ($LASTEXITCODE -ne 0) { throw 'Existing tag required' }
           if ($tagCommit -ne (git rev-parse HEAD)) { throw 'Tag and checkout differ' }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - uses: actions/cache@v4
