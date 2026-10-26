@@ -3564,7 +3564,12 @@ class IxTests : public QObject {
         QCOMPARE(QImage(target).size(), QSize(20, 20));
         auto result = Exiv2::ImageFactory::open(target.toStdString());
         result->readMetadata();
-        QCOMPARE(Exiv2::ExifThumb(result->exifData()).copy().size(), size_t(0));
+        const auto savedThumbnail = Exiv2::ExifThumb(result->exifData()).copy();
+#if EXIV2_TEST_VERSION(0, 28, 0)
+        QCOMPARE(savedThumbnail.size(), size_t(0));
+#else
+        QCOMPARE(savedThumbnail.size_, 0L);
+#endif
 #endif
     }
 

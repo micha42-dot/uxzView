@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reuse cached, unchanged single-page PNG/BMP originals for neighbor previews without decoding the file again. Retain decoder paths for JPEG, RAW, animations and multiple pages; recheck cancellation and source revision after scaling.
+- Fix the remaining Exiv2 0.27 thumbnail assertion that prevents Linux tests from compiling. Identify the save-warning test by content/buttons rather than macOS-ignored message titles, including a titleless regression.
+- Retain native configure/compiler logs as CI artifacts even when compilation fails, and install both existing README images with native documentation.
+
 - Keep filesystem timestamps with the loaded document, refresh source state on worker-side save/rename completion and retain it through Undo. Zoom/selection status updates no longer query the file's last-write time.
 - Add bounded first-open diagnostic runs with retained partial reports/checkpoints, stale-result rejection and five subprocess regressions. Benchmark windows no longer automatically take focus.
 

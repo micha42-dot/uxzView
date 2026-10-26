@@ -1,11 +1,12 @@
-"""Print retained QtTest/CTest reports when a CI build or test step fails."""
+"""Print retained configure/build and QtTest/CTest reports after a CI failure."""
 import argparse
 from pathlib import Path
 import sys
 
 
 def report_test_logs(build: Path, stream):
-    reports = sorted(build.glob('*test-results.txt'))
+    reports = [build / name for name in ('configure.log', 'build.log') if (build / name).is_file()]
+    reports.extend(sorted(build.glob('*test-results.txt')))
     ctest = build / 'Testing/Temporary/LastTest.log'
     if ctest.is_file():
         reports.append(ctest)

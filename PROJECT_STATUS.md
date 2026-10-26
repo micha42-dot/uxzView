@@ -18,6 +18,10 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Noch unveröffentlicht: Der aktuelle GitHub-Lauf besteht unter Windows. Der bestätigte Linux-Compilerfehler im Exiv2-0.27-Test und die titellose macOS-Speicherwarnung sind lokal korrigiert; Compilerprotokolle werden künftig als Artefakte gesichert. Ein neuer Linux-/macOS-Lauf bleibt erforderlich. [CI-Nachprüfung](docs/CI_REPAIR_2026-10-26.md).
+
+- Noch unveröffentlicht: PNG-/BMP-Vorschaubilder nutzen unveränderte Originale aus dem vorhandenen RAM-Cache. Gemessen bei 12 MP: 5–10 statt 154–322 ms pro Miniatur bei bereits geladenem Original, ohne neue Bibliotheken oder zusätzliches Cache-Budget. JPEG/RAW/Animationen behalten ihre Decoderpfade. Alle 20 lokalen Windows-Prüfschritte mit 35 Python- und 256 Qt-Prüfungen bestehen. [Messung und Grenzen](docs/PERFORMANCE.md#avoid-repeat-decoding-for-cached-pngbmp-previews--2026-10-26).
+
 - Noch unveröffentlicht: Die Statusleiste verwendet den Zeitstempel der geladenen Dateirevision ohne erneute Dateisystemabfragen beim Zoomen/Auswählen. Speichern und Umbenennen liefern Dateistand und Attribute aus dem Worker; Undo behält den Zielbezug. Neue begrenzte Lade-Diagnosen sichern auch bei Prozessfehlern Teilprotokolle und Checkpoints. Alle 20 Windows-Prüfschritte mit 35 Python- und 248 Qt-Prüfungen bestehen, einschließlich vier DPI-Skalierungen. [Prüfung vom 26.10.](docs/REVIEW_2026-10-26.md).
 
 - Noch unveröffentlicht: Die Formatliste für die erste Ordnerindizierung wird im Worker statt vor der Bildanzeige im GUI-Thread ermittelt. Verlauf und letzter Ordner werden gemeinsam und nur bei Änderungen geschrieben. Gemessene erste Zeichnung im Windows-Fenster: PNG 141 → 69 ms, JPEG 152 → 84 ms (je drei Vergleichsläufe, begrenzte Stichprobe). Alle 30 Python- und 246 Qt-Prüfungen des lokalen Kernlaufs bestehen. README-Bilder bleiben auch in Export und mitgelieferter Dokumentation erhalten. [Messung und Grenzen](docs/PERFORMANCE.md#first-image-in-an-already-running-window-2026-10-25).

@@ -596,7 +596,13 @@ class WorkflowTests : public QObject {
         // exceed 512 MiB; reject before allocating those extra buffers.
         QVERIFY_EXCEPTION_THROWN(ix::resample(pixels, options), std::runtime_error);
     }
+    void saveKeepsTargetChangedDuringLossWarning_data() {
+        QTest::addColumn<bool>("titlelessMessages");
+        QTest::newRow("platform-default") << false;
+        QTest::newRow("titleless-macos-dialogs") << true;
+    }
     void saveKeepsTargetChangedDuringLossWarning() {
+        QFETCH(bool, titlelessMessages);
         const auto source = temporary_.filePath(QStringLiteral("save-warning-source.png"));
         const auto target = temporary_.filePath(QStringLiteral("save-warning-target.jpg"));
         QImage image(32, 16, QImage::Format_ARGB32);
@@ -608,23 +614,47 @@ class WorkflowTests : public QObject {
         ix::MainWindow window;
         window.openPath(source);
         QTRY_VERIFY(!window.isBusy() && window.document().path == source);
+        const auto sourceHash = ix::sha256File(source);
+        const auto warningText = ix::CodecRegistry::exportLosses(window.document(), "jpg")
+                                     .join(QStringLiteral("\n\n")) +
+                                 ix::localized(QStringLiteral("\n\nTrotzdem speichern?"));
         const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         const auto restore = qScopeGuard([native] {
             QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
         });
         bool chosen = false, changed = false;
-        QString protectedHash;
+        QString protectedHash, dialogError;
+        QElapsedTimer deadline;
+        deadline.start();
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
-            if (auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+            auto *modal = QApplication::activeModalWidget();
+            if (deadline.elapsed() > 10000 && dialogError.isEmpty())
+                dialogError = QStringLiteral("Save warning workflow exceeded 10 seconds");
+            if (!dialogError.isEmpty()) {
+                if (auto *dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+                return;
+            }
+            if (auto *dialog = qobject_cast<QFileDialog *>(modal)) {
                 if (!chosen) {
+                    auto *editor = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+                    if (!editor) {
+                        dialogError = QStringLiteral("Expected the Qt save filename editor");
+                        dialog->reject();
+                        return;
+                    }
                     chosen = true;
-                    dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(target);
+                    editor->setText(target);
                     QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
                 }
-            } else if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
-                if (!changed && message->windowTitle() == ix::localized(QStringLiteral("Hinweise zum Ausgabeformat"))) {
+            } else if (auto *message = qobject_cast<QMessageBox *>(modal)) {
+                // QMessageBox::setWindowTitle is deliberately ignored on macOS.
+                // Also exercise that behavior on other CI hosts.
+                if (titlelessMessages) message->QWidget::setWindowTitle(QString());
+                if (!changed && message->icon() == QMessageBox::Warning &&
+                    message->text() == warningText &&
+                    message->standardButtons() == (QMessageBox::Yes | QMessageBox::Cancel)) {
                     QImage newer(113, 71, QImage::Format_RGB32);
                     newer.fill(Qt::blue);
                     changed = newer.save(target);
@@ -637,8 +667,13 @@ class WorkflowTests : public QObject {
         timer.start(10);
         window.dispatch(QStringLiteral("saveAs"));
         timer.stop();
-        QVERIFY(chosen && changed && !protectedHash.isEmpty());
+        QVERIFY2(dialogError.isEmpty(), qPrintable(dialogError));
+        QVERIFY(chosen);
+        QVERIFY2(changed, "Expected the JPEG loss warning before rewriting the save destination");
+        QVERIFY(!protectedHash.isEmpty());
         QCOMPARE(ix::sha256File(target), protectedHash);
+        QCOMPARE(QImage(target).size(), QSize(113, 71));
+        QCOMPARE(ix::sha256File(source), sourceHash);
         QCOMPARE(window.document().path, source);
     }
     void pipelineRejectsSourceChangedByDecoder() {
@@ -865,6 +900,71 @@ class WorkflowTests : public QObject {
         filter->setCurrentIndex(int(ix::ResampleFilter::Nearest));
         QCOMPARE(resize.options().filter, ix::ResampleFilter::Nearest);
         QVERIFY(!resize.options().fastDownscale);
+    }
+    void previewsReuseOnlyEligibleCachedOriginals_data() {
+        QTest::addColumn<int>("kind");
+        QTest::newRow("static-png") << 0;
+        QTest::newRow("animation") << 1;
+        QTest::newRow("multipage") << 2;
+        QTest::newRow("modified") << 3;
+        QTest::newRow("raw") << 4;
+        QTest::newRow("static-bmp") << 5;
+        QTest::newRow("jpeg-reduced-decoder") << 6;
+    }
+    void previewsReuseOnlyEligibleCachedOriginals() {
+        QFETCH(int, kind);
+        ix::ImageLoadCache::clear();
+        ix::ImageLoadCache::configure(192, 0, true);
+        const auto restore = qScopeGuard([] {
+            ix::ImageLoadCache::clear();
+            ix::ImageLoadCache::configure(192, 16, true);
+        });
+        const auto path = photo(QStringLiteral("borrow-preview-%1.%2")
+                                    .arg(kind).arg(kind == 5 ? QStringLiteral("bmp") : QStringLiteral("png")),
+                                Qt::blue);
+        QVERIFY(!path.isEmpty());
+        class DecodedOriginal final : public ix::ImageCodec {
+          public:
+            int kind = 0;
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &path, int) const override {
+                ix::ImageDocument d;
+                d.path = path;
+                d.format = kind == 4 ? "dng" : kind == 5 ? "bmp" : kind == 6 ? "jpeg" : "png";
+                d.animated = kind == 1;
+                d.pageCount = kind == 2 ? 2 : 1;
+                d.modified = kind == 3;
+                d.pixels = QImage(96, 64, QImage::Format_RGBA64);
+                d.pixels.fill(QColor(11, 200, 77, 123));
+                d.pixels.setColorSpace(QColorSpace::DisplayP3);
+                return {d, {}};
+            }
+        };
+        ix::CodecRegistry registry;
+        auto codec = std::make_shared<DecodedOriginal>();
+        codec->kind = kind;
+        registry.add(codec);
+        const auto original = ix::ImageLoadCache::read(registry, path);
+        QVERIFY(original.ok());
+        const auto originalKey = original.document.pixels.cacheKey();
+        const auto preview = ix::loadPreview(path, {30, 20});
+        QVERIFY(!preview.isNull());
+        if (kind == 0 || kind == 5) {
+            QCOMPARE(preview, original.document.pixels.scaled(30, 20, Qt::KeepAspectRatio,
+                                                              Qt::SmoothTransformation));
+            QCOMPARE(preview.format(), QImage::Format_RGBA64);
+            QCOMPARE(preview.colorSpace(), original.document.pixels.colorSpace());
+        } else {
+            QCOMPARE(preview.pixelColor(0, 0), QColor(Qt::blue));
+        }
+        QCOMPARE(original.document.pixels.cacheKey(), originalKey);
+        QImage replacement(97, 65, QImage::Format_RGB32);
+        replacement.fill(Qt::red);
+        QVERIFY(replacement.save(path));
+        const auto refreshed = ix::loadPreview(path, {30, 20});
+        QVERIFY(!refreshed.isNull());
+        QCOMPARE(refreshed.pixelColor(0, 0), QColor(Qt::red));
     }
     void previewsResumeAfterStopWithoutNavigation() {
         const auto first = photo(QStringLiteral("resume/a.png"), Qt::red);

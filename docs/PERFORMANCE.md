@@ -389,3 +389,86 @@ selections. This does not change image content or viewer decoding; it preserves
 the README's existing assets when preparing the updated package. Release-note
 generation refers to maintained evidence rather than repeating stale fixed
 test counts.
+
+## Avoid repeat decoding for cached PNG/BMP previews — 2026-10-26
+
+On a thumbnail-cache miss, `loadPreview` previously reopened and decoded a file
+even when its unchanged full-resolution original was already in the document
+cache. It now borrows eligible original pixels by QImage implicit sharing and
+scales them outside the cache lock. This adds no runtime dependency or persistent
+cache budget. Source revision, page/animation state, modified state and format
+policy still apply. Cancellation, allocation failure and revision changes are
+checked after scaling, before a thumbnail is cached or returned.
+
+Only single-page, nonanimated PNG/BMP originals qualify. JPEG retains its
+decoder-scaled path; reduced JPEG decoding can avoid reading full-resolution
+pixels and need not match full-resolution resampling exactly. RAW and other
+formats also retain their established paths. See
+[Qt QImageReader](https://doc.qt.io/qt-6.8/qimagereader.html) for decoder-dependent
+scaling behavior and [QImage](https://doc.qt.io/qt-6.8/qimage.html) for sharing.
+
+The new `--profile-preview-reuse` mode creates temporary deterministic 4000x3000
+PNG/BMP fixtures, uses five alternating samples per arm and disables the exact
+thumbnail cache in both arms. Both decode and retain an original before timing
+the preview; one disables the document cache, the other enables it. Priming
+costs are reported separately. Each preview is compared exactly with a smooth
+resize of its original and the original's cache key must remain unchanged.
+
+Repeated Windows 11 / Qt 6.11.2 Release run, warm OS filesystem, median ms:
+
+| Format | Thumbnail bounds | Decode again | Borrow cached original |
+| --- | --- | ---: | ---: |
+| PNG | 68x50 | 155.42 | 4.70 |
+| PNG | 512x512 | 322.09 | 9.87 |
+| BMP | 68x50 | 156.85 | 6.59 |
+| BMP | 512x512 | 154.23 | 7.10 |
+
+These are thumbnail-operation timings with an already-decoded original, not
+first-open or end-to-end browsing speedups. Original decode cost remains and
+cache misses/oversized originals do not gain this shortcut. CPU/OS load varied
+between runs; compare the alternating arms within each case. Baseline with the
+same new profiler shows no fast path before the change. Evidence:
+`build/preview-reuse-before.json`, `preview-reuse-after.json` and
+`preview-reuse-after-repeat.json`. Fixtures are deleted automatically.
+
+```powershell
+./build/ixview_benchmarks.exe build/preview-reuse.json --profile-preview-reuse -platform offscreen
+```
+
+The regression fails on the old implementation for the eligible cached PNG.
+It verifies PNG/BMP reuse with preserved alpha, precision and color profile;
+unchanged originals; decoder fallback for animation, multiple pages, modified
+documents, RAW and JPEG; and invalidation after a source rewrite.
+
+Local verification: all 20 steps of
+`python -B scripts/validate.py --suite all --require-assets` pass, including
+35 Python tests and 256 Qt checks with no failures/skips (155 main, 59 workflow,
+13 quality, 12 storage, 17 extension), native Windows suites and
+100/125/150/200 percent scales. Evidence: `build/current-ci-validation.log`,
+`build/validation-summary.json` and the retained suite reports. The first
+sandboxed Python diagnostic attempt was denied access to the sandbox's temporary
+directory; the complete run used the normal platform temporary directory and
+passed without weakening tests. This remains Windows evidence, not confirmation
+of the corrected Linux/macOS workflow or every graphics driver.
+
+The deployed portable runtime also passes all 256 Qt checks without SDK paths,
+real QR/OCR engine execution with all five models, and relocated profile/tools
+startup (`build/current-ci-portable.log`). Dependency verification rechecks all
+65 corresponding-source URLs without changing SDK/runtime library hashes.
+
+### Further architectural candidates, not implemented
+
+- Decode a viewport-sized JPEG first, and request original pixels only for
+  zoom/edit/export. This requires an explicit proxy/original document state,
+  exact selection coordinates and tests that proxy pixels never reach exports,
+  Undo or recognition inputs. Existing RAW-preview separation is a useful base.
+- Share identical in-flight reads between foreground loading and prefetch.
+  Cancellation must detach individual subscribers rather than abort a decoder
+  still needed by another consumer; benchmark latency and peak memory first.
+- For huge JPEG zoom regions, evaluate decoder clipping/partial decoding before
+  adding GPU textures. Tile uploads, color management and driver behavior can
+  offset GPU gains. Existing libjpeg-turbo already uses CPU SIMD where supported.
+
+These candidates avoid assuming that more threads, GPU work or another cache
+automatically improves interactive latency. They require separate measurements
+and ownership changes, not hidden quality reductions.

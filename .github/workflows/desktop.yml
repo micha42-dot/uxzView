@@ -122,9 +122,14 @@ jobs:
             prefixes="$prefixes;$(brew --prefix);$(brew --prefix jpeg-turbo);$(brew --prefix exiv2);$(brew --prefix libtiff)"
             options+=("-DCMAKE_OSX_ARCHITECTURES=$BUILD_CPU" "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0")
           fi
-          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIX_DEPLOY_QT=ON "-DCMAKE_PREFIX_PATH=$prefixes" "${options[@]}"
+          set -o pipefail
+          mkdir -p build/native
+          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIX_DEPLOY_QT=ON "-DCMAKE_PREFIX_PATH=$prefixes" "${options[@]}" 2>&1 | tee build/native/configure.log
       - name: Build
-        run: cmake --build build/native --parallel 3
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build/native --parallel 3 2>&1 | tee build/native/build.log
       - name: Test
         run: ctest --test-dir build/native --output-on-failure
       - name: Install runtime
@@ -161,6 +166,8 @@ jobs:
             dist/*.tar.gz
             dist/*.sha256.json
             build/native/*test-results.*
+            build/native/configure.log
+            build/native/build.log
             build/native/Testing/Temporary/*.log
             build/native/installed-image-probe.json
             tests/output/*.png

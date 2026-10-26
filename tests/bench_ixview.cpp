@@ -12,6 +12,7 @@
 #include "ui/preview_strip.h"
 #include "ui/slideshow_controller.h"
 #include <QElapsedTimer>
+#include <QColorSpace>
 #include <QCollator>
 #include <QDirListing>
 #include <QImageReader>
@@ -21,6 +22,63 @@
 #include <QtWidgets>
 #include <vector>
 namespace {
+QJsonObject profilePreviewReuse() {
+    QTemporaryDir temporary(QDir::current().filePath(QStringLiteral("build/preview-reuse-XXXXXX")));
+    if (!temporary.isValid())
+        return {{QStringLiteral("error"), QStringLiteral("Cannot create preview fixtures")}};
+    QImage pixels(4000, 3000, QImage::Format_RGB32);
+    pixels.setColorSpace(QColorSpace::SRgb);
+    for (int y = 0; y < pixels.height(); ++y) {
+        auto *row = reinterpret_cast<QRgb *>(pixels.scanLine(y));
+        for (int x = 0; x < pixels.width(); ++x)
+            row[x] = qRgb((x * 7 + y) % 256, (x + y * 3) % 256, (x * 2 + y * 11) % 256);
+    }
+    QJsonArray cases;
+    ix::CodecRegistry registry;
+    const auto restore = qScopeGuard([] {
+        ix::ImageLoadCache::clear();
+        ix::ImageLoadCache::configure(192, 16, true);
+    });
+    for (const auto &format : {QStringLiteral("png"), QStringLiteral("bmp")}) {
+        const auto path = temporary.filePath(QStringLiteral("fixture.") + format);
+        if (!pixels.save(path))
+            return {{QStringLiteral("error"), QStringLiteral("Cannot save preview fixture")}};
+        for (const QSize bounds : {QSize(68, 50), QSize(512, 512)}) {
+            QJsonArray decoder, borrowed, decoderPrime, borrowedPrime;
+            for (int sample = 0; sample < 5; ++sample) {
+                for (int arm = 0; arm < 2; ++arm) {
+                    const bool reuse = (sample + arm) % 2;
+                    ix::ImageLoadCache::clear();
+                    ix::ImageLoadCache::configure(reuse ? 192 : 0, 0, true);
+                    QElapsedTimer timer;
+                    timer.start();
+                    const auto original = ix::ImageLoadCache::read(registry, path);
+                    const auto prime = timer.nsecsElapsed() / 1e6;
+                    if (!original.ok())
+                        return {{QStringLiteral("error"), original.error}};
+                    const auto key = original.document.pixels.cacheKey();
+                    const auto expected = original.document.pixels.scaled(bounds, Qt::KeepAspectRatio,
+                                                                         Qt::SmoothTransformation);
+                    timer.restart();
+                    const auto preview = ix::loadPreview(path, bounds);
+                    const auto elapsed = timer.nsecsElapsed() / 1e6;
+                    if (preview.isNull() || preview != expected || original.document.pixels.cacheKey() != key)
+                        return {{QStringLiteral("error"), QStringLiteral("Preview pixels or original changed")}};
+                    (reuse ? borrowed : decoder).append(elapsed);
+                    (reuse ? borrowedPrime : decoderPrime).append(prime);
+                }
+            }
+            cases.append(QJsonObject{{QStringLiteral("format"), format},
+                                     {QStringLiteral("bounds"), QStringLiteral("%1x%2").arg(bounds.width()).arg(bounds.height())},
+                                     {QStringLiteral("decoder_ms"), decoder},
+                                     {QStringLiteral("borrowed_ms"), borrowed},
+                                     {QStringLiteral("decoder_prime_ms"), decoderPrime},
+                                     {QStringLiteral("borrowed_prime_ms"), borrowedPrime}});
+        }
+    }
+    return {{QStringLiteral("cases"), cases}, {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+            {QStringLiteral("note"), QStringLiteral("Warm filesystem, 12 MP PNG/BMP, original decoded before every timed preview. Alternating order, preview cache disabled, exact pixel comparison. Priming cost reported separately; not first-open or end-to-end viewer latency.")}};
+}
 class FirstImagePaint final : public QObject {
   public:
     std::function<void()> completed;
@@ -471,6 +529,13 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-preview-reuse"))) {
+        const auto report = profilePreviewReuse();
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-first-open"))) {
         const auto input = QFileInfo(app.arguments().value(3)).absoluteFilePath();
         const auto report = profileFirstOpen(input);

@@ -68,6 +68,10 @@ isolated destinations, select the Qt file-name editor explicitly, and submit
 only once; do not silence application overwrite warnings to automate a test.
 On macOS, Qt's About box can be modeless, so observe and close its visible window
 asynchronously rather than expecting `activeModalWidget()` or a blocking call.
+QMessageBox titles are ignored on macOS, including widget dialogs. Match the
+expected content, icon and buttons instead; retain titleless regression cases.
+Native CI also uploads `configure.log` and `build.log` so compiler failures
+remain diagnosable before CTest creates reports.
 
 ## Diagnose and measure
 

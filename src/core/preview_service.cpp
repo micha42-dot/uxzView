@@ -31,13 +31,29 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
         return {};
     if (!bounds.isValid() || bounds.width() > 2048 || bounds.height() > 2048 || (cancel && cancel->load()))
         return {};
-    const auto key = imageFileKey(path) + QStringLiteral("/%1x%2").arg(bounds.width()).arg(bounds.height());
+    const auto revision = imageFileKey(path);
+    const auto key = revision + QStringLiteral("/%1x%2").arg(bounds.width()).arg(bounds.height());
+    QImage image;
+    QByteArray cachedFormat;
     {
         QMutexLocker lock(&cacheMutex);
         if (auto *image = previews.object(key))
             return *image;
+        if (auto *document = documents.object(revision + QStringLiteral("/0"));
+            document && document->sourceRevision == revision && !document->modified &&
+            !document->animated && document->page == 0 && document->pageCount == 1) {
+            const auto format = document->format.toLower();
+            // These decoders scale after reading all pixels. Borrow the unchanged
+            // original via implicit sharing; never scale while holding the lock.
+            // JPEG's reduced decoder and RAW/animated pages keep their own paths.
+            if (format == "png" || format == "bmp") {
+                image = document->pixels;
+                cachedFormat = format;
+            }
+        }
     }
-    QImage image;
+    if (!cachedFormat.isEmpty() && !PluginStore::formatEnabled(cachedFormat))
+        return {};
 #ifdef IX_RAW_PREVIEW_MODULE
     if (isRawImage(path)) {
         static QLibrary module(optionalModulePath(QStringLiteral(IX_RAW_PREVIEW_MODULE)));
@@ -76,9 +92,10 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
     }
     if (image.isNull() || (cancel && cancel->load()))
         return {};
-    if (key != imageFileKey(path) + QStringLiteral("/%1x%2").arg(bounds.width()).arg(bounds.height()))
-        return {};
     image = image.scaled(bounds, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // Scaling can allocate or outlive cancellation/a source rewrite too.
+    if (image.isNull() || (cancel && cancel->load()) || revision != imageFileKey(path))
+        return {};
     {
         QMutexLocker lock(&cacheMutex);
         previews.insert(key, new QImage(image), int(image.sizeInBytes()));
