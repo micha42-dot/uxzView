@@ -31,13 +31,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:IX_REQUIRE_RAW = '1'
           $env:IX_REQUIRE_TOOLS = '1'
-          ./scripts/build.ps1 -Test
+          ./scripts/build.ps1 -Test -RequireFullFeatures
       - name: Assemble and verify portable runtime
         shell: pwsh
         run: |
           python scripts/format_matrix.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/deploy.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/verify_native_modules.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:IX_REQUIRE_RAW = '1'
           $env:IX_REQUIRE_TOOLS = '1'
@@ -124,7 +126,7 @@ jobs:
           fi
           set -o pipefail
           mkdir -p build/native
-          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIX_DEPLOY_QT=ON "-DCMAKE_PREFIX_PATH=$prefixes" "${options[@]}" 2>&1 | tee build/native/configure.log
+          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIX_REQUIRE_FULL_FEATURES=ON -DIX_DEPLOY_QT=ON "-DCMAKE_PREFIX_PATH=$prefixes" "${options[@]}" 2>&1 | tee build/native/configure.log
       - name: Build
         shell: bash
         run: |
@@ -133,28 +135,50 @@ jobs:
       - name: Test
         run: ctest --test-dir build/native --output-on-failure
       - name: Install runtime
-        run: cmake --install build/native --prefix "${{ github.workspace }}/dist/native"
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --install build/native --prefix "${{ github.workspace }}/dist/native" 2>&1 | tee build/native/install.log
       - name: Installed runtime smoke check
         shell: bash
         run: |
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH LD_LIBRARY_PATH DYLD_LIBRARY_PATH QML2_IMPORT_PATH
-          export QT_QPA_PLATFORM=offscreen
           if [[ "$RUNNER_OS" == macOS ]]; then
-            dist/native/uxzView.app/Contents/MacOS/uxzView --version
-          else
-            dist/native/bin/uxzView --version
-            desktop-file-validate dist/native/share/applications/org.ixview.IxView.desktop
-          fi
-          if [[ "$RUNNER_OS" == macOS ]]; then
+            export QT_QPA_PLATFORM=cocoa
             app=dist/native/uxzView.app/Contents/MacOS/uxzView
           else
+            export QT_QPA_PLATFORM=offscreen
             app=dist/native/bin/uxzView
           fi
-          "$app" --probe-image tests/fixtures/smoke.png > build/native/installed-image-probe.json
+          if "$app" --version > build/native/installed-version.log 2>&1; then
+            cat build/native/installed-version.log
+          else
+            status=$?
+            cat build/native/installed-version.log
+            exit "$status"
+          fi
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            desktop-file-validate dist/native/share/applications/org.ixview.IxView.desktop
+          fi
+          if "$app" --probe-image tests/fixtures/smoke.png > build/native/installed-image-probe.json 2> build/native/installed-image-probe.log; then
+            cat build/native/installed-image-probe.log
+          else
+            status=$?
+            cat build/native/installed-image-probe.log build/native/installed-image-probe.json
+            exit "$status"
+          fi
           python3 -c 'import json; d=json.load(open("build/native/installed-image-probe.json")); assert (d["width"],d["height"],d["pages"],d["format"]) == (4,3,1,"png"), d'
+          python3 scripts/verify_native_modules.py --stage dist/native > build/native/installed-modules.log 2>&1 || {
+            status=$?
+            cat build/native/installed-modules.log
+            exit "$status"
+          }
+          cat build/native/installed-modules.log
       - name: Package native runtime
         shell: bash
-        run: python3 scripts/package_native.py --name "uxzView-${{ matrix.artifact }}"
+        run: |
+          set -o pipefail
+          python3 scripts/package_native.py --name "uxzView-${{ matrix.artifact }}" 2>&1 | tee build/native/package.log
       - name: Print complete test diagnostics
         if: failure()
         run: python scripts/report_test_logs.py --build-dir build/native
@@ -168,7 +192,12 @@ jobs:
             build/native/*test-results.*
             build/native/configure.log
             build/native/build.log
+            build/native/install.log
+            build/native/package.log
             build/native/Testing/Temporary/*.log
             build/native/installed-image-probe.json
+            build/native/installed-image-probe.log
+            build/native/installed-version.log
+            build/native/installed-modules.log
             tests/output/*.png
             tests/output/format-capabilities.json

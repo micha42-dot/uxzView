@@ -13,6 +13,7 @@ class Metadata {
     std::shared_ptr<Data> data;
     QMap<QString, QString> tags;
     bool hasExif = false, hasIptc = false, hasXmp = false;
+    qint64 nativeBytes = 0; // Bounded estimate of native tag/value/data-area storage.
 };
 std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warning);
 QByteArray attachMetadata(QByteArray encoded, const Metadata &metadata, QSize pixelSize, double dpiX,

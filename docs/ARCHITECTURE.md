@@ -30,6 +30,12 @@ In-process modules are internal interfaces, built and deployed with the applicat
 
 `ImageDocument` holds original pixel precision, metadata, source revision and page/animation state. `core/image_loading.*` owns the load pipeline (optional RAW preview, revision-aware cache read and presentation conversion) with an explicit `ImageLoadRequest`. `displayImage` prepares presentation pixels. `ImageView` owns fitting, scrolling, selection and its bounded optional display cache. Display caches must never supply pixels for save/export.
 
+`QtCodec` takes metadata presence from a successful `readMetadata` result,
+including a valid empty metadata set. Only when the reader supplies no result
+does it scan the bounded 256 KiB header for conservative EXIF/IPTC/XMP export
+warnings. Keep that fallback for unsupported formats and builds without Exiv2;
+parser warnings are independent of whether an export-loss warning is required.
+
 `MainWindow` currently coordinates the active document, commands, history and asynchronous completion. `DocumentActivity` is the single GUI-thread gate for loading/editing, saving, file transactions and delayed capture. Saving and file operations hold it across nested dialog event loops. Mutating commands must acquire the appropriate phase; queued opens/navigation run after the transaction finishes. `WorkMode` tells completion how to install a result and update history. Changing it while its worker runs is unsafe.
 
 The load service reads no settings and installs no document. Its optional preview callback runs only after a full-image cache miss, outside the cache lock, on the calling worker; GUI consumers queue it and check their generation/lifetime. Color management and display sharpening affect only the returned display image.
@@ -41,6 +47,13 @@ Workers receive captured value inputs and must not dereference widgets or implic
 `SlideshowController` owns sequencing; permission to advance remains with `MainWindow` and `DocumentActivity`. `FileJournal` owns file transactions and conflict checks. Document pixel history and file-operation undo are separate concepts.
 
 `core/file_revision.*` owns native file identity and timestamp precision independently of preview caches. `CodecRegistry::save` captures or accepts an expected destination revision, validates it before encoding and again before `QSaveFile::commit`. The UI retains that revision across its output warnings. Empty expected revisions require absence; omitted expectations capture the current target. These checks narrow external-write races but are not an atomic filesystem compare-and-swap.
+
+On successful full-image save, the document and its Undo history share the
+destination's written metadata-presence flag, derived from native containers,
+EXIF/IPTC/XMP flags and the chosen format. A valid empty metadata object does
+not imply tags were written. Selection export does not replace the active
+source state. The Save-as regression checks this against a fresh target decode
+and compares the complete export-loss report before/after Undo.
 
 Batch runs check source revisions before/after reading and before installation. An optional configured codec registry is copied into workers; custom readers must support the chosen parallelism. The synchronous run joins workers before returning, so the supplied registry is never retained afterward. Journal Undo refuses unknown operation kinds before touching target files.
 
@@ -54,7 +67,32 @@ The optional `ActionSearch` owns a persistent row per command and observes that 
 
 Document, thumbnail, display and animation caches have separate budgets. These are not a total RAM limit: active decoders, edits, encoders and undo also consume memory. Measure first decode, cached decode, indexing and repaint separately. [PERFORMANCE.md](PERFORMANCE.md) records comparisons and their limits.
 
+Document/thumbnail insertion costs include comments, text, ICC bytes and native
+metadata estimates in addition to pixels. `Metadata::nativeBytes` is collected
+with tags, including available EXIF data areas; it is a bounded estimate, not
+serialized profile state. Charges can overcount shared buffers. The 96 MiB
+original-pixel ceiling still applies, while total entry cost uses the selected
+budget. Disabled caches skip cost preparation. Cost arithmetic rejects entries
+beyond the maximum supported budget rather than wrapping/saturating into it.
+
+Both caches capture an epoch under their shared mutex before releasing it for
+decode work. Clearing advances that epoch, so an older completion cannot
+repopulate a cleared cache or overwrite a newer entry. Already-running calls
+can still return to their original consumers; this does not replace UI request
+generations, cancellation tokens or source revision checks.
+
 Resize image-buffer estimates distinguish native nearest-neighbor copying from 16-bit separable filtering and account for overlapping conversions/sharpening. Weight tables, allocator overhead and concurrent operations are additional costs. Derived DPI respects the UI range; processing rejects invalid density conversions before allocation.
+
+`convolve` recognizes only the exact standard 3×3 sharpening kernel (center 5,
+four neighbors −1, zero corners), divisor 1 and offset 0. It computes those
+bounded integer channel values directly in the existing RGBA64 working format.
+Edge replication, unchanged center alpha, output conversion and inherited
+profile/text/DPI match the scalar path. Other kernels/divisors/offsets retain
+that path. `tests/convolution_reference.h` keeps the original scalar arithmetic
+for independent comparisons; extend precision/edge coverage when changing this
+specialization. No additional image buffer, cache, thread pool or dependency is
+introduced. The shared operation serves explicit sharpening, resize sharpening,
+default-amount batch sharpening and optional display sharpening.
 
 ## First-image presentation
 

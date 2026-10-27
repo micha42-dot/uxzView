@@ -45,6 +45,23 @@ python3 scripts/validate.py --build-dir build/native --suite core
 
 The Windows native suite is unavailable there. Perform the platform checks in the build guide and record the desktop, Qt version and gaps. Native Linux/macOS runs have not yet been established locally.
 
+Desktop CI configures with `IX_REQUIRE_FULL_FEATURES=ON`; Windows build scripts
+expose this as `-RequireFullFeatures`. This rejects a missing Exiv2, LibRaw or Qt
+Network dependency at configure time. Keep this check in release preparation.
+Deliberately reduced builds leave it off and can use `IX_ENABLE_METADATA=OFF`,
+`CMAKE_DISABLE_FIND_PACKAGE_Qt6Network=TRUE` and `BUILD_TESTING=OFF`.
+Native Qt deployment receives the installed module paths, relative to the
+install prefix, rather than the corresponding build-tree binaries.
+Run `scripts/verify_native_modules.py` after deployment (on Unix, pass
+`--stage dist/native` and remove SDK library environment variables first).
+It resolves both modules and their exports without invoking UI/tool functions.
+On macOS it uses the app's `--probe-modules` diagnostic so dyld resolves
+`@executable_path` from the actual bundle executable, not Python. This command
+is also available directly on Windows/Linux and exits before profile setup.
+CTest declares all five suites serial and limits each to 300 seconds; parallel
+CTest invocation must not overlap their profile/GUI state. Native install,
+package and module-loader logs are retained and included in failure diagnostics.
+
 Targeted regressions can run directly:
 
 ```powershell
@@ -72,6 +89,12 @@ QMessageBox titles are ignored on macOS, including widget dialogs. Match the
 expected content, icon and buttons instead; retain titleless regression cases.
 Native CI also uploads `configure.log` and `build.log` so compiler failures
 remain diagnosable before CTest creates reports.
+Installed macOS smoke checks use the bundle's Cocoa platform; the SDK's
+offscreen plugin is not shipped in a normal macOS bundle. Keep the package
+check independent of SDK plugin/library paths and retain both startup logs.
+For filesystem fixtures, flush writes before assigning timestamps and verify
+the stored timestamp after closing. A compressed image's changed dimensions
+do not guarantee changed byte length or a distinct native file revision.
 
 ## Diagnose and measure
 

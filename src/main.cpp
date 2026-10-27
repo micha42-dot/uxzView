@@ -17,12 +17,14 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLibraryInfo>
+#include <QLibrary>
 #include <QSettings>
 #include <QMessageBox>
 #include <QStyleFactory>
 #include <QTextStream>
 #include <QTranslator>
 #include <exception>
+#include <initializer_list>
 int main(int argc, char **argv) {
     ix::Application app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("IxView"));
@@ -49,6 +51,8 @@ int main(int argc, char **argv) {
     parser.addOption(QCommandLineOption(
         QStringLiteral("probe-image"),
         QStringLiteral("Decode an image and print JSON without opening a window"), QStringLiteral("path")));
+    parser.addOption(QCommandLineOption(QStringLiteral("probe-modules"),
+                                        QStringLiteral("Check compiled optional modules and print JSON")));
     parser.addPositionalArgument(QStringLiteral("image"), QStringLiteral("Bilddatei"),
                                  QStringLiteral("[image]"));
     parser.process(app);
@@ -58,6 +62,41 @@ int main(int argc, char **argv) {
         output << QGuiApplication::applicationDisplayName() << QLatin1Char(' ')
                << QCoreApplication::applicationVersion() << Qt::endl;
         return 0;
+    }
+    if (parser.isSet(QStringLiteral("probe-modules"))) {
+        QJsonObject result;
+        bool ok = true;
+        [[maybe_unused]] const auto probe = [&](const QString &id, const QString &name,
+                               std::initializer_list<const char *> symbols) {
+            QLibrary library(ix::optionalModulePath(name));
+            bool loaded = library.load();
+            QJsonArray found;
+            if (loaded) {
+                for (const auto symbol : symbols) {
+                    if (library.resolve(symbol))
+                        found.append(QString::fromLatin1(symbol));
+                    else {
+                        loaded = false;
+                        break;
+                    }
+                }
+            }
+            QJsonObject module{{QStringLiteral("path"), name},
+                               {QStringLiteral("symbols"), found},
+                               {QStringLiteral("loaded"), loaded}};
+            if (!loaded) module.insert(QStringLiteral("error"), library.errorString());
+            result.insert(id, module);
+            ok &= loaded;
+        };
+#ifdef IX_RAW_PREVIEW_MODULE
+        probe(QStringLiteral("ixrawpreview"), QStringLiteral(IX_RAW_PREVIEW_MODULE), {"ixReadRawPreviewSized"});
+#endif
+#ifdef IX_EXTENSIONS_MODULE
+        probe(QStringLiteral("ixextensions"), QStringLiteral(IX_EXTENSIONS_MODULE),
+              {"ixOpenExtensionManager", "ixOpenFunctionExtensionManager"});
+#endif
+        QTextStream(stdout) << QJsonDocument(result).toJson(QJsonDocument::Compact) << Qt::endl;
+        return ok ? 0 : 2;
     }
     const auto storageError = ix::AppStorage::initialize({}, parser.isSet(QStringLiteral("portable")));
     if (!storageError.isEmpty()) {

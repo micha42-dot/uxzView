@@ -26,6 +26,8 @@
 #include <QSemaphore>
 #include <QtTest>
 #include <QtWidgets>
+#include <QtConcurrent>
+#include <QtEndian>
 #include <limits>
 
 class WorkflowTests : public QObject {
@@ -901,6 +903,149 @@ class WorkflowTests : public QObject {
         QCOMPARE(resize.options().filter, ix::ResampleFilter::Nearest);
         QVERIFY(!resize.options().fastDownscale);
     }
+    void cacheClearDoesNotRestoreOlderInFlightDocument() {
+        ix::ImageLoadCache::clear();
+        ix::ImageLoadCache::configure(192, 16, true);
+        const auto path = photo(QStringLiteral("cache-clear-race.bmp"), Qt::blue);
+        QVERIFY(!path.isEmpty());
+        class PausedCodec final : public ix::ImageCodec {
+          public:
+            mutable QSemaphore started, resume;
+            mutable std::atomic_int reads = 0;
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &path, int) const override {
+                const bool first = ++reads == 1;
+                ix::ImageDocument d;
+                d.path = path; d.format = "bmp";
+                d.pixels = QImage(16, 16, QImage::Format_RGB32);
+                d.pixels.fill(first ? Qt::red : Qt::blue);
+                if (first) { started.release(); resume.acquire(); }
+                return {d, {}};
+            }
+        };
+        auto codec = std::make_shared<PausedCodec>();
+        ix::CodecRegistry registry;
+        registry.add(codec);
+        auto pending = QtConcurrent::run([registry, path] { return ix::ImageLoadCache::read(registry, path); });
+        const auto finish = qScopeGuard([&] {
+            codec->resume.release();
+            pending.waitForFinished();
+            ix::ImageLoadCache::clear();
+        });
+        QVERIFY(codec->started.tryAcquire(1, 5000));
+        ix::ImageLoadCache::clear();
+        const auto current = ix::ImageLoadCache::read(registry, path);
+        QVERIFY(current.ok());
+        QCOMPARE(current.document.pixels.pixelColor(0, 0), QColor(Qt::blue));
+        codec->resume.release();
+        pending.waitForFinished();
+        QVERIFY(pending.result().ok());
+        QCOMPARE(pending.result().document.pixels.pixelColor(0, 0), QColor(Qt::red));
+        const auto cached = ix::ImageLoadCache::read(registry, path);
+        QVERIFY(cached.ok());
+        QCOMPARE(cached.document.pixels.pixelColor(0, 0), QColor(Qt::blue));
+        QCOMPARE(codec->reads.load(), 2);
+    }
+    void documentCacheChargesRetainedPayload_data() {
+        QTest::addColumn<int>("kind");
+        QTest::addColumn<int>("characters");
+        QTest::addColumn<bool>("fits");
+        QTest::addColumn<int>("budgetMiB");
+        QTest::newRow("image-comment") << 0 << 600000 << false << 1;
+        QTest::newRow("document-text") << 1 << 600000 << false << 1;
+        QTest::newRow("metadata-text") << 2 << 600000 << false << 1;
+        QTest::newRow("icc-profile") << 3 << 600000 << false << 1;
+        QTest::newRow("unsupported-icc-still-retains-bytes") << 4 << 600000 << false << 1;
+        QTest::newRow("small-metadata-still-caches") << 2 << 100 << true << 1;
+        QTest::newRow("large-estimate-cannot-overflow-maximum-budget") << 5 << 0 << false << 512;
+    }
+    void documentCacheChargesRetainedPayload() {
+        QFETCH(int, kind); QFETCH(int, characters); QFETCH(bool, fits);
+        QFETCH(int, budgetMiB);
+        ix::ImageLoadCache::clear();
+        ix::ImageLoadCache::configure(budgetMiB, 0, true);
+        const auto restore = qScopeGuard([] {
+            ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192, 16, true);
+        });
+        class PayloadCodec final : public ix::ImageCodec {
+          public:
+            int kind = 0, characters = 0;
+            mutable int reads = 0;
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &path, int) const override {
+                ++reads;
+                ix::ImageDocument d;
+                d.path = path; d.format = "bmp";
+                d.pixels = QImage(16, 16, QImage::Format_RGB32);
+                d.pixels.fill(Qt::blue);
+                const QString text(characters, QLatin1Char('x'));
+                if (kind == 0) d.pixels.setText(QStringLiteral("Comment"), text);
+                else if (kind == 1) d.text.insert(QStringLiteral("Comment"), text);
+                else if (kind == 2 || kind == 5) {
+                    auto metadata = std::make_shared<ix::Metadata>();
+                    if (kind == 2) metadata->tags.insert(QStringLiteral("Xmp.dc.description"), text);
+                    else metadata->nativeBytes = std::numeric_limits<qint64>::max();
+                    d.metadata = metadata;
+                } else {
+                    auto icc = QColorSpace(QColorSpace::SRgb).iccProfile();
+                    icc.append(QByteArray(characters * 2, '\0'));
+                    qToBigEndian(quint32(icc.size()), reinterpret_cast<uchar *>(icc.data()));
+                    if (kind == 4) icc[36] = 'x';
+                    d.pixels.setColorSpace(QColorSpace::fromIccProfile(icc));
+                }
+                return {d, {}};
+            }
+        };
+        const auto path = photo(QStringLiteral("cache-payload.bmp"), Qt::blue);
+        QVERIFY(!path.isEmpty());
+        auto codec = std::make_shared<PayloadCodec>();
+        codec->kind = kind; codec->characters = characters;
+        ix::CodecRegistry registry;
+        registry.add(codec);
+        const auto first = ix::ImageLoadCache::read(registry, path);
+        const auto second = ix::ImageLoadCache::read(registry, path);
+        QVERIFY(first.ok() && second.ok());
+        QCOMPARE(first.document.pixels, second.document.pixels);
+        if (kind == 0) QCOMPARE(second.document.pixels.text(QStringLiteral("Comment")).size(), characters);
+        else if (kind == 1) QCOMPARE(second.document.text.value(QStringLiteral("Comment")).size(), characters);
+        else if (kind == 2) {
+            QVERIFY(second.document.metadata);
+            QCOMPARE(second.document.metadata->tags.value(QStringLiteral("Xmp.dc.description")).size(), characters);
+        } else if (kind == 5) {
+            QVERIFY(second.document.metadata);
+            QCOMPARE(second.document.metadata->nativeBytes, std::numeric_limits<qint64>::max());
+        } else {
+            QCOMPARE(second.document.pixels.colorSpace().isValid(), kind == 3);
+            QVERIFY(second.document.pixels.colorSpace().iccProfile().size() > 1024 * 1024);
+        }
+        QCOMPARE(codec->reads, fits ? 1 : 2);
+    }
+    void previewCacheChargesImageComments_data() {
+        QTest::addColumn<int>("characters");
+        QTest::newRow("large-comment") << 600000;
+        QTest::newRow("small-comment-still-caches") << 100;
+    }
+    void previewCacheChargesImageComments() {
+        QFETCH(int, characters);
+        ix::ImageLoadCache::clear();
+        ix::ImageLoadCache::configure(0, 1, true);
+        const auto restore = qScopeGuard([] {
+            ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192, 16, true);
+        });
+        const auto path = temporary_.filePath(QStringLiteral("preview-text-budget.png"));
+        QImage source(64, 64, QImage::Format_RGB32);
+        source.fill(Qt::blue);
+        source.setText(QStringLiteral("Comment"), QString(characters, QLatin1Char('x')));
+        QVERIFY(source.save(path));
+        const auto first = ix::loadPreview(path, {32, 32});
+        const auto second = ix::loadPreview(path, {32, 32});
+        QVERIFY(!first.isNull() && !second.isNull());
+        QCOMPARE(first, second);
+        QCOMPARE(second.text(QStringLiteral("Comment")).size(), characters);
+        QCOMPARE(first.cacheKey() == second.cacheKey(), characters == 100);
+    }
     void previewsReuseOnlyEligibleCachedOriginals_data() {
         QTest::addColumn<int>("kind");
         QTest::newRow("static-png") << 0;
@@ -947,6 +1092,7 @@ class WorkflowTests : public QObject {
         registry.add(codec);
         const auto original = ix::ImageLoadCache::read(registry, path);
         QVERIFY(original.ok());
+        const auto originalBytes = QFileInfo(path).size();
         const auto originalKey = original.document.pixels.cacheKey();
         const auto preview = ix::loadPreview(path, {30, 20});
         QVERIFY(!preview.isNull());
@@ -959,9 +1105,15 @@ class WorkflowTests : public QObject {
             QCOMPARE(preview.pixelColor(0, 0), QColor(Qt::blue));
         }
         QCOMPARE(original.document.pixels.cacheKey(), originalKey);
-        QImage replacement(97, 65, QImage::Format_RGB32);
+        // A one-pixel dimension change can produce an equally sized compressed
+        // PNG in the same filesystem timestamp tick. This case needs a distinct
+        // revision; same-size/preserved-mtime rewrites have a separate test.
+        QImage replacement(512, 257, QImage::Format_RGB32);
         replacement.fill(Qt::red);
         QVERIFY(replacement.save(path));
+        QVERIFY2(QFileInfo(path).size() != originalBytes, "Replacement fixture must change encoded size");
+        QVERIFY2(ix::imageFileKey(path) != original.document.sourceRevision,
+                 "Replacement fixture must have a distinct file revision before checking the cache");
         const auto refreshed = ix::loadPreview(path, {30, 20});
         QVERIFY(!refreshed.isNull());
         QCOMPARE(refreshed.pixelColor(0, 0), QColor(Qt::red));

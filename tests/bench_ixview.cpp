@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "animation_fixture.h"
+#include "convolution_reference.h"
 #include "core/apng_codec.h"
 #include "core/codec_registry.h"
 #include "core/directory_index.h"
@@ -13,6 +14,7 @@
 #include "ui/slideshow_controller.h"
 #include <QElapsedTimer>
 #include <QColorSpace>
+#include <QCryptographicHash>
 #include <QCollator>
 #include <QDirListing>
 #include <QImageReader>
@@ -21,7 +23,105 @@
 #include <QtTest>
 #include <QtWidgets>
 #include <vector>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 namespace {
+QJsonObject profileSharpen() {
+    QJsonArray rows;
+    const QVector<double> kernel{0, -1, 0, -1, 5, -1, 0, -1, 0};
+    for (const auto size : {QSize(3000, 2000), QSize(6000, 4000)}) {
+        for (const auto format : {QImage::Format_RGB32, QImage::Format_RGBA64}) {
+            auto source = ix::test::filterPattern(size, format);
+            source.setColorSpace(QColorSpace::DisplayP3);
+            source.setDotsPerMeterX(4500);
+            source.setText(QStringLiteral("Comment"), QStringLiteral("sharpen measurement"));
+            const auto key = source.cacheKey();
+            const auto reference = ix::test::referenceConvolve(source, kernel, 3);
+            QJsonArray scalar, current;
+            for (int sample = 0; sample < 3; ++sample) {
+                for (const bool control : {sample % 2 == 0, sample % 2 != 0}) {
+                    QElapsedTimer timer;
+                    timer.start();
+                    const auto result = control ? ix::test::referenceConvolve(source, kernel, 3)
+                                                : ix::convolve(source, kernel, 3);
+                    const double elapsed = timer.nsecsElapsed() / 1e6;
+                    if (result != reference || result.colorSpace() != source.colorSpace() ||
+                        result.dotsPerMeterX() != source.dotsPerMeterX() ||
+                        result.text(QStringLiteral("Comment")) != source.text(QStringLiteral("Comment")) ||
+                        source.cacheKey() != key)
+                        return {{QStringLiteral("error"), QStringLiteral("Sharpen changed pixels, properties or original")}};
+                    (control ? scalar : current).append(elapsed);
+                }
+            }
+            rows.append(QJsonObject{{QStringLiteral("width"), size.width()}, {QStringLiteral("height"), size.height()},
+                {QStringLiteral("source_format"), int(format)}, {QStringLiteral("scalar_ms"), scalar},
+                {QStringLiteral("current_ms"), current}, {QStringLiteral("pixel_sha256"),
+                 QString::fromLatin1(QCryptographicHash::hash(QByteArrayView(
+                     reinterpret_cast<const char *>(reference.constBits()), reference.sizeInBytes()), QCryptographicHash::Sha256).toHex())}});
+        }
+    }
+    return {{QStringLiteral("samples"), rows}, {QStringLiteral("note"), QStringLiteral(
+        "Three alternating scalar/current samples per case; 6/24 MP, RGB32/RGBA64. Includes working-format conversion, filtering and output conversion; excludes file I/O and UI. Exact pixels/profile/text/DPI and unchanged source checked outside timing. Compare identical profiler builds before/after in alternating fresh processes.")}};
+}
+QJsonObject profileMetadataOpen(const QString &path) {
+    ix::CodecRegistry registry;
+    // Prime plugin/metadata initialization, not the document cache: each
+    // measured call below reads through the registry and decodes again.
+    const auto reference = registry.read(path);
+    if (!reference.ok())
+        return {{QStringLiteral("error"), reference.error}};
+    const auto &expected = reference.document;
+    QJsonArray times;
+#ifdef Q_OS_WIN
+    IO_COUNTERS before{}, after{};
+    const bool haveBefore = GetProcessIoCounters(GetCurrentProcess(), &before);
+#endif
+    for (int pass = 0; pass < 15; ++pass) {
+        QElapsedTimer timer;
+        timer.start();
+        const auto result = registry.read(path);
+        const auto elapsed = timer.nsecsElapsed() / 1e6;
+        if (!result.ok())
+            return {{QStringLiteral("error"), result.error}};
+        const auto &actual = result.document;
+        if (actual.pixels != expected.pixels || actual.pixels.colorSpace() != expected.pixels.colorSpace() ||
+            actual.sourceHasExif != expected.sourceHasExif || actual.metadataWarning != expected.metadataWarning ||
+            bool(actual.metadata) != bool(expected.metadata) ||
+            (actual.metadata && (actual.metadata->tags != expected.metadata->tags ||
+                                 actual.metadata->hasExif != expected.metadata->hasExif ||
+                                 actual.metadata->hasIptc != expected.metadata->hasIptc ||
+                                 actual.metadata->hasXmp != expected.metadata->hasXmp)))
+            return {{QStringLiteral("error"), QStringLiteral("Repeated decode/metadata results differ")}};
+        times.append(elapsed);
+    }
+#ifdef Q_OS_WIN
+    const bool haveAfter = GetProcessIoCounters(GetCurrentProcess(), &after);
+#endif
+    const auto hash = QCryptographicHash::hash(
+        QByteArrayView(reinterpret_cast<const char *>(expected.pixels.constBits()), expected.pixels.sizeInBytes()),
+        QCryptographicHash::Sha256).toHex();
+    QJsonObject report{{QStringLiteral("read_ms"), times},
+                       {QStringLiteral("format"), QString::fromLatin1(expected.format)},
+                       {QStringLiteral("width"), expected.pixels.width()},
+                       {QStringLiteral("height"), expected.pixels.height()},
+                       {QStringLiteral("file_bytes"), expected.fileBytes},
+                       {QStringLiteral("pixel_sha256"), QString::fromLatin1(hash)},
+                       {QStringLiteral("metadata_available"), bool(expected.metadata)},
+                       {QStringLiteral("source_has_metadata"), expected.sourceHasExif},
+                       {QStringLiteral("metadata_tags"), expected.metadata ? expected.metadata->tags.size() : 0},
+                       {QStringLiteral("metadata_warning"), !expected.metadataWarning.isEmpty()},
+                       {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+                       {QStringLiteral("note"), QStringLiteral("15 full registry reads after priming. Warm OS cache; no document cache or window presentation. Windows counters are process I/O, not physical disk traffic. Use identical profiler/fixtures and alternating before/after processes.")}};
+#ifdef Q_OS_WIN
+    if (haveBefore && haveAfter) {
+        report.insert(QStringLiteral("read_operations"), qint64(after.ReadOperationCount - before.ReadOperationCount));
+        report.insert(QStringLiteral("read_bytes"), qint64(after.ReadTransferCount - before.ReadTransferCount));
+        report.insert(QStringLiteral("other_operations"), qint64(after.OtherOperationCount - before.OtherOperationCount));
+    }
+#endif
+    return report;
+}
 QJsonObject profilePreviewReuse() {
     QTemporaryDir temporary(QDir::current().filePath(QStringLiteral("build/preview-reuse-XXXXXX")));
     if (!temporary.isValid())
@@ -529,6 +629,20 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-sharpen"))) {
+        const auto report = profileSharpen();
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-metadata-open"))) {
+        const auto report = profileMetadataOpen(QFileInfo(app.arguments().value(3)).absoluteFilePath());
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-preview-reuse"))) {
         const auto report = profilePreviewReuse();
         QFile out(app.arguments().value(1));

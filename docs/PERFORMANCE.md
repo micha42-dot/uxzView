@@ -472,3 +472,173 @@ startup (`build/current-ci-portable.log`). Dependency verification rechecks all
 These candidates avoid assuming that more threads, GPU work or another cache
 automatically improves interactive latency. They require separate measurements
 and ownership changes, not hidden quality reductions.
+
+## Remove the redundant metadata-header probe — 2026-10-26
+
+`QtCodec::read` opened a file and read up to 256 KiB to look for metadata
+signatures before calling Exiv2. A successful Exiv2 result then overwrote that
+coarse presence flag, including when the image has no metadata tags. The codec
+now asks the existing metadata reader first and performs the signature probe
+only when no metadata result is available. This removes one file open and its
+read work on the successful path without changing pixel decoding or metadata
+preservation. Unsupported formats and metadata-disabled builds keep the
+conservative fallback and export-loss policy. No dependency/cache is added.
+
+The new `--profile-metadata-open` mode performs 15 complete `CodecRegistry`
+reads after one priming read, without the document cache. It checks repeated
+pixels, profiles, tags, metadata flags and parser diagnostics for consistency.
+On Windows it also records process I/O counters. The same profiler was linked
+against the old/new core and run in alternating fresh processes: five per arm
+per fixture, repeated with reversed case/arm order (60 processes total).
+Fixture dimensions, file lengths, pixel hashes and metadata summaries match
+between builds. The JPEG is the existing 1920x1041 README example; the PNG is
+the 4x3 smoke fixture. A generated PPM exercises the unsupported-metadata path.
+
+Windows 11, Qt 6.11.2, GCC 16.2.0 Release; values per full read. Counts were
+identical across all ten processes in each arm:
+
+| Input | Bytes requested before | Bytes requested after | Read operations before → after |
+| --- | ---: | ---: | ---: |
+| JPEG, 442,271-byte file | 786,335 | 524,191 | 32 → 31 |
+| PNG, 78-byte file | 312 | 234 | 8 → 6 |
+| PPM fallback, 96-byte file | 384 | 384 | 8 → 8 |
+
+The JPEG saves exactly 262,144 bytes of requested reading per open. These are
+[Windows process I/O counters](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-io_counters),
+not physical disk traffic. The OS file cache was warm. PNG's long read also
+required an EOF read in the old path, so that fixture saves two operations.
+
+Timing medians across process medians vary: JPEG 13.16 → 12.56 ms in the first
+series and 15.50 → 12.26 ms in the confirmation; PNG 1.32 → 0.90 and
+1.02 → 0.85 ms. The unchanged PPM control reverses direction between series
+(0.75 → 1.00, then 0.57 → 0.50 ms), illustrating timing noise. No general
+percentage speedup, first-paint improvement or network-drive timing is claimed.
+The confirmed result is less requested I/O on the successful metadata path.
+
+```powershell
+./build/ixview_benchmarks.exe build/metadata-open.json --profile-metadata-open example.jpg -platform offscreen
+```
+
+Evidence: `build/metadata-probe-comparison.json`,
+`metadata-probe-confirmation-comparison.json`, individual raw samples, and
+`metadata-probe-before.exe`. The profiler branches before unrelated fixture
+generation. Successful reports contain no metadata tag values or image paths.
+
+Four real PPM cases verify plain/EXIF/XMP/IPTC-marker handling, original pixels,
+loss warnings and prevention of an unapproved export when metadata cannot be
+read. The existing Unicode/read-only metadata, EXIF orientation and selection
+thumbnail regressions pass before and after the change (nine targeted checks
+including setup/cleanup). Exiv2 may return no metadata with or without a parser
+warning; export protection does not depend on a parser error being present.
+
+All 35 Python tests and 260 Qt checks pass with required RAW/tool fixtures and
+no skips: 159 main, 59 workflow, 13 quality, 12 storage, 17 extension. The core
+CTest run takes 70.24 seconds. Evidence: `build/metadata-probe-validation.log`,
+`metadata-probe-validation-summary.json`, and retained
+`metadata-probe-*test-results.*` / `metadata-probe-core-*.log`.
+
+The deployed portable runtime repeats all 260 Qt checks without SDK paths and
+passes actual OCR/QR engines with all five OCR models plus relocated
+profile/tools startup (`build/metadata-probe-portable.log`). Native Linux/macOS
+confirmation still belongs to the next uploaded GitHub workflow; the local
+Windows evidence does not establish a successful four-platform run.
+
+## Retained cache data and clear boundaries — 2026-10-27
+
+The document and thumbnail budgets now charge text, profiles and native
+metadata estimates as well as pixel buffers. This prevents tiny images with
+large payloads from bypassing a small cache budget. Charges can conservatively
+count shared buffers more than once; they do not cap active decoder/UI/undo
+memory. Cost preparation happens on insertion outside the cache mutex and is
+skipped for a disabled cache. A cache hit does not walk metadata or serialize
+profiles. No new file reads or content hashing are introduced by cache hits.
+
+Cache clears advance an epoch. Decode work begun before a clear cannot restore
+its old cache entry over a newer result. The reproducible interleaving uses
+semaphores rather than sleeps and passes twenty consecutive checks after the
+fix. Existing request generations and cooperative cancellation still apply.
+
+The 12 MP preview profiler continues to produce exact pixels with unchanged
+originals: borrowed previews measure 8.47–10.14 ms after the correction, versus
+190.12–346.22 ms for decoding again in the same run. This is a cache-lifetime
+and resource-accounting change, not a newly established general speedup.
+Full results, original failures, native metadata/ICC cases, the maximum-budget
+boundary and limitations are in [REVIEW_2026-10-27.md](REVIEW_2026-10-27.md).
+
+The final review also corrects saved-document/Undo metadata presence without a
+second production decode. All 20 local validation steps pass with 35 Python
+tests and 270 Qt checks; the final portable runtime repeats all 270 checks
+without SDK paths, including real recognition engines/models and relocated
+storage. Native Save-as/Undo also passes separately. See the review's retained
+evidence paths and remaining platform/resource limits.
+
+## Exact integer standard sharpening — 2026-10-27
+
+The standard sharpening operation used a general 3×3 double-precision
+convolution, including four zero taps, repeated scanline lookups and per-channel
+division/rounding. Its actual kernel is integer-valued: five times the center
+minus the four adjacent samples. `convolve` now recognizes only that exact
+kernel with divisor 1 and offset 0 and evaluates it with bounded integer
+arithmetic in the same RGBA64 working format. Edge replication, center alpha,
+output format conversion, profile, comments and DPI remain unchanged. Other
+kernels, divisors and offsets keep the existing scalar implementation.
+
+The shared operation serves explicit sharpening, resizing with sharpening,
+default-amount batch sharpening and optional display sharpening. Ordinary
+navigation with display sharpening disabled does not run this filter and has
+no newly established speedup from this change. No additional image buffers,
+cache budgets, dependencies or workers are introduced.
+
+`--profile-sharpen` runs three alternating scalar/current samples per case,
+using deterministic 6/24 MP RGB32 and RGBA64 inputs. The same profiler is linked
+against the preceding and optimized cores. Three fresh processes per arm
+produce nine production timings per case; later process pairs reverse order.
+The scalar control stays in `tests/convolution_reference.h`. Pixel hashes match
+between all before/after processes. Each call also checks exact pixels,
+profile, comment, DPI and the unchanged original outside its timing.
+
+Windows 11, GCC 16.2.0, Qt 6.11.2 Release. Medians include working-format
+conversion, filtering and output conversion; no file I/O or GUI presentation:
+
+| Input | Previous production path | Optimized path | Ratio |
+| --- | ---: | ---: | ---: |
+| 6 MP, RGB32 | 488.47 ms | 78.68 ms | 6.21× |
+| 6 MP, RGBA64 | 417.78 ms | 50.37 ms | 8.29× |
+| 24 MP, RGB32 | 1,763.89 ms | 628.70 ms | 2.81× |
+| 24 MP, RGBA64 | 3,786.86 ms | 483.49 ms | 7.83× |
+
+The first process pair measured 6–11×; the repeated medians above give the
+more conservative 2.8–8.3× range. Timings vary substantially for large images:
+the unchanged 24 MP RGB32 scalar control shifts from 1,593 to 3,636 ms between
+arms, while the RGBA64 control remains near 3,500 ms. These are local workload
+measurements, not a general viewer/first-open speed claim or a cross-platform
+timing guarantee. No measurements run alongside compilation or validation.
+
+```powershell
+./build/ixview_benchmarks.exe build/sharpen.json --profile-sharpen -platform offscreen
+```
+
+Evidence: `build/sharpen-comparison.json`, `sharpen-before-{1,2,3}.json`,
+`sharpen-after-{1,2,3}.json`, matching process logs and retained
+`build/sharpen-before.exe`. Thirty new reference cases cover singleton/row/
+column borders, random samples, all 65,536 channel levels, premultiplied alpha,
+grayscale, floating-point inputs and fallback kernels/divisors/offsets. All
+32 targeted checks including setup/cleanup pass before and after the change.
+
+All **20 steps** of the full local validator pass: **41 Python tests** and
+**300 Qt checks**, no failures/skips (159 main, 69 workflow, 43 quality,
+12 storage, 17 extension). Native file/window/recognition checks and
+100/125/150/200 percent DPI cases pass. Reports:
+`build/sharpen-validation-summary.json`, `sharpen-validation.log`,
+`sharpen-*test-results.*` and `sharpen-core-*.log`. Build logs contain no
+compiler warnings. This establishes Windows evidence; native Linux/macOS
+execution and timing still require their respective hosts/CI.
+
+After deployment, all **300 portable Qt checks** repeat successfully without
+SDK paths, including all required RAW/tool fixtures. Real OCR/QR processes,
+all five OCR models, moved tool storage and relocated-profile startup pass.
+The two native modules load and all exports resolve. Deployment still has
+135 PE modules with no unresolved imports and preserves the seven tool packs.
+Evidence: `build/sharpen-deploy.log`, `sharpen-installed-modules.log` and
+`sharpen-portable.log`. Source and Windows archives are regenerated afterward;
+README and its two existing images remain unchanged.

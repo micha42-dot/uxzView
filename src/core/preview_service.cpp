@@ -4,6 +4,7 @@
 #include "plugin_store.h"
 #include "localization.h"
 #include <QCache>
+#include <QColorSpace>
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QFutureWatcher>
@@ -12,12 +13,53 @@
 #include <QMutex>
 #include <QPointer>
 #include <QtConcurrent>
+#include <algorithm>
 namespace ix {
 namespace {
 QMutex cacheMutex;
 QCache<QString, QImage> previews(16 * 1024 * 1024);
 QCache<QString, ImageDocument> documents(192 * 1024 * 1024);
+quint64 cacheEpoch = 0; // Protected by cacheMutex, like both caches.
 std::atomic_bool rawPreviewsEnabled = true;
+constexpr qint64 CacheCostLimit = ImageMemoryLimit + 1; // Reject beyond the largest 512 MiB budget.
+qint64 addCost(qint64 first, qint64 second) {
+    return std::min(CacheCostLimit, first + second);
+}
+qint64 stringCost(const QString &text) {
+    return std::min<qint64>(std::max(text.size(), text.capacity()), ImageMemoryLimit / 2) * 2;
+}
+qint64 textCost(const QString &key, const QString &value) {
+    return addCost(128, addCost(stringCost(key), stringCost(value)));
+}
+qint64 mapCost(const QMap<QString, QString> &text) {
+    qint64 bytes = 0;
+    for (auto it = text.cbegin(); it != text.cend(); ++it)
+        bytes = addCost(bytes, textCost(it.key(), it.value()));
+    return bytes;
+}
+qint64 imageCost(const QImage &image) {
+    qint64 bytes = std::min<qint64>(image.sizeInBytes(), ImageMemoryLimit);
+    for (const auto &key : image.textKeys())
+        bytes = addCost(bytes, textCost(key, image.text(key)));
+    // Unsupported profiles can retain their original bytes too. Imported
+    // profiles are implicitly shared; named spaces serialize to a small profile.
+    const auto icc = image.colorSpace().iccProfile();
+    return addCost(bytes, std::min<qint64>(icc.size(), ImageMemoryLimit / 2) * 2);
+}
+qint64 documentCost(const ImageDocument &document) {
+    auto bytes = addCost(imageCost(document.pixels), sizeof(ImageDocument));
+    bytes = addCost(bytes, stringCost(document.path));
+    bytes = addCost(bytes, stringCost(document.sourceRevision) * 2); // Field and cache key.
+    bytes = addCost(bytes, stringCost(document.metadataWarning));
+    bytes = addCost(bytes, mapCost(document.text));
+    if (document.metadata) {
+        // Native EXIF data areas include embedded thumbnails/binary values.
+        // Sharing can make this conservative; it is not a process-RAM limit.
+        bytes = addCost(bytes, mapCost(document.metadata->tags));
+        bytes = addCost(bytes, std::clamp<qint64>(document.metadata->nativeBytes, 0, ImageMemoryLimit));
+    }
+    return bytes;
+}
 } // namespace
 bool isRawImage(const QString &path) {
     return isRawFormat(QFileInfo(path).suffix().toLatin1());
@@ -35,8 +77,12 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
     const auto key = revision + QStringLiteral("/%1x%2").arg(bounds.width()).arg(bounds.height());
     QImage image;
     QByteArray cachedFormat;
+    quint64 epoch = 0;
+    bool cacheEnabled = false;
     {
         QMutexLocker lock(&cacheMutex);
+        epoch = cacheEpoch;
+        cacheEnabled = previews.maxCost() > 0;
         if (auto *image = previews.object(key))
             return *image;
         if (auto *document = documents.object(revision + QStringLiteral("/0"));
@@ -96,9 +142,11 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
     // Scaling can allocate or outlive cancellation/a source rewrite too.
     if (image.isNull() || (cancel && cancel->load()) || revision != imageFileKey(path))
         return {};
-    {
+    if (cacheEnabled) {
+        const auto cost = addCost(imageCost(image), addCost(stringCost(key), 64));
         QMutexLocker lock(&cacheMutex);
-        previews.insert(key, new QImage(image), int(image.sizeInBytes()));
+        if (epoch == cacheEpoch)
+            previews.insert(key, new QImage(image), int(cost));
     }
     return image;
 }
@@ -155,8 +203,12 @@ ImageResult ImageLoadCache::read(const CodecRegistry &registry, const QString &p
                                  const std::function<void()> &beforeDecode) {
     const auto revision = imageFileKey(path);
     const auto key = revision + QLatin1Char('/') + QString::number(page);
+    quint64 epoch = 0;
+    bool cacheEnabled = false;
     {
         QMutexLocker lock(&cacheMutex);
+        epoch = cacheEpoch;
+        cacheEnabled = documents.maxCost() > 0;
         if (auto *d = documents.object(key))
             return {*d, {}};
     }
@@ -167,9 +219,11 @@ ImageResult ImageLoadCache::read(const CodecRegistry &registry, const QString &p
         return {{}, IX_TEXT("Die Datei wurde während des Lesens verändert. Bitte erneut öffnen.")};
     if (result.ok())
         result.document.sourceRevision = revision;
-    if (result.ok() && result.document.pixels.sizeInBytes() <= 96 * 1024 * 1024) {
+    if (result.ok() && cacheEnabled && result.document.pixels.sizeInBytes() <= 96 * 1024 * 1024) {
+        const auto cost = documentCost(result.document);
         QMutexLocker lock(&cacheMutex);
-        documents.insert(key, new ImageDocument(result.document), int(result.document.pixels.sizeInBytes()));
+        if (epoch == cacheEpoch)
+            documents.insert(key, new ImageDocument(result.document), int(cost));
     }
     return result;
 }
@@ -182,6 +236,7 @@ void ImageLoadCache::configure(int imageMiB, int previewMiB, bool rawPreviews) {
 void ImageLoadCache::clear() {
     ApngCodec::clearSession();
     QMutexLocker lock(&cacheMutex);
+    ++cacheEpoch;
     documents.clear();
     previews.clear();
 }

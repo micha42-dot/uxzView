@@ -125,15 +125,17 @@ class QtCodec final : public ImageCodec {
             d.text.insert(key, d.pixels.text(key));
         QFile file(path);
         d.fileBytes = file.size();
-        // Conservative detection: Qt does not expose or preserve arbitrary EXIF/IPTC.
-        if (file.open(QIODevice::ReadOnly)) {
+        d.metadata = readMetadata(path, d.metadataWarning);
+        if (d.metadata) {
+            d.sourceHasExif = d.metadata->hasExif || d.metadata->hasIptc || d.metadata->hasXmp;
+        } else if (file.open(QIODevice::ReadOnly)) {
+            // Only probe when the metadata reader cannot supply an answer.
+            // Preserve conservative export warnings in unsupported/metadata-free
+            // builds without rereading a header after successful Exiv2 parsing.
             auto head = file.read(256 * 1024);
             d.sourceHasExif = head.contains("Exif\0\0") || head.contains("http://ns.adobe.com/xap/") ||
                               head.contains("Photoshop 3.0");
         }
-        d.metadata = readMetadata(path, d.metadataWarning);
-        if (d.metadata)
-            d.sourceHasExif = d.metadata->hasExif || d.metadata->hasIptc || d.metadata->hasXmp;
         return out;
     }
     QStringList extensions() const override {

@@ -186,7 +186,13 @@ class IxTests : public QObject {
             QFile file(folder + QLatin1Char('/') + names[i]);
             QVERIFY(file.open(QIODevice::WriteOnly));
             QCOMPARE(file.write(QByteArray(i + 1, 'x')), qint64(i + 1));
-            QVERIFY(file.setFileTime(epoch.addSecs(i * 10), QFileDevice::FileModificationTime));
+            // Buffered writes must reach the file before setting its mtime.
+            // Otherwise close() can overwrite the fixture's timestamp on Unix.
+            QVERIFY(file.flush());
+            const auto modified = epoch.addSecs(i * 10);
+            QVERIFY(file.setFileTime(modified, QFileDevice::FileModificationTime));
+            file.close();
+            QCOMPARE(QFileInfo(file.fileName()).lastModified(QTimeZone::UTC), modified);
         }
         QLocale locale;
         if (locale.language() == QLocale::C)
@@ -3436,6 +3442,11 @@ class IxTests : public QObject {
         QVERIFY2(dialogError.isEmpty(), qPrintable(dialogError));
         QVERIFY(submitted);
         QVERIFY(QFileInfo::exists(target));
+        const auto saved = ix::CodecRegistry().read(target);
+        QVERIFY2(saved.ok(), qPrintable(saved.error));
+        QCOMPARE(window.document().sourceHasExif, saved.document.sourceHasExif);
+        QCOMPARE(ix::CodecRegistry::exportLosses(window.document(), "bmp"),
+                 ix::CodecRegistry::exportLosses(saved.document, "bmp"));
         const auto savedTime = QFileInfo(target).lastModified();
         QCOMPARE(window.document().sourceModified, savedTime);
         QCOMPARE(window.document().path, target);
@@ -3448,6 +3459,7 @@ class IxTests : public QObject {
         QVERIFY(window.document().modified);
         QCOMPARE(QImage(target).size(), QSize(48, 64));
         QCOMPARE(window.document().sourceModified, savedTime);
+        QCOMPARE(window.document().sourceHasExif, saved.document.sourceHasExif);
         QCOMPARE(ix::sha256File(source), originalHash);
     }
     void batchPlanGuardsContentInAdditionToTimestamps() {
@@ -3544,6 +3556,8 @@ class IxTests : public QObject {
         window.openPath(source);
         QTRY_VERIFY_WITH_TIMEOUT(!window.document().empty(), 10000);
         window.findChild<ix::ImageView *>()->setSelection(QRect(0, 0, 20, 20));
+        QVERIFY(window.document().metadata);
+        QVERIFY(window.document().metadata->nativeBytes >= thumbnail.size());
         const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         auto restore =
@@ -4470,6 +4484,37 @@ class IxTests : public QObject {
                                    {1, 1, 20, 20})
                      .isEmpty());
     }
+    void metadataFallbackKeepsExportWarnings_data() {
+        QTest::addColumn<QByteArray>("marker");
+        QTest::newRow("plain") << QByteArray();
+        QTest::newRow("exif") << QByteArray("Exif marker");
+        QTest::newRow("xmp") << QByteArray("http://ns.adobe.com/xap/");
+        QTest::newRow("iptc") << QByteArray("Photoshop 3.0");
+    }
+    void metadataFallbackKeepsExportWarnings() {
+        QFETCH(QByteArray, marker);
+        const auto path = dir(QStringLiteral("metadata-fallback.ppm"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        // PPM is decoded by Qt but unsupported by Exiv2. Comment markers must
+        // still trigger the conservative loss warning when metadata is absent.
+        const auto bytes = QByteArray("P6\n# ") + marker + "\n2 1\n255\n" + QByteArray(6, char(100));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+        const auto result = ix::CodecRegistry().read(path);
+        QVERIFY2(result.ok(), qPrintable(result.error));
+        QVERIFY(!result.document.metadata);
+        QCOMPARE(result.document.sourceHasExif, !marker.isEmpty());
+        QCOMPARE(result.document.pixels.size(), QSize(2, 1));
+        QCOMPARE(result.document.pixels.pixelColor(0, 0), QColor(100, 100, 100));
+        const auto losses = ix::CodecRegistry::exportLosses(result.document, "png");
+        QCOMPARE(losses.isEmpty(), marker.isEmpty());
+        const auto target = dir(QStringLiteral("metadata-fallback-export.png"));
+        const auto error = ix::CodecRegistry().save(result.document, target, "png", 95, false);
+        QCOMPARE(error.isEmpty(), marker.isEmpty());
+        QCOMPARE(QFileInfo::exists(target), marker.isEmpty());
+        if (marker.isEmpty()) QVERIFY(QFile::remove(target));
+    }
     void metadataStreamsUnicodeReadOnlyFiles() {
 #ifdef IX_TEST_EXIV2
         QByteArray bytes;
@@ -4507,6 +4552,7 @@ class IxTests : public QObject {
         QString warning;
         const auto metadata = ix::readMetadata(path, warning);
         QVERIFY2(metadata, qPrintable(warning));
+        QVERIFY(metadata->nativeBytes > 0);
         QVERIFY(metadata->hasExif && metadata->hasIptc && metadata->hasXmp);
         QCOMPARE(metadata->tags.value(QStringLiteral("Exif.Image.Make")), QStringLiteral("IxView streaming fixture"));
         QCOMPARE(metadata->tags.value(QStringLiteral("Iptc.Application2.Caption")), QStringLiteral("Metadata range reading"));

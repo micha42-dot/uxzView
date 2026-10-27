@@ -3,6 +3,7 @@
 #include "metadata.h"
 #include <QFile>
 #include <QMutex>
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #ifdef IX_HAVE_EXIV2
@@ -183,8 +184,22 @@ std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warni
         md->hasIptc = !md->data->iptc.empty();
         md->hasXmp = !md->data->xmp.empty();
         auto collect = [&](const auto &container) {
-            for (const auto &tag : container)
-                md->tags.insert(QString::fromStdString(tag.key()), QString::fromStdString(tag.toString()));
+            constexpr qint64 limit = 512LL * 1024 * 1024;
+            for (const auto &tag : container) {
+                const auto key = tag.key(), value = tag.toString();
+                qint64 payload = std::min<qint64>(value.size(), limit);
+                try {
+                    payload = std::max(payload, std::clamp<qint64>(tag.size(), 0, limit));
+                    if constexpr (requires { tag.sizeDataArea(); })
+                        payload += std::clamp<qint64>(tag.sizeDataArea(), 0, limit);
+                } catch (const Exiv2::Error &) {
+                    // Accounting must not discard otherwise readable metadata.
+                    payload = std::max(payload, std::min(file.size(), limit));
+                }
+                md->nativeBytes = std::min(limit, md->nativeBytes + payload +
+                                                   std::min<qint64>(key.size(), limit) + 128);
+                md->tags.insert(QString::fromStdString(key), QString::fromStdString(value));
+            }
         };
         collect(md->data->exif);
         collect(md->data->iptc);
@@ -250,6 +265,7 @@ QByteArray attachMetadata(QByteArray encoded, const Metadata &md, QSize size, do
         return {};
     }
 #else
+    Q_UNUSED(encoded);
     Q_UNUSED(md);
     Q_UNUSED(size);
     Q_UNUSED(dpiX);

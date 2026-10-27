@@ -2,6 +2,7 @@
 #include "core/codec_registry.h"
 #include "core/file_journal.h"
 #include "core/preview_service.h"
+#include "convolution_reference.h"
 #include "ui/main_window.h"
 #include <QColorSpace>
 #include <QJsonDocument>
@@ -22,6 +23,54 @@ class QualityTests : public QObject {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
         ix::ImageLoadCache::configure(0, 16, true);
+    }
+    void convolutionRetainsReferencePixels_data() {
+        QTest::addColumn<int>("format");
+        QTest::addColumn<QSize>("size");
+        QTest::addColumn<int>("variant");
+        for (const auto format : {QImage::Format_RGB32, QImage::Format_ARGB32, QImage::Format_RGBA64,
+                                 QImage::Format_RGBA64_Premultiplied, QImage::Format_Grayscale16,
+                                 QImage::Format_RGBA32FPx4})
+            for (const auto size : {QSize(1, 1), QSize(1, 7), QSize(9, 1), QSize(13, 11)}) {
+                const auto name = QByteArray::number(int(format)) + '-' + QByteArray::number(size.width()) +
+                                  'x' + QByteArray::number(size.height());
+                QTest::newRow(name.constData()) << int(format) << size << 0;
+            }
+        QTest::newRow("full-16-bit-range") << int(QImage::Format_RGBA64) << QSize(65536, 1) << 0;
+        for (int variant = 1; variant <= 5; ++variant) {
+            const auto name = QByteArray("general-filter-") + QByteArray::number(variant);
+            QTest::newRow(name.constData()) << int(QImage::Format_RGBA64) << QSize(13, 11) << variant;
+        }
+    }
+    void convolutionRetainsReferencePixels() {
+        QFETCH(int, format); QFETCH(QSize, size); QFETCH(int, variant);
+        auto source = ix::test::filterPattern(size, QImage::Format(format));
+        if (size.width() == 65536) {
+            auto *row = reinterpret_cast<QRgba64 *>(source.scanLine(0));
+            for (int x = 0; x < size.width(); ++x)
+                row[x] = QRgba64::fromRgba64(quint16(x), quint16(x * 37), quint16(65535 - x), quint16(x * 127));
+        }
+        source.setColorSpace(QColorSpace::DisplayP3);
+        source.setDotsPerMeterX(4500); source.setDotsPerMeterY(8300);
+        source.setText(QStringLiteral("Comment"), QStringLiteral("Precision and alpha"));
+        const auto key = source.cacheKey();
+        QVector<double> kernel{0, -1, 0, -1, 5, -1, 0, -1, 0};
+        int side = 3;
+        double divisor = 1, offset = 0;
+        if (variant == 1) kernel[4] = 4.75;
+        if (variant == 2) divisor = 2;
+        if (variant == 3) offset = .125;
+        if (variant == 4) kernel.fill(0);
+        if (variant == 5) { side = 2; kernel = {.5, -1.5, 2, 1}; }
+        const auto expected = ix::test::referenceConvolve(source, kernel, side, divisor, offset);
+        const auto actual = ix::convolve(source, kernel, side, divisor, offset);
+        QCOMPARE(actual, expected);
+        QCOMPARE(actual.format(), expected.format());
+        QCOMPARE(actual.colorSpace(), source.colorSpace());
+        QCOMPARE(actual.dotsPerMeterX(), source.dotsPerMeterX());
+        QCOMPARE(actual.dotsPerMeterY(), source.dotsPerMeterY());
+        QCOMPARE(actual.text(QStringLiteral("Comment")), source.text(QStringLiteral("Comment")));
+        QCOMPARE(source.cacheKey(), key);
     }
     void colorConversionAgainstLittleCms_data() {
         QTest::addColumn<int>("space");

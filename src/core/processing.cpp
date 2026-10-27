@@ -291,6 +291,30 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
     int half = side / 2;
     if (out.isNull() || k.size() != side * side || div == 0)
         throw std::runtime_error("Ungültiger Filter oder nicht genügend Speicher.");
+    constexpr std::array<double, 9> sharpen{0, -1, 0, -1, 5, -1, 0, -1, 0};
+    if (side == 3 && div == 1 && offset == 0 && std::equal(k.cbegin(), k.cend(), sharpen.cbegin())) {
+        // This integer kernel is exact in the RGBA64 working format. Its
+        // [-262140, 327675] channel range fits int; rounding yields the same
+        // clamped 16-bit samples as the scalar double convolution below.
+        const auto channel = [](int center, int above, int left, int right, int below) {
+            return quint16(std::clamp(5 * center - above - left - right - below, 0, 65535));
+        };
+        for (int y = 0; y < input.height(); ++y) {
+            const auto *above = reinterpret_cast<const QRgba64 *>(input.constScanLine(std::max(0, y - 1)));
+            const auto *center = reinterpret_cast<const QRgba64 *>(input.constScanLine(y));
+            const auto *below = reinterpret_cast<const QRgba64 *>(input.constScanLine(std::min(y + 1, input.height() - 1)));
+            auto *target = reinterpret_cast<QRgba64 *>(out.scanLine(y));
+            for (int x = 0; x < input.width(); ++x) {
+                const auto p = center[x], up = above[x], down = below[x];
+                const auto left = center[std::max(0, x - 1)], right = center[std::min(x + 1, input.width() - 1)];
+                target[x] = QRgba64::fromRgba64(
+                    channel(p.red(), up.red(), left.red(), right.red(), down.red()),
+                    channel(p.green(), up.green(), left.green(), right.green(), down.green()),
+                    channel(p.blue(), up.blue(), left.blue(), right.blue(), down.blue()), p.alpha());
+            }
+        }
+        return finish(s, std::move(out));
+    }
     for (int y = 0; y < input.height(); ++y) {
         auto *d = reinterpret_cast<QRgba64 *>(out.scanLine(y));
         for (int x = 0; x < input.width(); ++x) {

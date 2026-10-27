@@ -20,9 +20,9 @@ try {
     $env:PATH = "$sdkBin;$env:PATH"
     python scripts/build_tool_packs.py
     if ($LASTEXITCODE -ne 0) { throw 'Optionale Werkzeugpakete konnten nicht gebaut werden' }
-    & ./scripts/build.ps1 -Configuration Release -Test
+    & ./scripts/build.ps1 -Configuration Release -Test -RequireFullFeatures
     if ($LASTEXITCODE -ne 0) { throw 'Build/Tests fehlgeschlagen' }
-    foreach ($script in @('format_matrix.py', 'deploy.py', 'verify_portable.py')) {
+    foreach ($script in @('format_matrix.py', 'deploy.py', 'verify_native_modules.py', 'verify_portable.py')) {
         python "scripts/$script"
         if ($LASTEXITCODE -ne 0) { throw "$script fehlgeschlagen" }
     }

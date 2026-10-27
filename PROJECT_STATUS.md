@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.4.8 · Stand: 26.10.2026**
+**Version 0.4.8 · Stand: 27.10.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -18,7 +18,17 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
-- Noch unveröffentlicht: Der aktuelle GitHub-Lauf besteht unter Windows. Der bestätigte Linux-Compilerfehler im Exiv2-0.27-Test und die titellose macOS-Speicherwarnung sind lokal korrigiert; Compilerprotokolle werden künftig als Artefakte gesichert. Ein neuer Linux-/macOS-Lauf bleibt erforderlich. [CI-Nachprüfung](docs/CI_REPAIR_2026-10-26.md).
+- Noch unveröffentlicht: Standard-Nachschärfen nutzt eine pixelgleiche Ganzzahlberechnung statt der allgemeinen Faltung. Davon profitieren Bearbeitung, Größenänderung mit Nachschärfen, Standard-Stapelverarbeitung und aktivierte Anzeigeschärfung. Bei getesteten 6/24-MP-Bildern 2,8–8,3-fach schneller; kein zusätzlicher Bildpuffer oder neue Bibliothek. Alle 20 lokalen Prüfschritte mit 41 Python- und 300 Qt-Prüfungen bestehen. [Messung und Grenzen](docs/PERFORMANCE.md#exact-integer-standard-sharpening--2026-10-27).
+
+- Noch unveröffentlicht: Build-Prüfung aus frischem Source-Archiv für Vollausbau und reduzierte Fassung; CI und Release verlangen jetzt Exiv2, LibRaw und Qt Network. Modul-Ladeprüfungen, serielle CTest-Ausführung mit Zeitlimit und zusätzliche Installations-/Paketprotokolle ergänzt. Lokal bestehen 41 Python-Tests und alle 270 Qt-Kernprüfungen mit vollständigen Testdaten; der aktuelle Linux-/macOS-Stand braucht weiterhin einen neuen GitHub-Lauf. [Build-Prüfung vom 27.10.](docs/BUILD_REVIEW_2026-10-27.md).
+
+- Noch unveröffentlicht: Zwei Cachefehler reproduziert und korrigiert: alte Ladeabschlüsse dürfen nach dem Leeren keine neueren Einträge überschreiben; Speicherbudgets berücksichtigen jetzt auch Kommentare, Texte, ICC-Profile und native Metadaten. Inhalte bleiben erhalten, kleine Einträge werden weiter gecacht. Alle 20 lokalen Windows-Prüfschritte mit 35 Python- und 270 Qt-Prüfungen bestehen; erzwungene Überschneidungen zusätzlich 20-mal ohne Wartezeiten. [Prüfung vom 27.10.](docs/REVIEW_2026-10-27.md).
+
+- Noch unveröffentlicht: Speichern und Undo übernehmen die Metadatenkennzeichnung des tatsächlich geschriebenen Dateistands. Ein gültiges, aber leeres Metadatenobjekt löst später keine falsche EXIF/IPTC/XMP-Verlustwarnung mehr aus.
+
+- Noch unveröffentlicht: Die zusätzliche Metadaten-Signatursuche entfällt bei erfolgreichem Exiv2-Ergebnis. Beim Test-JPEG werden pro vollständigem Öffnen 256 KiB weniger Daten angefordert; der Rückfall samt Exportwarnungen bleibt erhalten. Kein allgemeiner Geschwindigkeits-Prozentsatz wird aus den schwankenden Zeiten abgeleitet. Lokal bestehen 35 Python- und 260 Qt-Prüfungen. [Messung](docs/PERFORMANCE.md#remove-the-redundant-metadata-header-probe--2026-10-26).
+
+- Noch unveröffentlicht: Im GitHub-Lauf `c795e2a` kompilieren alle vier Ziele; beide macOS-Testsuitenläufe bestehen. Folgefehler in Windows-/Linux-Testdaten und im macOS-Pakettest sind lokal korrigiert: eindeutige Vorschau-Dateirevision, gepufferte Daten vor dem Test-Zeitstempel schreiben und Cocoa statt Offscreen beim Paketstart. Lokal bestehen 35 Python- und 256 Qt-Prüfungen; 140 zusätzliche Vorschaufälle bestehen ohne neue Wartezeiten. Ein neuer GitHub-Lauf bleibt erforderlich. [CI-Nachprüfung](docs/CI_REPAIR_2026-10-26.md).
 
 - Noch unveröffentlicht: PNG-/BMP-Vorschaubilder nutzen unveränderte Originale aus dem vorhandenen RAM-Cache. Gemessen bei 12 MP: 5–10 statt 154–322 ms pro Miniatur bei bereits geladenem Original, ohne neue Bibliotheken oder zusätzliches Cache-Budget. JPEG/RAW/Animationen behalten ihre Decoderpfade. Alle 20 lokalen Windows-Prüfschritte mit 35 Python- und 256 Qt-Prüfungen bestehen. [Messung und Grenzen](docs/PERFORMANCE.md#avoid-repeat-decoding-for-cached-pngbmp-previews--2026-10-26).
 

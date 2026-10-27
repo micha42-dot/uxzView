@@ -119,6 +119,9 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     }
     updateRecent(QStringLiteral("saved"), path);
     if (!selection) {
+        const auto &metadata = output.metadata;
+        const bool writtenMetadata = metadata && metadata->data && metadataWritable(format) &&
+                                     (metadata->hasExif || metadata->hasIptc || metadata->hasXmp);
         document_.path = QFileInfo(path).absoluteFilePath();
         document_.modified = false;
         document_.page = 0;
@@ -127,7 +130,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         document_.delayMs = 100;
         document_.loopCount = 0;
         document_.format = format;
-        document_.sourceHasExif = document_.metadata && metadataWritable(format);
+        document_.sourceHasExif = writtenMetadata;
         applySource(document_, result.source);
         for (auto &d : undo_) {
             d.modified = true;
@@ -139,7 +142,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             d.delayMs = 100;
             d.loopCount = 0;
             applySource(d, result.source);
-            d.sourceHasExif = d.metadata && metadataWritable(format);
+            d.sourceHasExif = writtenMetadata;
         }
         redo_.clear();
         refreshFiles();

@@ -1,14 +1,14 @@
 # Plattformen und native Builds
 
-üxzView verwendet C++20 und Qt Widgets auf Windows, Linux und macOS. **Zunächst wird ausschließlich eine fertige Windows-x64-Fassung veröffentlicht.** Linux und macOS lassen sich aus derselben Codebasis nativ bauen; die nachstehenden Abläufe sind vorbereitet, aber auf diesen Plattformen noch nicht ausgeführt.
+üxzView verwendet C++20 und Qt Widgets auf Windows, Linux und macOS. **Zunächst wird ausschließlich eine fertige Windows-x64-Fassung veröffentlicht.** Alle vier GitHub-Jobs haben bereits kompiliert; der zuletzt veröffentlichte Stand `c795e2a` scheitert noch an Windows-/Linux-Testfällen und den macOS-Paketstartprüfungen. Die entsprechenden Korrekturen liegen lokal vor und brauchen einen neuen CI-Lauf. Der aktuelle Stand ist damit noch nicht auf allen Zielsystemen bestätigt; siehe [Build-Prüfung](BUILD_REVIEW_2026-10-27.md).
 
 Alle Befehle werden im Wurzelverzeichnis eines Checkouts oder entpackten Quellpakets ausgeführt. Ein Windows-Build erzeugt keine Linux- oder macOS-Binärdatei; für diese Builds einen entsprechenden Host verwenden.
 
 | System | Ziel / Build-Konfiguration | Hier nachgewiesen |
 | --- | --- | --- |
 | Windows | Windows 10 ab 1809 und neuer, x64; MSYS2-UCRT-SDK | Windows-11-Build, alle fünf Offscreen-Suiten und vierunddreißig native Fensterabläufe; portables Paket ohne SDK-Pfade |
-| Linux | zunächst Ubuntu 24.04 x64; andere Distributionen mit Qt ≥ 6.8 und passenden Bibliotheken aus Quellcode | Build-/Test-/Paketierungsablauf vorbereitet; kein nativer Linux-Durchlauf auf diesem Rechner |
-| macOS | zunächst macOS 15 und neuer, getrennte arm64-/Intel-Builds | App-Bundle, Finder-Ereignisse und CI vorbereitet; kein nativer macOS-Durchlauf auf diesem Rechner |
+| Linux | zunächst Ubuntu 24.04 x64; andere Distributionen mit Qt ≥ 6.8 und passenden Bibliotheken aus Quellcode | `c795e2a` kompiliert in CI; ein Testdatenfehler ist lokal korrigiert, aktueller CI-Lauf steht aus |
+| macOS | zunächst macOS 15 und neuer, getrennte arm64-/Intel-Builds | `c795e2a` kompiliert und besteht CTest für beide CPUs; korrigierter Paketstart braucht einen neuen CI-Lauf |
 
 Die Windows-Untergrenze entspricht der [Qt-6.11-Plattformmatrix](https://doc.qt.io/qt-6.11/supported-platforms.html) des gesperrten Windows-SDKs; der komplette üxzView-Build wurde bisher auf Windows 11 geprüft. Qt 6.8 selbst kann macOS ab 12 unterstützen; die hier vorbereiteten Mac-Pakete zielen zunächst auf 15, weil zusätzlich die Mindestversionen der Homebrew-Bibliotheken berücksichtigt werden müssen. Eine niedrigere Grenze benötigt einen passenden Build sämtlicher Abhängigkeiten und einen Test auf diesem System. Neue Betriebssystemversionen werden durch die gemeinsame Codebasis angestrebt, gelten ohne Test aber nicht automatisch als validiert.
 
@@ -17,6 +17,10 @@ Die Windows-Untergrenze entspricht der [Qt-6.11-Plattformmatrix](https://doc.qt.
 CMake ≥ 3.24, C++20-Compiler und Qt ≥ 6.8 mit Core, Gui, Widgets, Concurrent, PrintSupport und Svg. Qt Test und libtiff werden nur für `BUILD_TESTING=ON` benötigt. LittleCMS ist eine optionale Testabhängigkeit für unabhängige Farbreferenzen; ohne sie werden vier Fälle ausdrücklich übersprungen. libjpeg-turbo/TurboJPEG ist erforderlich. Exiv2 ist optional; fehlt es, meldet CMake dies und Metadaten-Erhaltung steht nicht zur Verfügung. `IX_ENABLE_METADATA=OFF` schaltet sie bewusst ab. Exiv2 0.27 und 0.28+ werden berücksichtigt.
 
 Qt Network erzeugt das optionale Modul `ixextensions`, LibRaw (threadsafe `raw_r`) das optionale Modul `ixrawpreview`. Beide werden zur Laufzeit erst bei Bedarf geladen. Die CMake-Installation nimmt diese Module samt zusätzlicher Laufzeitabhängigkeiten in den Deployment-Schritt auf; diese neuen Unix-Deploymentpfade sind hier noch nicht nativ verifiziert.
+
+`-DIX_REQUIRE_FULL_FEATURES=ON` verlangt Exiv2, LibRaw und Qt Network bereits beim Konfigurieren. Desktop-CI und Windows-Release-Vorbereitung verwenden diese Prüfung, damit eine fehlende Development-Bibliothek nicht unbemerkt eine eingeschränkte Fassung erzeugt. Für bewusst reduzierte Builds bleibt die Option standardmäßig aus. Unter PowerShell aktiviert `./scripts/build.ps1 -Test -RequireFullFeatures` dieselbe Prüfung.
+
+Nach der Installation prüft `python3 scripts/verify_native_modules.py --stage dist/native` beide Zusatzmodule samt Einstiegspunkten über den Betriebssystem-Lader. Auf macOS führt der Prüfer dafür die App mit `--probe-modules` aus, damit die Bundle-Ladepfade zum richtigen Programm gehören. Die Unix-CI entfernt vorher SDK-Bibliothekspfade. Das prüft die ladbaren Module zusätzlich zum PNG-Starttest, ohne Erweiterungsdialoge oder Werkzeuge auszuführen. Auf Windows prüft derselbe Aufruf ohne `--stage` das portable Verzeichnis `dist/uxzView`.
 
 TurboJPEG wird zuerst über sein CMake-Paket, dann über pkg-config und schließlich über Header/Bibliothek gesucht. Exiv2 unterstützt beide verbreiteten CMake-Targetnamen sowie pkg-config. Es werden keine Abhängigkeiten während einer normalen CMake-Konfiguration aus dem Netz geladen.
 

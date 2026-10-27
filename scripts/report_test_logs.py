@@ -5,7 +5,10 @@ import sys
 
 
 def report_test_logs(build: Path, stream):
-    reports = [build / name for name in ('configure.log', 'build.log') if (build / name).is_file()]
+    reports = [build / name for name in ('configure.log', 'build.log', 'install.log', 'package.log',
+                                       'installed-version.log', 'installed-image-probe.log',
+                                       'installed-modules.log')
+               if (build / name).is_file()]
     reports.extend(sorted(build.glob('*test-results.txt')))
     ctest = build / 'Testing/Temporary/LastTest.log'
     if ctest.is_file():

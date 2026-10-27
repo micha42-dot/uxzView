@@ -12,7 +12,10 @@ class CiDiagnosticsTests(unittest.TestCase):
     def test_all_suites_and_partial_crash_reports_are_printed(self):
         with tempfile.TemporaryDirectory(prefix='uxzview-ci-') as directory:
             build = Path(directory)
-            names = ('configure.log', 'build.log', 'test-results.txt', 'workflow-test-results.txt',
+            names = ('configure.log', 'build.log', 'install.log', 'package.log',
+                     'installed-version.log', 'installed-image-probe.log',
+                     'installed-modules.log',
+                     'test-results.txt', 'workflow-test-results.txt',
                      'quality-test-results.txt', 'storage-test-results.txt',
                      'extension-test-results.txt', 'Testing/Temporary/LastTest.log')
             for name in names:

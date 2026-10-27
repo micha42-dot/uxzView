@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Speed up exact standard sharpening with integer arithmetic while preserving
+  reference pixels, edge handling, alpha and image properties. The shared path
+  also serves display/resize/default batch sharpening; measured 2.8–8.3× faster
+  for the tested 6/24 MP images, with no new dependency or image buffer.
+
+- Require metadata, RAW previews and the extension manager in desktop CI and
+  Windows release builds; deliberately reduced developer builds remain supported.
+- Use installed module paths in native Qt deployment and remove a warning in
+  metadata-disabled builds. See the 27 October desktop build review.
+- Verify installed module dependencies/exports, retain native install/package
+  diagnostics and keep CTest suites serial with a bounded runtime.
+- Add `--probe-modules` for profile-independent module checks; macOS CI uses the
+  bundle executable's loader context for executable-relative dependencies.
+
+- Keep saved-document and Undo source metadata flags aligned with the metadata actually written; valid empty metadata objects no longer invent EXIF/IPTC/XMP-loss warnings.
+
+- Keep pre-clear decode completions from repopulating document/thumbnail caches or overwriting newer entries.
+- Charge retained comments, document text, ICC bytes and native metadata/data areas to cache budgets, with bounded arithmetic and preserved payloads. Keep normal small-entry caching and the 96 MiB pixel admission ceiling.
+
+- Skip the additional 256 KiB metadata-signature probe when Exiv2 already returned metadata information. Keep the conservative fallback and export-loss guard for unsupported formats or metadata-disabled builds. Add measured process-I/O comparisons and four export-policy regressions.
+
+- Make preview invalidation fixtures require distinct encoded sizes/revisions and flush folder fixtures before assigning modification times. Keep the separate same-size/preserved-mtime regression.
+- Use the bundled Cocoa platform for the installed macOS smoke test and retain version/image-probe startup logs with failure status.
+
 - Reuse cached, unchanged single-page PNG/BMP originals for neighbor previews without decoding the file again. Retain decoder paths for JPEG, RAW, animations and multiple pages; recheck cancellation and source revision after scaling.
 - Fix the remaining Exiv2 0.27 thumbnail assertion that prevents Linux tests from compiling. Identify the save-warning test by content/buttons rather than macOS-ignored message titles, including a titleless regression.
 - Retain native configure/compiler logs as CI artifacts even when compilation fails, and install both existing README images with native documentation.
