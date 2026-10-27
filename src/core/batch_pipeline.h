@@ -39,7 +39,9 @@ struct PipelinePreview {
 };
 class BatchPipeline {
   public:
-    static QList<PipelineFile> plan(const PipelineJob &job);
+    // Read-only review. Cancellation returns no plan, never an executable partial
+    // plan. Hash existing destinations only when they are eligible replacements.
+    static QList<PipelineFile> plan(const PipelineJob &job, const std::atomic_bool *cancel = nullptr);
     static ImageDocument transform(ImageDocument image, const PipelineProfile &profile,
                                    const std::atomic_bool &cancel, bool allowLoss = false,
                                    const QHash<QString, QImage> *resources = nullptr);

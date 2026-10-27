@@ -8,7 +8,7 @@
 namespace ix {
 namespace {
 const QMap<QString, QString> &artwork() {
-    // Original artwork on a 24-unit grid: rounded 1.65-unit strokes, generous
+    // Original artwork on a 24-unit grid: rounded 1.25-unit strokes, generous
     // counters and optically balanced 18-unit silhouettes at 20–32 px.
     static const QMap<QString, QString> shapes{
         {QStringLiteral("open"),
@@ -61,7 +61,7 @@ const QMap<QString, QString> &artwork() {
                         "<circle cx='9' cy='7' r='2.5'/><circle cx='15' cy='17' r='2.5'/>")},
         {QStringLiteral("about"),
          QStringLiteral("<circle cx='12' cy='12' r='8.5'/><path d='M12 11v5.5'/>"
-                        "<circle cx='12' cy='7.5' r='.9' fill='currentColor' stroke='none'/>")},
+                        "<circle cx='12' cy='7.5' r='.8' fill='currentColor' stroke='none'/>")},
         {QStringLiteral("image"),
          QStringLiteral("<rect x='3.5' y='3.5' width='17' height='17' rx='2'/><path d='m3.5 16 5-5 6 6 3-3 3 3'/>"
                         "<circle cx='15.5' cy='8' r='1.5'/>")}};
@@ -86,7 +86,7 @@ class OutlineEngine final : public QIconEngine {
             return {};
         const auto color = palette_.color(mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active,
                                           QPalette::WindowText);
-        auto cacheKey = QStringLiteral("ix-outline-v4/%1/%2/%3/%4/%5")
+        auto cacheKey = QStringLiteral("ix-outline-v5/%1/%2/%3/%4/%5")
                             .arg(name_, color.name(QColor::HexArgb))
                             .arg(size.width())
                             .arg(size.height())
@@ -98,7 +98,7 @@ class OutlineEngine final : public QIconEngine {
         result.setDevicePixelRatio(scale);
         result.fill(Qt::transparent);
         auto svg = QStringLiteral("<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 "
-                                  "0 24 24' fill='none' color='%1' stroke='%1' stroke-width='1.65' "
+                                  "0 24 24' fill='none' color='%1' stroke='%1' stroke-width='1.25' "
                                   "stroke-linecap='round' stroke-linejoin='round'>%2</svg>")
                        .arg(color.name(), artwork().value(name_));
         QSvgRenderer renderer(svg.toUtf8());

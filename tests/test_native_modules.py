@@ -53,10 +53,14 @@ class InstalledModuleTests(unittest.TestCase):
 
     def test_macos_uses_bundle_executable_context(self):
         result = {name: {'loaded': True, 'symbols': list(symbols)} for name, symbols in ENTRIES.items()}
-        runner = Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps(result), ''))
-        self.assertEqual(verify_modules(self.stage, 'darwin', runner=runner), result)
-        self.assertEqual(runner.call_args.args[0],
-                         [str(self.stage / 'uxzView.app/Contents/MacOS/uxzView'), '--probe-modules'])
+        # macOS temp paths can alias /private/var through /var. Exercise a
+        # noncanonical spelling on every host too, without symlink privileges.
+        for stage in (self.stage, self.stage / 'lib' / '..'):
+            with self.subTest(stage=stage):
+                runner = Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps(result), ''))
+                self.assertEqual(verify_modules(stage, 'darwin', runner=runner), result)
+                self.assertEqual(runner.call_args.args[0],
+                                 [str(stage.resolve() / 'uxzView.app/Contents/MacOS/uxzView'), '--probe-modules'])
 
     def test_macos_probe_failure_or_incomplete_exports_are_rejected(self):
         for code, output in ((2, '{}'), (0, '{}')):

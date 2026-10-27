@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Apply German, English, Korean, Japanese and French immediately after accepting
+  Settings, without restarting or rebuilding the window. Retranslate menus,
+  toolbar/accessibility text and command search in place; refresh Qt translations,
+  fonts and widget number locales while retaining edits, selection, zoom and Undo.
+  Publish immutable translation catalogs for concurrent background readers and
+  keep the process-wide locale fixed after startup.
+
+- Separate read-only batch file planning from transformation/execution. Make
+  planning and its SHA-256 reads cancellable; hash only eligible replacements,
+  reuse watermark hashes and reject non-file destinations before decoding.
+- Clear stale batch review images/plans after changes or cancellation, contain
+  worker failures and require a fresh successful review before starting.
+
+- Add persistent System/Light/Dark appearance under Settings → Interface,
+  applied on confirmation without restarting. Match menu and toolbar colors,
+  refresh status/preview colors, and retain image pixels, selection and zoom.
+  Avoid an unnecessary image display job or folder rescan for interface-only settings.
+- Standardize dialog margins and spacing. Replace fixed coordinates in resize,
+  color and rotation dialogs with layouts and scrollable content; keep confirmation
+  buttons outside the scrolling area. Retain existing processing options and shortcuts.
+
+- Refine toolbar vectors with 1.25-unit outlines, preserving recognizable
+  symbols and click targets. Unify the light/dark zoom field and its visible
+  dropdown arrow, soften separators and remove recessed status-label frames.
+
+- Normalize temporary-path expectations in the module probe regression for
+  macOS `/var` aliases and Windows short names. Exercise a noncanonical path
+  on every host.
+- Check installed Linux packages using their shipped XCB backend under Xvfb;
+  add eight offline shell cases for backend/display selection and diagnostics.
+
 - Speed up exact standard sharpening with integer arithmetic while preserving
   reference pixels, edge handling, alpha and image properties. The shared path
   also serves display/resize/default batch sharpening; measured 2.8–8.3× faster

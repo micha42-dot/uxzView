@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dialog_layout.h"
 #include "core/app_storage.h"
 #include "pipeline_dialog.h"
 #include "resize_filters.h"
@@ -28,8 +29,8 @@ QString title(const PipelineStep &s) {
 bool editStep(PipelineStep &step, QWidget *parent) {
     QDialog d(parent);
     d.setWindowTitle(IX_TEXT("Verarbeitungsschritt"));
-    auto *v = new QVBoxLayout(&d);
-    auto *form = new QFormLayout;
+    auto *v = dialogLayout(&d);
+    auto *form = dialogFormLayout();
     v->addLayout(form);
     QJsonObject p = step.parameters;
     auto spin = [&](QString label, int value, int low, int high) {
@@ -126,7 +127,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     setObjectName(QStringLiteral("pipelineDialog"));
     setWindowTitle(IX_TEXT("üxzView – Stapelverarbeitung"));
     resize(1050, 780);
-    auto *layout = new QVBoxLayout(this);
+    auto *layout = dialogLayout(this);
     editor_ = new QWidget;
     auto *editLayout = new QVBoxLayout(editor_);
     editLayout->setContentsMargins(0, 0, 0, 0);
@@ -173,6 +174,8 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     auto *images = new QHBoxLayout;
     before_ = new QLabel(IX_TEXT("Vorher"));
     after_ = new QLabel(IX_TEXT("Nachher – echte Exportvorschau"));
+    before_->setObjectName(QStringLiteral("pipelineBefore"));
+    after_->setObjectName(QStringLiteral("pipelineAfter"));
     for (auto *label : {before_, after_}) {
         label->setFrameShape(QFrame::Box);
         label->setAlignment(Qt::AlignCenter);
@@ -183,7 +186,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     right->addLayout(images);
     top->addLayout(right, 2);
     editLayout->addLayout(top);
-    auto *form = new QFormLayout;
+    auto *form = dialogFormLayout();
     output_ = new QLineEdit(files.isEmpty()
                                 ? QString()
                                 : QFileInfo(files.first()).dir().filePath(QStringLiteral("üxzView-Export")));
@@ -215,6 +218,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     planTable_->horizontalHeader()->setStretchLastSection(true);
     layout->addWidget(planTable_, 1);
     status_ = new QLabel(IX_TEXT("Vor dem Start Datei auswählen und Vorschau / Dateiplan prüfen."));
+    status_->setObjectName(QStringLiteral("pipelineStatus"));
     status_->setWordWrap(true);
     layout->addWidget(status_);
     progress_ = new QProgressBar;
@@ -355,6 +359,12 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     connect(&reviewWorker_, &QFutureWatcherBase::finished, this, [this] {
         auto r = reviewWorker_.result();
         setWorking(false);
+        if (cancel_->load()) {
+            clearReview();
+            status_->setText(IX_TEXT("Abgebrochen."));
+            if (closing_) QDialog::reject();
+            return;
+        }
         reviewed_ = r.plan;
         showPlan(reviewed_);
         if (!r.preview.before.isNull())
@@ -371,7 +381,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
                       .arg(r.preview.originalSize.height())
                       .arg(r.preview.resultSize.width())
                       .arg(r.preview.resultSize.height())
-                : r.preview.error);
+                : localized(r.preview.error));
         bool valid = false;
         for (const auto &e : reviewed_)
             valid |= e.error.isEmpty();
@@ -380,17 +390,22 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
             QDialog::reject();
     });
     connect(&runWorker_, &QFutureWatcherBase::finished, this, [this] {
-        auto entries = runWorker_.result();
+        QList<PipelineFile> entries;
+        QString error;
+        try { entries = runWorker_.result(); }
+        catch (const std::exception &exception) { error = QString::fromUtf8(exception.what()); }
+        catch (...) { error = IX_TEXT("Vorgang fehlgeschlagen."); }
         setWorking(false);
+        reviewed_.clear();
         showPlan(entries, true);
         int ok = 0;
         for (const auto &e : entries)
             if (e.error.isEmpty())
                 ++ok;
-        status_->setText(IX_TEXT("%1 von %2 Dateien verarbeitet. Erfolgreiche Schritte stehen im "
+        status_->setText(error.isEmpty() ? IX_TEXT("%1 von %2 Dateien verarbeitet. Erfolgreiche Schritte stehen im "
                                  "Datei-Journal und können dort rückgängig gemacht werden.")
                              .arg(ok)
-                             .arg(entries.size()));
+                             .arg(entries.size()) : localized(error));
         start_->setEnabled(false);
         if (closing_)
             QDialog::reject();
@@ -432,9 +447,15 @@ PipelineJob PipelineDialog::job() const {
     j.parallelism = threads_->value();
     return j;
 }
-void PipelineDialog::invalidate() {
+void PipelineDialog::clearReview() {
     reviewed_.clear();
+    showPlan({});
+    before_->clear();
+    after_->clear();
     start_->setEnabled(false);
+}
+void PipelineDialog::invalidate() {
+    clearReview();
     status_->setText(IX_TEXT("Einstellungen geändert – Vorschau und Dateiplan erneut prüfen."));
 }
 void PipelineDialog::setWorking(bool value) {
@@ -452,7 +473,7 @@ void PipelineDialog::showPlan(const QList<PipelineFile> &files, bool completed) 
         QString status = e.error.isEmpty() ? (completed    ? IX_TEXT("Fertig")
                                               : e.replaces ? IX_TEXT("Wird ersetzt – Sicherung + Datei-Undo")
                                                            : IX_TEXT("Neu anlegen"))
-                                           : e.error;
+                                           : localized(e.error);
         planTable_->setItem(i, 0, new QTableWidgetItem(QFileInfo(e.input).fileName()));
         planTable_->setItem(i, 1, new QTableWidgetItem(e.output));
         planTable_->setItem(i, 2, new QTableWidgetItem(status));
@@ -460,6 +481,8 @@ void PipelineDialog::showPlan(const QList<PipelineFile> &files, bool completed) 
     planTable_->resizeColumnsToContents();
 }
 void PipelineDialog::review() {
+    if (working_) return;
+    clearReview();
     auto j = job();
     if (j.inputs.isEmpty()) {
         status_->setText(IX_TEXT("Bitte Dateien hinzufügen."));
@@ -475,8 +498,19 @@ void PipelineDialog::review() {
     auto path = j.inputs.value(std::max(0, inputs_->currentRow()));
     auto token = cancel_;
     reviewWorker_.setFuture(QtConcurrent::run([j, path, token] {
-        auto plan = BatchPipeline::plan(j);
-        return PipelineReview{plan, BatchPipeline::preview(j, path, *token, plan)};
+        try {
+            auto plan = BatchPipeline::plan(j, token.get());
+            if (token->load()) return PipelineReview{};
+            return PipelineReview{plan, BatchPipeline::preview(j, path, *token, plan)};
+        } catch (const std::exception &error) {
+            PipelineReview result;
+            result.preview.error = QString::fromUtf8(error.what());
+            return result;
+        } catch (...) {
+            PipelineReview result;
+            result.preview.error = IX_TEXT("Vorgang fehlgeschlagen.");
+            return result;
+        }
     }));
 }
 void PipelineDialog::run() {

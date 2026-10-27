@@ -418,15 +418,9 @@ void configureUiFont() {
     QApplication::setFont(font);
 }
 void configureDesktopAppearance() {
-#ifdef Q_OS_WIN
-    auto *style = QStyleFactory::create(QStringLiteral("windowsvista"));
-#else
-    QStyle *style = nullptr;
-#endif
+    auto *style = QStyleFactory::create(QStringLiteral("Fusion"));
     if (!style)
         style = QStyleFactory::create(QStringLiteral("windows"));
-    if (!style)
-        style = QStyleFactory::create(QStringLiteral("Fusion"));
     if (style)
         QApplication::setStyle(style);
     configureUiFont();

@@ -8,8 +8,10 @@ Build from [PLATFORMS.md](PLATFORMS.md) and read [ARCHITECTURE.md](ARCHITECTURE.
 | --- | --- | --- |
 | Decode/metadata/color | `core/image_loading.*`, `codec_registry.*`, `metadata.*`, `processing.*` | Small fixtures, precision/ICC/alpha comparisons, quality suite. |
 | View/selection/fullscreen | `ui/image_view.*`, `platform_support.*` | Pixel/fit checks and native DPI/window tests. |
+| Appearance/dialogs | `ui/appearance.*`, `dialog_layout.h`, [UI_STYLE.md](UI_STYLE.md) | Live theme changes retain pixels/selection/zoom; multilingual/DPI dialog reachability. |
+| Live language | `core/localization.*`, `ui/interface_language.*` | Concurrent readers; window/fullscreen state, edits/Undo, stable actions/search rows and explicit numeric locales. |
 | Loading/navigation/history | `ui/main_window.*`, `document_activity.h`, `directory_index.*` | Queued navigation, stale results, failed reads, unsaved-edit policy. |
-| Save/files/batch | `main_window_files.cpp`, `file_journal.*`, `batch_pipeline.*` | Conflicts, cancellation, rollback, source preservation. |
+| Save/files/batch | `main_window_files.cpp`, `file_journal.*`, `batch_plan.cpp`, `batch_pipeline.*` | Conflicts, cancellation, rollback, source preservation. |
 | Recognition | `recognition_input.*`, `tool_store.*`, `tool_dialog.cpp` | Selection/alpha export, real process, cancellation, removal/leases. |
 | Packages/storage | `app_storage.*`, `extension_storage.*`, `scripts` | Corrupt/legacy state, relocation, privacy, archive integrity. |
 
@@ -92,6 +94,13 @@ remain diagnosable before CTest creates reports.
 Installed macOS smoke checks use the bundle's Cocoa platform; the SDK's
 offscreen plugin is not shipped in a normal macOS bundle. Keep the package
 check independent of SDK plugin/library paths and retain both startup logs.
+The installed Linux package similarly uses its shipped XCB backend under
+`xvfb-run -a`, with `xvfb` and `xauth` installed on the CI host. Build-tree CTest
+continues to use the SDK's offscreen plugin. `test_native_smoke.py` executes
+the actual workflow block with isolated display/app stand-ins and checks both
+platform branches, failure statuses and diagnostic files. These shell checks
+are simulations, not native desktop validation. Temporary paths in assertions
+must account for canonical aliases such as macOS `/var` and Windows 8.3 names.
 For filesystem fixtures, flush writes before assigning timestamps and verify
 the stored timestamp after closing. A compressed image's changed dimensions
 do not guarantee changed byte length or a distinct native file revision.
@@ -108,7 +117,7 @@ child processes, not in the calling shell. These traced, nonactivating-window
 runs are diagnostics rather than a direct comparison to earlier untraced
 benchmarks. Keep the raw evidence for failures as well as successes.
 
-Toolbar artwork lives in `src/ui/icons.cpp`: original 24-unit vectors with rounded 1.65-unit strokes and roughly 18-unit silhouettes. Keep counters open at the smallest 20 px setting; distinguish related commands by shape, not color. Use the desktop palette for active/disabled states and retain the DPI-aware pixmap cache. Bump its artwork revision when changing paths. The existing `outlineIconsAndZoomSemantics` check produces `tests/output/icon-set.png` in light/dark colors and checks DPI variants; inspect it alongside the `renderUi` toolbar capture. The image placeholder stays at most 32 logical pixels, centered in larger thumbnail canvases; its raster cache revision is `v4`. Keep icon keys stable so action wiring and accessibility names remain intact.
+Toolbar artwork lives in `src/ui/icons.cpp`: original 24-unit vectors with rounded 1.25-unit strokes and roughly 18-unit silhouettes. Keep counters open at the smallest 20 px setting; distinguish related commands by shape, not color. Use the desktop palette for active/disabled states and retain the DPI-aware pixmap cache. Bump its artwork revision when changing paths. The existing `outlineIconsAndZoomSemantics` check produces `tests/output/icon-set.png` in light/dark colors and checks 20/24/28/32 px at 100/125/150/200 percent scaling; inspect it alongside the `renderUi` toolbar capture. The image placeholder stays at most 32 logical pixels, centered in larger thumbnail canvases; its raster cache revision is `v5`. Keep icon keys stable so action wiring and accessibility names remain intact. [UI_STYLE.md](UI_STYLE.md) records field, focus and status-bar conventions.
 
 - Preserve a small reproducible fixture and record dimensions, format, profile and the triggering command sequence.
 - For stale results/lost edits, inspect the activity phase, worker mode and generation. Fix ownership/transition problems instead of merely hiding a command.

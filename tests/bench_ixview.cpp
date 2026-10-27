@@ -3,12 +3,14 @@
 #include "convolution_reference.h"
 #include "core/apng_codec.h"
 #include "core/codec_registry.h"
+#include "core/batch_pipeline.h"
 #include "core/directory_index.h"
 #include "core/image_loading.h"
 #include "core/metadata.h"
 #include "core/preview_service.h"
 #include "ui/image_view.h"
 #include "ui/main_window.h"
+#include "ui/appearance.h"
 #include "ui/platform_support.h"
 #include "ui/preview_strip.h"
 #include "ui/slideshow_controller.h"
@@ -27,6 +29,101 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QJsonObject profileBatchPlan() {
+    QTemporaryDir temporary(QDir::current().filePath(QStringLiteral("build/batch-plan-XXXXXX")));
+    if (!temporary.isValid()) return {{QStringLiteral("error"), QStringLiteral("Temporary directory failed")}};
+    ix::PipelineJob job;
+    const auto source = temporary.filePath(QStringLiteral("input.png"));
+    QImage pixels(16, 12, QImage::Format_RGB32); pixels.fill(Qt::blue);
+    if (!pixels.save(source)) return {{QStringLiteral("error"), QStringLiteral("Fixture image failed")}};
+    job.outputDirectory = temporary.filePath(QStringLiteral("output"));
+    QDir().mkpath(job.outputDirectory);
+    job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+    for (int i = 1; i <= 16; ++i) {
+        job.inputs.append(source);
+        QFile target(QDir(job.outputDirectory).filePath(QStringLiteral("input_%1.png").arg(i, 4, 10, QLatin1Char('0'))));
+        if (!target.open(QIODevice::WriteOnly) || !target.resize(8 * 1024 * 1024))
+            return {{QStringLiteral("error"), QStringLiteral("Fixture destination failed")}};
+    }
+    ix::BatchPipeline::plan(job); // initialize writer discovery before timing
+    QJsonArray samples;
+    for (int sample = 0; sample < 5; ++sample)
+        for (const bool overwrite : {sample % 2 == 0, sample % 2 != 0}) {
+            job.overwrite = overwrite;
+#ifdef Q_OS_WIN
+            IO_COUNTERS before{}, after{};
+            GetProcessIoCounters(GetCurrentProcess(), &before);
+#endif
+            QElapsedTimer timer; timer.start();
+            const auto plan = ix::BatchPipeline::plan(job);
+            const auto ms = timer.nsecsElapsed() / 1e6;
+#ifdef Q_OS_WIN
+            GetProcessIoCounters(GetCurrentProcess(), &after);
+#endif
+            int hashes = 0, errors = 0;
+            for (const auto &entry : plan) {
+                hashes += !entry.targetHash.isEmpty();
+                errors += !entry.error.isEmpty();
+            }
+            if (plan.size() != 16 || errors != (overwrite ? 0 : 16) || (overwrite && hashes != 16))
+                return {{QStringLiteral("error"), QStringLiteral("Plan behavior changed")}};
+            QJsonObject row{{QStringLiteral("overwrite"), overwrite}, {QStringLiteral("ms"), ms},
+                {QStringLiteral("hashes"), hashes}};
+#ifdef Q_OS_WIN
+            row.insert(QStringLiteral("process_read_bytes"), qint64(after.ReadTransferCount - before.ReadTransferCount));
+#endif
+            samples.append(row);
+        }
+    return {{QStringLiteral("samples"), samples}, {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"), QStringLiteral("Five alternating skip/overwrite plans, warm filesystem. 16 existing 8 MiB destinations. "
+        "No conversion or writes timed. Windows counters are process-wide read transfers, not physical disk reads. "
+        "Use the same harness before/after; compare skipped destinations with the unchanged overwrite control.")}};
+}
+QJsonObject profileInterfaceTheme(const QString &path) {
+    ix::CodecRegistry registry;
+    const auto reference = registry.read(path);
+    if (!reference.ok()) return {{QStringLiteral("error"), reference.error}};
+    ix::applyInterfaceTheme(QStringLiteral("light"));
+    ix::ImageView view;
+    view.resize(1200, 800);
+    view.setImage(reference.document.pixels);
+    view.setFit(ix::ImageView::Fit::Window);
+    view.show();
+    QCoreApplication::processEvents();
+    const auto sourceKey = view.image().cacheKey();
+    const auto zoom = view.zoom();
+    QImage canvas(view.viewport()->size(), QImage::Format_ARGB32_Premultiplied), expected;
+    QJsonArray samples;
+    for (int sample = 0; sample < 6; ++sample) {
+        for (const bool dark : {sample % 2 == 0, sample % 2 != 0}) {
+            const auto mode = dark ? QStringLiteral("dark") : QStringLiteral("light");
+            QElapsedTimer timer; timer.start();
+            ix::applyInterfaceTheme(mode);
+            QCoreApplication::processEvents();
+            const auto switchMs = timer.nsecsElapsed() / 1e6;
+            timer.restart();
+            const auto decoded = registry.read(path);
+            const auto decodeMs = timer.nsecsElapsed() / 1e6;
+            if (!decoded.ok() || decoded.document.pixels != reference.document.pixels)
+                return {{QStringLiteral("error"), QStringLiteral("Decoded pixels changed")}};
+            view.viewport()->render(&canvas); // prime the viewport raster cache
+            timer.restart();
+            for (int repaint = 0; repaint < 30; ++repaint) view.viewport()->render(&canvas);
+            const auto repaintMs = timer.nsecsElapsed() / 1e6 / 30;
+            if (expected.isNull()) expected = canvas.copy();
+            if (canvas != expected || view.image().cacheKey() != sourceKey || view.zoom() != zoom)
+                return {{QStringLiteral("error"), QStringLiteral("Theme changed image, viewport or zoom")}};
+            samples.append(QJsonObject{{QStringLiteral("mode"), mode}, {QStringLiteral("switch_ms"), switchMs},
+                {QStringLiteral("decode_ms"), decodeMs}, {QStringLiteral("cached_repaint_ms"), repaintMs}});
+        }
+    }
+    return {{QStringLiteral("samples"), samples}, {QStringLiteral("pixels"),
+        QJsonArray{reference.document.pixels.width(), reference.document.pixels.height()}},
+        {QStringLiteral("qt"), QString::fromLatin1(qVersion())}, {QStringLiteral("note"), QStringLiteral(
+        "Six alternating light/dark samples, warm filesystem, uncached registry decoding; 30 cached viewport repaints per sample. "
+        "Switch timing includes palette propagation/event processing in this small harness, not the whole application. "
+        "Exact viewport/decoded pixels, unchanged source key and zoom checked outside timing. No native compositor timing or before/after baseline.")}};
+}
 QJsonObject profileSharpen() {
     QJsonArray rows;
     const QVector<double> kernel{0, -1, 0, -1, 5, -1, 0, -1, 0};
@@ -629,6 +726,20 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-batch-plan"))) {
+        const auto report = profileBatchPlan();
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-interface-theme"))) {
+        const auto report = profileInterfaceTheme(QFileInfo(app.arguments().value(3)).absoluteFilePath());
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-sharpen"))) {
         const auto report = profileSharpen();
         QFile out(app.arguments().value(1));

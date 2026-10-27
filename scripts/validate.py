@@ -107,6 +107,12 @@ def main():
                                                            'fullscreenTransitionsRetainVisibleWindow'], scale)
                 native(f'native-clean-ui-scale-{scale}', ['customCropRatiosSettingsValidateAndPersist',
                                                         'settingsCategoriesRemainVisible'], scale)
+                native(f'native-appearance-scale-{scale}', ['interfaceThemePreservesImageAndNavigationState',
+                    'liveLanguageChangePreservesDocument:window',
+                    'themedDialogsRemainUsable:light-de', 'themedDialogsRemainUsable:dark-de',
+                    'themedDialogsRemainUsable:light-ko', 'themedDialogsRemainUsable:dark-ko',
+                    'themedDialogsRemainUsable:light-fr', 'themedDialogsRemainUsable:dark-fr'],
+                    scale, engine='ixview_workflow_tests')
         report['success'] = True
     except (OSError, subprocess.TimeoutExpired, RuntimeError) as error:
         report['error'] = str(error)

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dialog_layout.h"
 #include "tool_dialog.h"
 #include "extension_dialog.h"
 #include "core/app_storage.h"
@@ -30,7 +31,7 @@ class ToolDialog final : public QDialog {
         setObjectName(QStringLiteral("imageToolDialog"));
         setWindowTitle(id_ == QStringLiteral("zxing-cpp") ? IX_TEXT("QR-/Barcodes lesen") : IX_TEXT("Text erkennen"));
         resize(700, 500);
-        auto *layout = new QVBoxLayout(this);
+        auto *layout = dialogLayout(this);
         if (id_ == QStringLiteral("tesseract-ocr")) {
             layout->addWidget(new QLabel(IX_TEXT("Sprachen")));
             languages_ = new QListWidget;

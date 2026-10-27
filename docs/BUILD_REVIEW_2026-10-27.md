@@ -8,7 +8,7 @@ Windows uses the locked GCC/Qt SDK; Unix CI uses Qt 6.8.3 and
 distribution/Homebrew development libraries. These are separate native builds,
 not a universal binary or a Windows-to-Unix cross-compilation.
 
-The last public desktop run inspected during this review is
+The initial public desktop run inspected during this review was
 [40337156978](https://github.com/micha42-dot/uxzView/actions/runs/40337156978),
 commit `c795e2ab26a114d1b477c7a1c0ad8e9d6ce09419`. All four compilation steps
 succeeded there. Its Windows/Linux fixture failures and macOS installed-start
@@ -117,8 +117,15 @@ configure, compilation, CTest, installation, installed PNG decoding and native
 archive creation. Preserve the uploaded diagnostics if any step fails.
 
 The macOS installed check uses the shipped Cocoa platform; Linux uses
-offscreen. SDK plugin/library environment variables are removed before both
+XCB under Xvfb. SDK plugin/library environment variables are removed before both
 checks. GitHub's [runner matrix](https://github.com/actions/runner-images)
 still lists `macos-15` as arm64 and `macos-15-intel` as x86_64. Native desktop
 behavior, Windows 10 execution and macOS signing/notarization remain separate
 checks from buildability.
+
+The later run `8878b46` confirms Linux compilation and all five CTest suites.
+It exposes a test-only canonical temporary-path mismatch on Windows and both
+Macs, plus a missing offscreen plugin in the installed Linux package. The
+prepared path assertion and XCB/Xvfb corrections pass all 42 local Python tests
+including eight simulated workflow cases; the native jobs must run again.
+See [CI_REPAIR_2026-10-27.md](CI_REPAIR_2026-10-27.md) for logs and scope.

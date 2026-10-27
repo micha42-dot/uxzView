@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_storage.h"
 #include "batch_pipeline.h"
-#include "batch_processor.h"
 #include "file_journal.h"
 #include "preview_service.h"
 #include "processing.h"
@@ -15,10 +14,10 @@
 #include <QJsonArray>
 #include <QPainter>
 #include <QScopeGuard>
-#include <QSet>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <cmath>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 namespace ix {
@@ -28,9 +27,10 @@ void checkCancel(const std::atomic_bool &cancel) {
         throw std::runtime_error("Abgebrochen.");
 }
 QHash<QString, QImage> loadResources(const PipelineProfile &profile, const QHash<QString, QString> &expected,
-                                     bool requireReview = false) {
+                                     const std::atomic_bool &cancel, bool requireReview = false) {
     QHash<QString, QImage> resources;
     for (const auto &step : profile.steps) {
+        checkCancel(cancel);
         const auto path = step.parameters.value(QStringLiteral("image")).toString();
         if (step.type != QStringLiteral("watermark") || path.isEmpty() || resources.contains(path))
             continue;
@@ -38,6 +38,7 @@ QHash<QString, QImage> loadResources(const PipelineProfile &profile, const QHash
         if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
             throw std::runtime_error("Wasserzeichen fehlt oder ist größer als 64 MiB.");
         auto bytes = file.readAll();
+        checkCancel(cancel);
         const auto hash =
             QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
         if (requireReview && expected.value(path) != hash)
@@ -50,6 +51,7 @@ QHash<QString, QImage> loadResources(const PipelineProfile &profile, const QHash
         if (reader.size().isValid() && !safeSize(reader.size()))
             throw std::runtime_error("Wasserzeichen überschreitet das Bildspeicherlimit.");
         auto image = reader.read();
+        checkCancel(cancel);
         if (image.isNull() || !safeSize(image.size(), std::max(8, image.depth() / 8)))
             throw std::runtime_error("Wasserzeichen-Bild konnte nicht gelesen werden.");
         resources.insert(path, std::move(image));
@@ -170,69 +172,6 @@ QString PipelineProfile::validate() const {
     }
     return exports == 1 ? QString() : QStringLiteral("Genau ein Speicherschritt ist erforderlich.");
 }
-QList<PipelineFile> BatchPipeline::plan(const PipelineJob &job) {
-    QList<PipelineFile> result;
-    auto validation = job.profile.validate();
-    if (job.outputDirectory.isEmpty())
-        validation = QStringLiteral("Zielordner fehlt.");
-    auto identity = [](const QString &path) {
-        QFileInfo info(path);
-        auto identity = info.exists() ? info.canonicalFilePath() : info.absoluteFilePath();
-#ifdef Q_OS_WIN
-        return identity.toCaseFolded();
-#else
-        return identity;
-#endif
-    };
-    QSet<QString> destinations, sources;
-    QHash<QString, QString> resourceHashes;
-    for (const auto &step : job.profile.steps) {
-        const auto path = step.parameters.value(QStringLiteral("image")).toString();
-        if (step.type != QStringLiteral("watermark") || path.isEmpty())
-            continue;
-        sources.insert(identity(path));
-        const auto info = QFileInfo(path);
-        auto hash = info.isFile() && info.size() <= 64 * 1024 * 1024 ? sha256File(path) : QString();
-        if (hash.isEmpty())
-            validation = QStringLiteral("Wasserzeichen fehlt oder ist größer als 64 MiB.");
-        resourceHashes.insert(path, hash);
-    }
-    for (const auto &input : job.inputs)
-        sources.insert(identity(input));
-    auto format =
-        job.profile.steps.isEmpty()
-            ? QByteArray()
-            : job.profile.steps.last().parameters.value(QStringLiteral("format")).toString().toLatin1();
-    for (int i = 0; i < job.inputs.size(); ++i) {
-        PipelineFile entry;
-        entry.resourceHashes = resourceHashes;
-        entry.input = QFileInfo(job.inputs[i]).absoluteFilePath();
-        entry.inputStamp = imageFileKey(entry.input);
-        entry.error = validation;
-        const auto name = BatchProcessor::outputName(entry.input, job.namePattern, i + 1, format);
-        entry.output = QDir(job.outputDirectory).absoluteFilePath(name);
-        entry.replaces = QFileInfo::exists(entry.output);
-        entry.targetStamp = entry.replaces ? imageFileKey(entry.output) : QString();
-        entry.targetHash = entry.replaces ? sha256File(entry.output) : QString();
-        auto key = identity(entry.output);
-        if (entry.error.isEmpty()) {
-            if (!QFileInfo(entry.input).isFile())
-                entry.error = QStringLiteral("Quelle fehlt.");
-            else if (name.isEmpty())
-                entry.error = QStringLiteral("Ungültiges Namensmuster.");
-            else if (sources.contains(key))
-                entry.error =
-                    QStringLiteral("Ziel ist eine Eingabedatei; bitte einen anderen Zielpfad wählen.");
-            else if (destinations.contains(key))
-                entry.error = QStringLiteral("Mehrere Eingaben ergeben dasselbe Ziel.");
-            else if (entry.replaces && !job.overwrite)
-                entry.error = QStringLiteral("Ziel existiert; wird übersprungen.");
-        }
-        destinations.insert(key);
-        result.append(entry);
-    }
-    return result;
-}
 ImageDocument BatchPipeline::transform(ImageDocument d, const PipelineProfile &profile,
                                        const std::atomic_bool &cancel, bool allowLoss,
                                        const QHash<QString, QImage> *resources) {
@@ -273,8 +212,10 @@ PipelinePreview BatchPipeline::preview(const PipelineJob &job, const QString &pa
                                        const QList<PipelineFile> &reviewedPlan) {
     PipelinePreview out;
     try {
+        checkCancel(cancel);
         CodecRegistry registry;
         auto read = registry.read(path);
+        checkCancel(cancel);
         if (!read.ok()) {
             out.error = read.error;
             return out;
@@ -284,7 +225,7 @@ PipelinePreview BatchPipeline::preview(const PipelineJob &job, const QString &pa
         auto resources = loadResources(job.profile,
                                        reviewedPlan.isEmpty() ? QHash<QString, QString>()
                                                               : reviewedPlan.first().resourceHashes,
-                                       !reviewedPlan.isEmpty());
+                                       cancel, !reviewedPlan.isEmpty());
         auto image = transform(read.document, job.profile, cancel, job.allowLoss, &resources);
         out.resultSize = image.pixels.size();
         const auto previewRoot = job.journalRoot.isEmpty()
@@ -318,6 +259,11 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                                        const std::atomic_bool &cancel,
                                        const std::function<void(int, int)> &progress,
                                        const CodecRegistry *codecs) {
+    if (cancel.load()) {
+        auto result = plan;
+        for (auto &entry : result) entry.error = QStringLiteral("Abgebrochen; nicht gestartet.");
+        return result;
+    }
     auto validation = job.profile.validate();
     if (!validation.isEmpty()) {
         auto result = plan;
@@ -330,7 +276,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
     try {
         if (plan.isEmpty())
             return {};
-        resources = loadResources(job.profile, plan.first().resourceHashes, true);
+        resources = loadResources(job.profile, plan.first().resourceHashes, cancel, true);
         for (const auto &entry : plan)
             if (entry.resourceHashes != plan.first().resourceHashes)
                 throw std::runtime_error("Verarbeitungskette und Ressourcenplan stimmen nicht überein.");

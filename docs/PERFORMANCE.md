@@ -642,3 +642,78 @@ The two native modules load and all exports resolve. Deployment still has
 Evidence: `build/sharpen-deploy.log`, `sharpen-installed-modules.log` and
 `sharpen-portable.log`. Source and Windows archives are regenerated afterward;
 README and its two existing images remain unchanged.
+
+The subsequent Linux CI run at `8878b46` compiles this optimization with Qt
+6.8.3 and passes all 30 sharpening reference cases. This confirms its tested
+pixel behavior there; no native Linux timing measurements or interactive
+desktop validation are claimed. The independent installed-platform failure
+and its XCB/Xvfb correction are recorded in [CI_REPAIR_2026-10-27.md](CI_REPAIR_2026-10-27.md).
+
+## Interface appearance — 27 October 2026
+
+Light/Dark/System appearance uses a single palette controller and the same
+Fusion widget style. Palette construction occurs at startup, accepted preference
+changes or a platform scheme signal. Image decoding, color conversion and
+ImageView painting do not query the theme controller. No polling timer, external
+theme package or additional image buffer is introduced. A theme-only settings
+confirmation also avoids the former unconditional display job and folder rescan;
+image cache keys, selection, zoom, source revision and directory-index signals are
+checked by `interfaceThemePreservesImageAndNavigationState`.
+
+`--profile-interface-theme` compares six alternating light/dark samples on one
+generated 6000×4000 JPEG (warm filesystem, uncached registry reads), and thirty
+cached viewport repaints per sample. Local Windows offscreen Qt 6.11.2 medians:
+
+| Operation | Light | Dark |
+| --- | ---: | ---: |
+| JPEG decode | 335.04 ms | 344.61 ms |
+| Cached viewport repaint | 0.626 ms | 0.635 ms |
+
+Decode samples vary from 323–415 ms (light) and 329–397 ms (dark), so this small
+sample does not establish an exact zero-cost claim. Viewport and decoded pixels
+match exactly; source keys and zoom remain unchanged. The one-time palette switch
+in this small harness takes a median 0.702/0.278 ms respectively, including event
+processing. Those numbers exclude the full application's chrome and native
+compositor, and are not a startup or before/after benchmark. Evidence:
+`build/interface-theme-performance.json` and its matching process log.
+
+```powershell
+./build/ixview_benchmarks.exe build/theme.json --profile-interface-theme path/to/photo.jpg -platform offscreen
+```
+
+## Batch destination planning — 27 October 2026
+
+The file-plan phase formerly read every existing destination for SHA-256 before
+deciding whether overwrite was disabled, the source/profile was invalid, or an
+output collision prevented processing. `core/batch_plan.cpp` now checks those
+conditions first. Only eligible regular-file replacements are hashed; their
+revision is checked again afterward. Repeated watermark paths share a hash.
+The operation accepts the review's cancellation token, including chunked hashing.
+These changes do not alter source decoding, transformation or commit-time checks.
+
+The retained `--profile-batch-plan` harness creates one small source and sixteen
+existing **8 MiB regular destination files**. It times planning only, alternating
+overwrite disabled/enabled five times per process. Four fresh processes run in
+before/after/before/after order, giving ten samples per condition and build.
+Windows 11, Qt 6.11.2, warm filesystem:
+
+| Condition | Before median (range) | After median (range) | Process read transfers |
+| --- | ---: | ---: | --- |
+| Existing targets skipped | 927.41 ms (870–1157) | 26.30 ms (15–42) | 128 MiB → 0 |
+| Eligible overwrites, control | 931.58 ms (883–1520) | 996.37 ms (862–1755) | 128 MiB → 128 MiB |
+
+The skipped-target case is about **35× faster** in this fixture. The unchanged
+overwrite workload varies and its median is about 7% higher in the after arm;
+the overlapping ranges do not establish a general timing improvement there.
+Windows process counters measure read transfers, not physical disk activity.
+The fixture excludes conversion, preview rendering and writes; this is not a
+first-image/navigation or cross-platform speed claim. No measurements run
+alongside compilation or validation.
+
+Evidence: `build/batch-plan-comparison.json`, `batch-plan-before.json`,
+`batch-plan-before-2.json`, `batch-plan-after-{1,2}.json`, matching process logs
+and retained `batch-plan-before.exe`/`batch-plan-after.exe`.
+
+```powershell
+./build/ixview_benchmarks.exe build/plan.json --profile-batch-plan -platform offscreen
+```

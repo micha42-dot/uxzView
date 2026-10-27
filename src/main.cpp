@@ -6,6 +6,8 @@
 #include "core/localization.h"
 #include "core/plugin_store.h"
 #include "ui/application.h"
+#include "ui/appearance.h"
+#include "ui/interface_language.h"
 #include "ui/main_window.h"
 #include "ui/platform_support.h"
 #include <QApplication>
@@ -16,13 +18,11 @@
 #include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QLibraryInfo>
 #include <QLibrary>
 #include <QSettings>
 #include <QMessageBox>
 #include <QStyleFactory>
 #include <QTextStream>
-#include <QTranslator>
 #include <exception>
 #include <initializer_list>
 int main(int argc, char **argv) {
@@ -148,11 +148,11 @@ int main(int argc, char **argv) {
         language = QStringLiteral("de");
         ix::setUiLanguage(language);
     }
-    ix::configureUiFont();
-    QTranslator translator;
-    if (translator.load(QStringLiteral("qtbase_") + language,
-                        QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
-        app.installTranslator(&translator);
+    // Process-wide collation stays fixed once workers exist. Interface widgets
+    // use their own locale for subsequent live language changes.
+    QLocale::setDefault(ix::uiLocale());
+    ix::applyInterfaceLanguage(language);
+    ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
     ix::MainWindow window;
     app.fileOpened = [&window](const QString &path) { window.openPath(path); };
     window.show();

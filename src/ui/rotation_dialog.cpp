@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "rotation_dialog.h"
+#include "dialog_layout.h"
 #include "core/localization.h"
 #include "platform_support.h"
 #include <QtWidgets>
@@ -74,88 +75,98 @@ class RotationPreview : public QWidget {
 RotationDialog::RotationDialog(const QImage &image, QWidget *parent) : QDialog(parent) {
     setObjectName(QStringLiteral("rotationDialog"));
     setWindowTitle(IX_TEXT("Winkelrotation"));
-    setFont(referenceFont(8));
-    setFixedSize(380, 544);
-    auto label = [&](QString text, QRect rect) {
-        auto *l = new QLabel(text, this);
-        l->setGeometry(rect);
-        return l;
-    };
-    label(IX_TEXT("Originalbild"), {10, 8, 175, 18});
-    label(IX_TEXT("Neues Bild"), {195, 8, 175, 18});
+    auto *outer = dialogLayout(this);
+    auto *body = dialogBody(outer);
+    auto *layout = new QVBoxLayout(body);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+    auto *previews = new QGridLayout;
+    previews->setHorizontalSpacing(16);
+    previews->setVerticalSpacing(8);
+    auto *sourceTitle = new QLabel(IX_TEXT("Originalbild"));
+    auto *resultTitle = new QLabel(IX_TEXT("Neues Bild"));
+    sourceTitle->setAlignment(Qt::AlignCenter);
+    resultTitle->setAlignment(Qt::AlignCenter);
+    previews->addWidget(sourceTitle, 0, 0);
+    previews->addWidget(resultTitle, 0, 1);
     original_ = new RotationPreview(this);
     original_->setObjectName(QStringLiteral("rotationOriginal"));
-    original_->setGeometry(10, 28, 175, 170);
+    original_->setMinimumSize(175, 170);
     original_->source = true;
     result_ = new RotationPreview(this);
     result_->setObjectName(QStringLiteral("rotationResult"));
-    result_->setGeometry(195, 28, 175, 170);
+    result_->setMinimumSize(175, 170);
+    const auto instructions = IX_TEXT("1) Links eine Linie im Originalbild ziehen.\nRechtsklick übernimmt die Drehung.\n\n2) Rechtsklick im Ergebnis setzt den Winkel zurück.");
+    original_->setToolTip(instructions);
+    result_->setToolTip(instructions);
+    previews->addWidget(original_, 1, 0);
+    previews->addWidget(result_, 1, 1);
+    previews->setColumnStretch(0, 1);
+    previews->setColumnStretch(1, 1);
+    layout->addLayout(previews);
     thumbnail_ = image.scaled(320, 320, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     original_->image = thumbnail_;
-    label(IX_TEXT("Winkel:"), {10, 208, 40, 22});
+    auto *form = dialogFormLayout();
     angle_ = new QDoubleSpinBox(this);
     angle_->setObjectName(QStringLiteral("angle"));
-    angle_->setGeometry(52, 208, 80, 22);
     angle_->setRange(-360, 360);
     angle_->setDecimals(1);
     angle_->setSingleStep(.1);
     angle_->setValue(45);
-    auto *range = label(IX_TEXT("−360° bis 360°; Schritt 0,1° (Strg: 1°)"), {10, 234, 360, 18});
-    range->setFont(referenceFont(7));
-    auto check = [&](QString text, QString name, int y) {
-        auto *c = new QCheckBox(text, this);
-        c->setObjectName(name);
-        c->setGeometry(10, y, 360, 21);
-        connect(c, &QCheckBox::toggled, this, &RotationDialog::updatePreview);
-        return c;
+    angle_->setToolTip(IX_TEXT("−360° bis 360°; Schritt 0,1° (Strg: 1°)"));
+    form->addRow(IX_TEXT("Winkel:"), angle_);
+    layout->addLayout(form);
+    auto check = [&](const QString &text, const QString &name) {
+        auto *widget = new QCheckBox(text, this);
+        widget->setObjectName(name);
+        layout->addWidget(widget);
+        connect(widget, &QCheckBox::toggled, this, &RotationDialog::updatePreview);
+        return widget;
     };
-    canvas_ = check(IX_TEXT("Originalgröße der Leinwand beibehalten"), QStringLiteral("keepCanvas"), 257);
-    background_ =
-        check(IX_TEXT("Originalbild als Hintergrund beibehalten"), QStringLiteral("originalBackground"), 280);
+    canvas_ = check(IX_TEXT("Originalgröße der Leinwand beibehalten"), QStringLiteral("keepCanvas"));
+    background_ = check(IX_TEXT("Originalbild als Hintergrund beibehalten"), QStringLiteral("originalBackground"));
     background_->setEnabled(false);
-    fast_ =
-        check(IX_TEXT("Schnelle Rotation ohne Kantenglättung verwenden"), QStringLiteral("fastMethod"), 303);
-    fast_->setFont(referenceFont(7));
-    antialias_ = check(IX_TEXT("Kantenglättung aktivieren (bessere Qualität, langsamer)"),
-                       QStringLiteral("antialias"), 326);
-    // Connect only after every dependent control exists.
-    select_ = check(IX_TEXT("Größten Originalbereich im Ergebnis markieren"),
-                    QStringLiteral("selectOriginal"), 349);
-    sharpen_ = check(IX_TEXT("Nach der Rotation schärfen:"), QStringLiteral("sharpen"), 372);
-    sharpen_->setGeometry(10, 372, 205, 21);
-    amount_ = new QSpinBox(this);
+    fast_ = check(IX_TEXT("Schnelle Rotation ohne Kantenglättung verwenden"), QStringLiteral("fastMethod"));
+    antialias_ = check(IX_TEXT("Kantenglättung aktivieren (bessere Qualität, langsamer)"), QStringLiteral("antialias"));
+    select_ = check(IX_TEXT("Größten Originalbereich im Ergebnis markieren"), QStringLiteral("selectOriginal"));
+    sharpen_ = new QCheckBox(IX_TEXT("Nach der Rotation schärfen:"));
+    sharpen_->setObjectName(QStringLiteral("sharpen"));
+    connect(sharpen_, &QCheckBox::toggled, this, &RotationDialog::updatePreview);
+    amount_ = new QSpinBox;
     amount_->setObjectName(QStringLiteral("sharpenAmount"));
-    amount_->setGeometry(220, 372, 60, 22);
     amount_->setRange(1, 99);
     amount_->setValue(20);
     amount_->setEnabled(false);
-    label(QStringLiteral("(1 - 99)"), {287, 372, 65, 22});
-    label(IX_TEXT("Hintergrundfarbe (4-, 8-, 24-BPP-Bilder)"), {10, 400, 262, 22});
-    color_ = new QPushButton(IX_TEXT("Wählen"), this);
+    auto *sharpenRow = new QHBoxLayout;
+    sharpenRow->setSpacing(8);
+    sharpenRow->addWidget(sharpen_);
+    sharpenRow->addWidget(amount_);
+    sharpenRow->addStretch();
+    layout->addLayout(sharpenRow);
+    auto *colorRow = new QHBoxLayout;
+    colorRow->setSpacing(8);
+    auto *colorTitle = new QLabel(IX_TEXT("Hintergrundfarbe (4-, 8-, 24-BPP-Bilder)"));
+    colorTitle->setWordWrap(true);
+    colorRow->addWidget(colorTitle, 1);
+    color_ = new QPushButton(IX_TEXT("Wählen"));
     color_->setObjectName(QStringLiteral("backgroundColor"));
-    color_->setGeometry(297, 400, 73, 23);
+    colorRow->addWidget(color_);
+    layout->addLayout(colorRow);
+    layout->addStretch();
     connect(color_, &QPushButton::clicked, this, [this] {
-        auto color = QColorDialog::getColor(backgroundColor_, this, IX_TEXT("Hintergrundfarbe"));
+        const auto color = QColorDialog::getColor(backgroundColor_, this, IX_TEXT("Hintergrundfarbe"));
         if (color.isValid()) {
             backgroundColor_ = color;
             updatePreview();
         }
     });
-    auto *hints = new QGroupBox(IX_TEXT("Hinweise:"), this);
-    hints->setGeometry(10, 429, 360, 76);
-    auto *hint = new QLabel(IX_TEXT("1) Links eine Linie im Originalbild ziehen.\nRechtsklick übernimmt die "
-                                    "Drehung.\n\n2) Rechtsklick im Ergebnis setzt den Winkel zurück."),
-                            hints);
-    hint->setFont(referenceFont(7));
-    hint->setGeometry(8, 14, 344, 55);
-    auto *ok = new QPushButton(QStringLiteral("OK"), this);
-    ok->setObjectName(QStringLiteral("rotationOk"));
-    ok->setGeometry(205, 514, 78, 23);
-    ok->setDefault(true);
-    connect(ok, &QPushButton::clicked, this, &QDialog::accept);
-    auto *cancel = new QPushButton(IX_TEXT("Abbrechen"), this);
-    cancel->setGeometry(292, 514, 78, 23);
-    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    buttons->button(QDialogButtonBox::Ok)->setObjectName(QStringLiteral("rotationOk"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));
+    outer->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    resize(620, std::min(640, screen()->availableGeometry().height() - 64));
     original_->angleChanged = [this](double angle) { angle_->setValue(angle); };
     original_->rightClick = [this] { accept(); };
     result_->rightClick = [this] {
@@ -192,7 +203,7 @@ void RotationDialog::updatePreview() {
         auto o = options();
         o.selectOriginal = false;
         result_->image = rotateImage(thumbnail_, o).pixels;
-        result_->setToolTip({});
+        result_->setToolTip(original_->toolTip());
     } catch (const std::exception &e) {
         result_->image = {};
         result_->setToolTip(QString::fromUtf8(e.what()));

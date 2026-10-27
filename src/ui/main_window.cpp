@@ -3,6 +3,8 @@
 #include "main_window.h"
 #include "extension_dialog.h"
 #include "action_search.h"
+#include "appearance.h"
+#include "interface_language.h"
 #include "crop_ratios.h"
 #include "core/file_journal.h"
 #include "core/directory_index_service.h"
@@ -37,6 +39,27 @@
 #include <stdexcept>
 namespace ix {
 namespace {
+class ZoomComboBox final : public QComboBox {
+  public:
+    using QComboBox::QComboBox;
+  protected:
+    void paintEvent(QPaintEvent *event) override {
+        QComboBox::paintEvent(event);
+        QStyleOptionComboBox option;
+        initStyleOption(&option);
+        const auto arrow = style()->subControlRect(QStyle::CC_ComboBox, &option,
+                                                   QStyle::SC_ComboBoxArrow, this);
+        if (arrow.isEmpty()) return;
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled,
+                                            QPalette::Text), 1.25, Qt::SolidLine,
+                            Qt::RoundCap, Qt::RoundJoin));
+        const QPointF center = arrow.center();
+        painter.drawPolyline(QPolygonF{center + QPointF(-3, -1.5), center + QPointF(0, 1.5),
+                                       center + QPointF(3, -1.5)});
+    }
+};
 void updateRecentSetting(QSettings &settings, const QString &key, const QString &path) {
     const auto setting = QStringLiteral("files/") + key;
     const auto previous = settings.value(setting).toStringList();
@@ -84,6 +107,7 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
     : QMainWindow(p), journalRoot_(std::move(journalRoot)),
       directoryIndex_(new DirectoryIndexService(this)), zoom_(nullptr) {
     setObjectName(QStringLiteral("mainWindow"));
+    setLocale(uiLocale());
     setWindowTitle(QStringLiteral("üxzView"));
     setWindowIcon(QIcon(QStringLiteral(":/ixview.svg")));
     setAcceptDrops(true);
@@ -102,12 +126,13 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
         auto *label = new QLabel;
         if (i == 4)
             label->setObjectName(QStringLiteral("sourceModifiedStatus"));
-        label->setFrameStyle(QFrame::Panel | QFrame::Sunken);
+        label->setFrameStyle(QFrame::NoFrame);
         label->setMargin(2);
         statusBar()->addWidget(label, i == 0 ? 3 : 2);
         status_.append(label);
     }
     statusBar()->setSizeGripEnabled(true);
+    statusBar()->setStyleSheet(QStringLiteral("QStatusBar::item { border: none; }"));
     connect(view_, &ImageView::zoomChanged, this, [this](double value) {
         QSignalBlocker blocker(zoom_);
         QSignalBlocker editorBlocker(zoom_->lineEdit());
@@ -280,30 +305,41 @@ void MainWindow::buildMenus() {
                  .contains(object.value(QStringLiteral("id")).toString()))
             continue;
         auto *menu = menuBar()->addMenu(localized(object.value(QStringLiteral("label")).toString()));
+        bindUiText(menu, "title", object.value(QStringLiteral("label")).toString());
         menu->setObjectName(object.value(QStringLiteral("id")).toString());
         populateMenu(menu, object);
     }
     auto *help = menuBar()->addMenu(IX_TEXT("&Hilfe"));
+    bindUiText(help, "title", QStringLiteral("&Hilfe"));
     auto *formats = help->addAction(IX_TEXT("Verfügbare Bildformate..."));
+    bindUiText(formats, "text", QStringLiteral("Verfügbare Bildformate..."));
     connect(formats, &QAction::triggered, this, [this] { formatDialog(this, registry_); });
     auto *keys = help->addAction(IX_TEXT("Tastenkürzel..."));
+    bindUiText(keys, "text", QStringLiteral("Tastenkürzel..."));
     keys->setObjectName(QStringLiteral("keyboardHelp"));
     keys->setShortcut(QKeySequence(Qt::Key_F1));
     addAction(keys);
     connect(keys, &QAction::triggered, this, &MainWindow::showKeyboardHelp);
     auto *about = help->addAction(IX_TEXT("Über üxzView..."));
+    bindUiText(about, "text", QStringLiteral("Über üxzView..."));
     about->setObjectName(QStringLiteral("about"));
     about->setShortcut(QKeySequence(Qt::Key_A));
     addAction(about);
     connect(about, &QAction::triggered, this, [this] {
-        QMessageBox::about(
-            this, IX_TEXT("Über üxzView"),
-            IX_TEXT(
+        const auto source = QStringLiteral(
                 "üxzView %1\n\nEntwickler: Michael Förtsch\n\nDieses Programm entstand mit Hilfe von Codex, "
                 "Cline, Claude und Kimi K3.\n\nVon IrfanView und nomacs inspiriert.\n\nQuellcode: "
                 "GPL-3.0-or-later.\nQt und "
-                "Bibliotheken: siehe Lizenzinformationen im Programmverzeichnis.")
-                .arg(QCoreApplication::applicationVersion()));
+                "Bibliotheken: siehe Lizenzinformationen im Programmverzeichnis.");
+        const auto version = QCoreApplication::applicationVersion();
+        const auto text = localized(source).arg(version);
+        QMessageBox::about(this, IX_TEXT("Über üxzView"), text);
+        // macOS may retain a modeless About box after the static call returns.
+        for (auto *box : findChildren<QMessageBox *>())
+            if (box->text() == text) {
+                bindUiText(box, "windowTitle", QStringLiteral("Über üxzView"));
+                bindUiText(box, "text", source, {}, {}, {version});
+            }
     });
     QFile bindings(QStringLiteral(":/shortcuts.de.json"));
     if (bindings.open(QIODevice::ReadOnly)) {
@@ -383,8 +419,10 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
             menu->addSeparator();
         separator = false;
         QString label = localized(item.value(QStringLiteral("label")).toString());
+        const auto source = item.value(QStringLiteral("label")).toString();
         if (!dynamic.isEmpty()) {
             auto *child = menu->addMenu(label);
+            bindUiText(child, "title", source);
             connect(child, &QMenu::aboutToShow, this, [this, child, dynamic] { recentMenu(child, dynamic); });
             continue;
         }
@@ -392,14 +430,17 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
             for (auto m : menuData_.value(QStringLiteral("menus")).toArray())
                 if (m.toObject().value(QStringLiteral("id")).toString() == submenu) {
                     auto *child = menu->addMenu(label);
+                    bindUiText(child, "title", source);
                     child->setObjectName(submenu);
                     populateMenu(child, m.toObject());
                 }
             continue;
         }
         QAction *action = new QAction(label, this);
+        bindUiText(action, "text", source, cmd == QStringLiteral("exit") ? QStringLiteral("\tEsc") : QString());
         if (cmd == QStringLiteral("cropAspect")) {
             auto *ratios = new QMenu(label, menu);
+            bindUiText(ratios, "title", source);
             ratios->setObjectName(QStringLiteral("cropAspectMenu"));
             action->setMenu(ratios);
             connect(ratios, &QMenu::aboutToShow, this, [this, ratios] { populateCropMenu(ratios); });
@@ -412,8 +453,6 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
             QString key = item.value(QStringLiteral("shortcut")).toString();
             if (!key.isEmpty() && cmd != QStringLiteral("exit"))
                 action->setShortcut(shortcut(key));
-            if (cmd == QStringLiteral("exit"))
-                action->setText(label + QStringLiteral("\tEsc"));
             if (cmd == QStringLiteral("fullscreen"))
                 action->setAutoRepeat(false);
             if (checks.contains(cmd))
@@ -478,7 +517,8 @@ void MainWindow::populateCropMenu(QMenu *menu) {
     connect(settings, &QAction::triggered, this, [this] { dispatch(QStringLiteral("cropSettings")); });
 }
 void MainWindow::buildToolbar() {
-    toolbar_ = addToolBar(IX_TEXT("Symbolleiste"));
+    toolbar_ = addToolBar(QStringLiteral("Symbolleiste"));
+    bindUiText(toolbar_, "windowTitle", QStringLiteral("Symbolleiste"));
     toolbar_->setObjectName(QStringLiteral("mainToolbar"));
     toolbar_->setMovable(false);
     toolbar_->setFloatable(false);
@@ -489,34 +529,25 @@ void MainWindow::buildToolbar() {
             return;
         action->setProperty("ixIcon", icon);
         action->setIcon(uiIcon(icon, palette()));
-        auto tip = description;
-        if (!action->shortcuts().isEmpty())
-            tip +=
-                QStringLiteral(" (%1)").arg(action->shortcuts().first().toString(QKeySequence::NativeText));
-        action->setToolTip(tip);
-        action->setStatusTip(description);
         toolbar_->addAction(action);
-        if (auto *widget = toolbar_->widgetForAction(action)) {
-            widget->setAccessibleName(description);
-            widget->setAccessibleDescription(tip);
-        }
+        bindToolbarDescription(toolbar_, action, description);
     };
-    add(QStringLiteral("open"), QStringLiteral("open"), IX_TEXT("Bilddatei öffnen"));
-    add(QStringLiteral("slideshowDialog"), QStringLiteral("slideshow"), IX_TEXT("Diashow starten"));
-    add(QStringLiteral("saveAs"), QStringLiteral("save"), IX_TEXT("Bild unter neuem Namen speichern"));
-    add(QStringLiteral("print"), QStringLiteral("print"), IX_TEXT("Bild drucken"));
+    add(QStringLiteral("open"), QStringLiteral("open"), QStringLiteral("Bilddatei öffnen"));
+    add(QStringLiteral("slideshowDialog"), QStringLiteral("slideshow"), QStringLiteral("Diashow starten"));
+    add(QStringLiteral("saveAs"), QStringLiteral("save"), QStringLiteral("Bild unter neuem Namen speichern"));
+    add(QStringLiteral("print"), QStringLiteral("print"), QStringLiteral("Bild drucken"));
     add(QStringLiteral("delete"), QStringLiteral("trash"),
-        IX_TEXT("Datei in den internen Papierkorb verschieben"));
+        QStringLiteral("Datei in den internen Papierkorb verschieben"));
     toolbar_->addSeparator();
-    add(QStringLiteral("cut"), QStringLiteral("cut"), IX_TEXT("Markierten Bereich ausschneiden"));
-    add(QStringLiteral("copy"), QStringLiteral("copy"), IX_TEXT("Bild oder Markierung kopieren"));
-    add(QStringLiteral("paste"), QStringLiteral("paste"), IX_TEXT("Bild aus der Zwischenablage einfügen"));
-    add(QStringLiteral("undo"), QStringLiteral("undo"), IX_TEXT("Letzte Bildbearbeitung rückgängig machen"));
+    add(QStringLiteral("cut"), QStringLiteral("cut"), QStringLiteral("Markierten Bereich ausschneiden"));
+    add(QStringLiteral("copy"), QStringLiteral("copy"), QStringLiteral("Bild oder Markierung kopieren"));
+    add(QStringLiteral("paste"), QStringLiteral("paste"), QStringLiteral("Bild aus der Zwischenablage einfügen"));
+    add(QStringLiteral("undo"), QStringLiteral("undo"), QStringLiteral("Letzte Bildbearbeitung rückgängig machen"));
     add(QStringLiteral("info"), QStringLiteral("image-info"),
-        IX_TEXT("Bildinformationen und Metadaten anzeigen"));
+        QStringLiteral("Bildinformationen und Metadaten anzeigen"));
     toolbar_->addSeparator();
-    add(QStringLiteral("zoomOut"), QStringLiteral("zoom-out"), IX_TEXT("Verkleinern (herauszoomen)"));
-    zoom_ = new QComboBox;
+    add(QStringLiteral("zoomOut"), QStringLiteral("zoom-out"), QStringLiteral("Verkleinern (herauszoomen)"));
+    zoom_ = new ZoomComboBox;
     zoom_->setObjectName(QStringLiteral("zoom"));
     zoom_->setEditable(true);
     zoom_->lineEdit()->installEventFilter(this);
@@ -534,24 +565,26 @@ void MainWindow::buildToolbar() {
         if (!activity_.busy())
             view_->setZoom(zoom_->currentText().toDouble() / 100);
     });
-    add(QStringLiteral("zoomIn"), QStringLiteral("zoom-in"), IX_TEXT("Vergrößern (hineinzoomen)"));
+    add(QStringLiteral("zoomIn"), QStringLiteral("zoom-in"), QStringLiteral("Vergrößern (hineinzoomen)"));
     toolbar_->addSeparator();
-    add(QStringLiteral("previous"), QStringLiteral("previous-image"), IX_TEXT("Vorheriges Bild öffnen"));
-    add(QStringLiteral("next"), QStringLiteral("next-image"), IX_TEXT("Nächstes Bild öffnen"));
+    add(QStringLiteral("previous"), QStringLiteral("previous-image"), QStringLiteral("Vorheriges Bild öffnen"));
+    add(QStringLiteral("next"), QStringLiteral("next-image"), QStringLiteral("Nächstes Bild öffnen"));
     auto *prev =
-        toolbar_->addAction(uiIcon(QStringLiteral("previous-page"), palette()), IX_TEXT("Vorherige Seite"));
+        toolbar_->addAction(uiIcon(QStringLiteral("previous-page"), palette()), QStringLiteral("Vorherige Seite"));
     prev->setObjectName(QStringLiteral("previousPage"));
+    bindUiText(prev, "text", QStringLiteral("Vorherige Seite"));
     prev->setProperty("ixIcon", QStringLiteral("previous-page"));
-    prev->setToolTip(IX_TEXT("Vorherige Seite innerhalb der mehrseitigen Datei"));
+    bindUiText(prev, "toolTip", QStringLiteral("Vorherige Seite innerhalb der mehrseitigen Datei"));
     connect(prev, &QAction::triggered, this, [this] { page(-1); });
     auto *next =
-        toolbar_->addAction(uiIcon(QStringLiteral("next-page"), palette()), IX_TEXT("Nächste Seite"));
+        toolbar_->addAction(uiIcon(QStringLiteral("next-page"), palette()), QStringLiteral("Nächste Seite"));
     next->setObjectName(QStringLiteral("nextPage"));
+    bindUiText(next, "text", QStringLiteral("Nächste Seite"));
     next->setProperty("ixIcon", QStringLiteral("next-page"));
-    next->setToolTip(IX_TEXT("Nächste Seite innerhalb der mehrseitigen Datei"));
+    bindUiText(next, "toolTip", QStringLiteral("Nächste Seite innerhalb der mehrseitigen Datei"));
     connect(next, &QAction::triggered, this, [this] { page(1); });
     toolbar_->addSeparator();
-    add(QStringLiteral("settings"), QStringLiteral("settings"), IX_TEXT("Einstellungen öffnen"));
+    add(QStringLiteral("settings"), QStringLiteral("settings"), QStringLiteral("Einstellungen öffnen"));
 }
 void MainWindow::reconcileFilePath() {
     if (document_.path.isEmpty())
@@ -621,7 +654,8 @@ void MainWindow::buildExtraFeatures() {
     options->setToolTipsVisible(true);
     auto *fileMenu = menuBar()->findChild<QMenu *>(QStringLiteral("datei"));
     auto *displayOptions = viewMenu->findChild<QMenu *>(QStringLiteral("anzeige-optionen"));
-    auto *info = new QAction(IX_TEXT("Informationen anzeigen (Vollbildmodus)"), viewMenu);
+    auto *info = new QAction(viewMenu);
+    bindUiText(info, "text", QStringLiteral("Informationen anzeigen (Vollbildmodus)"));
     info->setObjectName(QStringLiteral("fullscreenInfoOptions"));
     const int displayIndex = displayOptions ? viewMenu->actions().indexOf(displayOptions->menuAction()) : -1;
     viewMenu->insertAction(viewMenu->actions().value(displayIndex + 1), info);
@@ -632,7 +666,8 @@ void MainWindow::buildExtraFeatures() {
         }
     });
     auto *before = actions_.value(QStringLiteral("fullscreen"));
-    auto *strip = new QAction(IX_TEXT("Vorschaubilderleiste"), viewMenu);
+    auto *strip = new QAction(viewMenu);
+    bindUiText(strip, "text", QStringLiteral("Vorschaubilderleiste"));
     viewMenu->insertSeparator(before);
     viewMenu->insertAction(before, strip);
     viewMenu->insertSeparator(before);
@@ -658,9 +693,10 @@ void MainWindow::buildExtraFeatures() {
     auto *about = findChild<QAction *>(QStringLiteral("about"));
     about->setProperty("ixIcon", QStringLiteral("about"));
     about->setIcon(uiIcon(QStringLiteral("about"), palette()));
-    about->setToolTip(IX_TEXT("Über üxzView (A)"));
+    bindUiText(about, "toolTip", QStringLiteral("Über üxzView (A)"));
     toolbar_->addAction(about);
     auto *search = viewMenu->addAction(IX_TEXT("Befehlssuche anzeigen"));
+    bindUiText(search, "text", QStringLiteral("Befehlssuche anzeigen"));
     search->setObjectName(QStringLiteral("actionSearchToggle"));
     search->setCheckable(true);
     connect(search, &QAction::toggled, this, [this](bool enabled) {
@@ -682,7 +718,8 @@ void MainWindow::buildExtraFeatures() {
             searchWidgetAction_->setVisible(enabled);
         }
     });
-    auto *journal = new QAction(IX_TEXT("Dateijournal / interner Papierkorb …"), fileMenu);
+    auto *journal = new QAction(fileMenu);
+    bindUiText(journal, "text", QStringLiteral("Dateijournal / interner Papierkorb …"));
     journal->setObjectName(QStringLiteral("fileJournal"));
     connect(journal, &QAction::triggered, this, [this] {
         if (activity_.busy())
@@ -692,7 +729,8 @@ void MainWindow::buildExtraFeatures() {
         ImageLoadCache::clear();
         refreshFiles(true);
     });
-    auto *undo = new QAction(IX_TEXT("Letzte Dateioperation rückgängig"), fileMenu);
+    auto *undo = new QAction(fileMenu);
+    bindUiText(undo, "text", QStringLiteral("Letzte Dateioperation rückgängig"));
     undo->setObjectName(QStringLiteral("fileUndo"));
     connect(undo, &QAction::triggered, this, [this] {
         if (activity_.busy())
@@ -710,7 +748,8 @@ void MainWindow::buildExtraFeatures() {
     fileMenu->insertSeparator(afterDelete);
     fileMenu->insertAction(afterDelete, undo);
     fileMenu->insertAction(afterDelete, journal);
-    auto *legacy = new QAction(IX_TEXT("Klassische Stapel-Umbenennung …"), fileMenu);
+    auto *legacy = new QAction(fileMenu);
+    bindUiText(legacy, "text", QStringLiteral("Klassische Stapel-Umbenennung …"));
     legacy->setObjectName(QStringLiteral("legacyBatch"));
     fileMenu->insertAction(fileActions.value(fileActions.indexOf(actions_.value(QStringLiteral("batch"))) + 1),
                            legacy);
@@ -723,6 +762,7 @@ void MainWindow::buildExtraFeatures() {
         refreshFiles(true);
     });
     auto *plugins = options->addAction(IX_TEXT("Erweiterungen verwalten …"));
+    bindUiText(plugins, "text", QStringLiteral("Erweiterungen verwalten …"));
     plugins->setObjectName(QStringLiteral("extensionManager"));
     connect(plugins, &QAction::triggered, this, [this] {
         if (activity_.busy()) return;
@@ -733,9 +773,11 @@ void MainWindow::buildExtraFeatures() {
         extensionManagerDialog(this);
     });
     auto *tools = menuBar()->findChild<QMenu *>(QStringLiteral("bild"))->addMenu(IX_TEXT("Funktionserweiterungen"));
-    for (const auto &entry : {std::pair{QStringLiteral("zxing-cpp"), IX_TEXT("QR-/Barcodes lesen …")},
-                              std::pair{QStringLiteral("tesseract-ocr"), IX_TEXT("Text erkennen …")}}) {
+    bindUiText(tools, "title", QStringLiteral("Funktionserweiterungen"));
+    for (const auto &entry : {std::pair{QStringLiteral("zxing-cpp"), QStringLiteral("QR-/Barcodes lesen …")},
+                              std::pair{QStringLiteral("tesseract-ocr"), QStringLiteral("Text erkennen …")}}) {
         auto *action = tools->addAction(entry.second);
+        bindUiText(action, "text", entry.second);
         const auto id = entry.first;
         action->setObjectName(id);
         action->setData(id);
@@ -1111,6 +1153,15 @@ void MainWindow::refreshToolbarIcons() {
                                 background.blueF() * (1 - amount) + ink.blueF() * amount).name();
     };
     toolbar_->setPalette(colors);
+    statusBar()->setPalette(colors);
+    for (auto *label : status_) label->setPalette(colors);
+    menuBar()->setPalette(colors);
+    menuBar()->setStyleSheet(QStringLiteral(
+        "QMenuBar { border: none; background: %1; color: %2; }"
+        "QMenuBar::item { background: transparent; padding: 4px 7px; }"
+        "QMenuBar::item:selected { background: %3; border-radius: 3px; }"
+        "QMenuBar::item:pressed { background: %4; }")
+        .arg(background.name(), ink.name(), blend(.07), blend(.14)));
     if (zoom_)
         zoom_->setPalette(colors);
     if (actionSearch_)
@@ -1124,11 +1175,22 @@ void MainWindow::refreshToolbarIcons() {
                        "{ background: %2; }"
                        "QToolBar#mainToolbar QToolButton:focus { border-color: palette(highlight); }"
                        "QToolBar#mainToolbar::separator { background: %3; width: 1px; margin: 7px 5px; }"
+                       "QToolBar#mainToolbar QComboBox#zoom { border: 1px solid %3; border-radius: 4px; "
+                       "padding: 4px; background: %5; color: %6; }"
+                       "QToolBar#mainToolbar QComboBox#zoom:focus { border-color: palette(highlight); }"
+                       "QToolBar#mainToolbar QComboBox#zoom::drop-down { border: none; width: 14px; }"
+                       "QToolBar#mainToolbar QComboBox#zoom::down-arrow { image: none; }"
+                       "QToolBar#mainToolbar QComboBox#zoom QLineEdit { border: none; "
+                       "padding: 0; background: transparent; color: %6; }"
+                       "QToolBar#mainToolbar QComboBox#zoom:disabled, "
+                       "QToolBar#mainToolbar QComboBox#zoom:disabled QLineEdit { color: %7; }"
+                       "QToolBar#mainToolbar QComboBox#zoom QAbstractItemView { background: %5; color: %6; }"
                        "QToolBar#mainToolbar QLineEdit#actionSearch { border: 1px solid %3; "
                        "border-radius: 4px; padding: 5px 7px; background: %5; color: %6; }"
                        "QToolBar#mainToolbar QLineEdit#actionSearch:focus { border-color: palette(highlight); }")
-            .arg(blend(.07), blend(.14), blend(.22), background.name(),
-                 colors.color(QPalette::Base).name(), colors.color(QPalette::Text).name()));
+            .arg(blend(.07), blend(.14), blend(.16), background.name(),
+                 colors.color(QPalette::Base).name(), colors.color(QPalette::Text).name(),
+                 colors.color(QPalette::Disabled, QPalette::Text).name()));
     for (auto *action : toolbar_->actions()) {
         auto icon = action->property("ixIcon").toString();
         if (!icon.isEmpty())
@@ -1137,11 +1199,19 @@ void MainWindow::refreshToolbarIcons() {
 }
 void MainWindow::changeEvent(QEvent *event) {
     QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::PaletteChange)
+    if (event->type() == QEvent::LanguageChange) {
+        retranslateUiText(this);
+        updateStatus();
+        refreshState();
+    }
+    if (event->type() == QEvent::PaletteChange) {
         refreshToolbarIcons();
+        if (previewStrip_) previewStrip_->applySettings();
+    }
 }
 void MainWindow::applySettings(bool applyFit) {
     QSettings s;
+    applyInterfaceTheme(s.value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
     view_->setDisplayCacheEnabled(s.value(QStringLiteral("performance/imageCacheMiB"), 192).toInt() > 0);
     ImageLoadCache::configure(s.value(QStringLiteral("performance/imageCacheMiB"), 192).toInt(),
                               s.value(QStringLiteral("performance/previewCacheMiB"), 16).toInt(),
@@ -1358,13 +1428,25 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("settings") || cmd == QStringLiteral("cropSettings")) {
+        const QSettings before;
+        const auto fit = before.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt();
+        const auto sort = before.value(QStringLiteral("navigation/sort"), 0).toInt();
+        const auto reverse = before.value(QStringLiteral("navigation/reverse"), false).toBool();
+        const auto manage = before.value(QStringLiteral("color/manage"), true).toBool();
+        const auto sharpen = displaySharpen_;
         SettingsDialog dialog(this);
         if (cmd == QStringLiteral("cropSettings"))
             dialog.selectPage(QStringLiteral("cropSettingsPage"));
         if (dialog.exec() == QDialog::Accepted) {
-            applySettings(true);
-            refreshFiles(true);
-            displayCurrent();
+            const QSettings after;
+            const auto language = after.value(QStringLiteral("ui/language"), uiLanguage()).toString();
+            if (language != uiLanguage()) applyInterfaceLanguage(language);
+            applySettings(fit != after.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt());
+            if (sort != after.value(QStringLiteral("navigation/sort"), 0).toInt() ||
+                reverse != after.value(QStringLiteral("navigation/reverse"), false).toBool())
+                refreshFiles(true);
+            if (manage != after.value(QStringLiteral("color/manage"), true).toBool() || sharpen != displaySharpen_)
+                displayCurrent();
         }
         return;
     }
@@ -2162,7 +2244,7 @@ void MainWindow::commitZoomEdit() {
     if (activity_.busy())
         return;
     bool ok = false;
-    double value = QLocale().toDouble(zoom_->currentText(), &ok);
+    double value = locale().toDouble(zoom_->currentText(), &ok);
     if (!ok)
         value = zoom_->currentText().toDouble(&ok);
     if (ok && value > 0)

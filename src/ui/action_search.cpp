@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "action_search.h"
+#include "interface_language.h"
 #include "core/localization.h"
 #include <QtWidgets>
 namespace ix {
@@ -25,7 +26,7 @@ void updateItem(QStandardItem *item, const QAction *action) {
 ActionSearch::ActionSearch(QList<QAction *> actions, QWidget *parent)
     : QLineEdit(parent) {
     setObjectName(QStringLiteral("actionSearch"));
-    setPlaceholderText(IX_TEXT("Befehl suchen …"));
+    bindUiText(this, "placeholderText", QStringLiteral("Befehl suchen …"));
     setClearButtonEnabled(true);
     setMinimumWidth(130);
     setMaximumWidth(230);

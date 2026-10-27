@@ -797,12 +797,13 @@ class IxTests : public QObject {
             QVERIFY(pix.toImage() != ix::uiIcon(name, dark).pixmap({32, 32}).toImage());
             auto disabled = icon.pixmap({24, 24}, QIcon::Disabled);
             QVERIFY(!disabled.isNull());
-            for (qreal scale : {1.0, 1.5, 2.0}) {
-                auto scaled = icon.pixmap(QSize(24, 24), scale);
-                QVERIFY(!scaled.isNull());
-                QCOMPARE(scaled.devicePixelRatio(), scale);
-                QCOMPARE(scaled.size(), QSize(qRound(24 * scale), qRound(24 * scale)));
-            }
+            for (const int size : {20, 24, 28, 32})
+                for (qreal scale : {1.0, 1.25, 1.5, 2.0}) {
+                    auto scaled = icon.pixmap(QSize(size, size), scale);
+                    QVERIFY(!scaled.isNull());
+                    QCOMPARE(scaled.devicePixelRatio(), scale);
+                    QCOMPARE(scaled.size(), QSize(qRound(size * scale), qRound(size * scale)));
+                }
             int x = (i % 6) * 126, y = (i / 6) * 132;
             icon.paint(&painter, {x + 20, y + 10, 32, 32});
             painter.fillRect(QRect(x + 64, y + 4, 48, 48), QColor(QStringLiteral("#1d222b")));

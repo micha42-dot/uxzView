@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "ui/dialog_layout.h"
 #include "core/localization.h"
 #include "core/plugin_store.h"
 #include "core/tool_store.h"
@@ -17,7 +18,7 @@ class Manager : public QDialog {
         setProperty("httpsAvailable", QSslSocket::supportsSsl());
         setWindowTitle(IX_TEXT("üxzView – Erweiterungen"));
         resize(980, 610);
-        auto *layout = new QVBoxLayout(this);
+        auto *layout = ix::dialogLayout(this);
         auto *rootRow = new QHBoxLayout;
         root_ = new QLineEdit(ix::ExtensionStorage::requestedRoot());
         root_->setObjectName(QStringLiteral("extensionRoot"));

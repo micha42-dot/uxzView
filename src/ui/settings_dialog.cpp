@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "settings_dialog.h"
+#include "dialog_layout.h"
 #include "crop_ratio_editor.h"
 #include "core/localization.h"
 #include "core/app_storage.h"
@@ -15,8 +16,9 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     setWindowTitle(IX_TEXT("Einstellungen"));
     resize(860, 580);
     QSettings settings;
-    auto *layout = new QVBoxLayout(this);
+    auto *layout = dialogLayout(this);
     auto *body = new QHBoxLayout;
+    body->setSpacing(16);
     categories_ = new QListWidget;
     categories_->setObjectName(QStringLiteral("settingsCategories"));
     categories_->setAccessibleName(IX_TEXT("Einstellungsbereiche"));
@@ -31,7 +33,9 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     auto page = [this](const QString &label) {
         auto *widget = new QWidget;
         auto *outer = new QVBoxLayout(widget);
-        auto *form = new QFormLayout;
+        outer->setContentsMargins(0, 0, 0, 0);
+        outer->setSpacing(12);
+        auto *form = dialogFormLayout();
         form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         outer->addLayout(form);
@@ -95,6 +99,14 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         }
     });
     auto *surface = page(IX_TEXT("Oberfläche"));
+    theme_ = new QComboBox;
+    theme_->setObjectName(QStringLiteral("ui/theme"));
+    theme_->addItem(IX_TEXT("Systemdesign"), QStringLiteral("system"));
+    theme_->addItem(IX_TEXT("Hell"), QStringLiteral("light"));
+    theme_->addItem(IX_TEXT("Dunkel"), QStringLiteral("dark"));
+    theme_->setCurrentIndex(std::max(0, theme_->findData(
+        settings.value(QStringLiteral("ui/theme"), QStringLiteral("system")))));
+    surface->addRow(IX_TEXT("Farbschema:"), theme_);
     language_ = new QComboBox;
     language_->setObjectName(QStringLiteral("ui/language"));
     for (const auto &entry :
@@ -104,9 +116,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
                                         {QStringLiteral("日本語"), QStringLiteral("ja")},
                                         {QStringLiteral("Français"), QStringLiteral("fr")}})
         language_->addItem(entry.first, entry.second);
-    language_->setCurrentIndex(std::max(
-        0, language_->findData(settings.value(QStringLiteral("ui/language"), QStringLiteral("de")))));
-    surface->addRow(IX_TEXT("Sprache (nach Neustart):"), language_);
+    language_->setCurrentIndex(std::max(0, language_->findData(uiLanguage())));
+    surface->addRow(IX_TEXT("Sprache:"), language_);
     check(surface, QStringLiteral("window/toolbar"), IX_TEXT("Symbolleiste anzeigen"), true);
     check(surface, QStringLiteral("window/statusbar"), IX_TEXT("Statusleiste anzeigen"), true);
     check(surface, QStringLiteral("window/menubar"), IX_TEXT("Menüleiste anzeigen"), true);
@@ -135,7 +146,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     next->setEnabled(enabled->isChecked());
     previewBackground_ = new QComboBox;
     previewBackground_->setObjectName(QStringLiteral("preview/background"));
-    previewBackground_->addItem(IX_TEXT("Systemdesign"), QStringLiteral("theme"));
+    previewBackground_->addItem(IX_TEXT("Wie Oberfläche"), QStringLiteral("theme"));
     previewBackground_->addItem(IX_TEXT("Wie Bildhintergrund"), QStringLiteral("image"));
     previewBackground_->addItem(IX_TEXT("Transparent"), QStringLiteral("transparent"));
     previewBackground_->setCurrentIndex(std::max(0, previewBackground_->findData(
@@ -311,6 +322,7 @@ void SettingsDialog::accept() {
     values.insert(QStringLiteral("view/background"), background_);
     values.insert(QStringLiteral("fullscreen/background"), fullscreenBackground_);
     values.insert(QStringLiteral("ui/language"), language_->currentData());
+    values.insert(QStringLiteral("ui/theme"), theme_->currentData());
     values.insert(QStringLiteral("capture/shortcut"), shortcut.toString(QKeySequence::PortableText));
     const bool switchMode = portable_->isChecked() != AppStorage::portableRequested(storageHome_);
     if (switchMode) {

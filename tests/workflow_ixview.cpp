@@ -9,6 +9,9 @@
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "ui/main_window.h"
+#include "ui/appearance.h"
+#include "ui/interface_language.h"
+#include "ui/dialogs.h"
 #include "ui/action_search.h"
 #include "ui/library_dialog.h"
 #include "ui/preview_strip.h"
@@ -52,6 +55,319 @@ class WorkflowTests : public QObject {
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
+    }
+    void interfaceThemePreservesImageAndNavigationState() {
+        QSettings settings;
+        QVariantMap saved;
+        for (const auto &key : settings.allKeys()) saved.insert(key, settings.value(key));
+        const auto palette = QApplication::palette();
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto it = saved.cbegin(); it != saved.cend(); ++it) settings.setValue(it.key(), it.value());
+            ix::applyInterfaceTheme(settings.value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+            QApplication::setPalette(palette);
+        });
+        settings.setValue(QStringLiteral("ui/theme"), QStringLiteral("light"));
+        settings.setValue(QStringLiteral("view/previewStrip"), true);
+        settings.setValue(QStringLiteral("preview/background"), QStringLiteral("theme"));
+        const auto path = photo(QStringLiteral("appearance/image.png"), Qt::green);
+        ix::MainWindow window;
+        window.resize(980, 660);
+        window.show();
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        QTest::qWait(150); // finish the initial asynchronous directory index
+        auto *view = window.findChild<ix::ImageView *>();
+        auto *toolbar = window.findChild<QToolBar *>(QStringLiteral("mainToolbar"));
+        auto *index = window.findChild<ix::DirectoryIndexService *>();
+        QVERIFY(view && toolbar && index);
+        view->setZoom(2.5);
+        view->setSelection(QRect(3, 4, 20, 13));
+        const auto pixels = window.document().pixels.cacheKey(), display = view->image().cacheKey();
+        const auto revision = window.document().sourceRevision;
+        const auto selection = view->selection();
+        QSignalSpy reindexed(index, &ix::DirectoryIndexService::ready);
+        QSignalSpy zoomed(view, &ix::ImageView::zoomChanged);
+        for (const auto &mode : {QStringLiteral("dark"), QStringLiteral("light"), QStringLiteral("system")}) {
+            bool handled = false;
+            QTimer::singleShot(20, &window, [&] {
+                auto *dialog = qobject_cast<ix::SettingsDialog *>(QApplication::activeModalWidget());
+                if (!dialog) return;
+                auto *combo = dialog->findChild<QComboBox *>(QStringLiteral("ui/theme"));
+                if (!combo) { dialog->reject(); return; }
+                combo->setCurrentIndex(combo->findData(mode));
+                handled = true;
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+            });
+            window.dispatch(QStringLiteral("settings"));
+            QVERIFY(handled);
+            QCoreApplication::processEvents();
+            QCOMPARE(settings.value(QStringLiteral("ui/theme")).toString(), mode);
+            if (mode != QStringLiteral("system"))
+                QCOMPARE(window.palette().color(QPalette::Window).lightnessF() < .5, mode == QStringLiteral("dark"));
+            QCOMPARE(window.document().pixels.cacheKey(), pixels);
+            QCOMPARE(view->image().cacheKey(), display);
+            QCOMPARE(window.document().sourceRevision, revision);
+            QCOMPARE(view->selection(), selection);
+            QCOMPARE(view->zoom(), 2.5);
+            QCOMPARE(view->background, QColor(Qt::black));
+            QVERIFY(!window.isBusy());
+            const auto background = window.palette().color(QPalette::Window);
+            const auto menuPixels = window.menuBar()->grab().toImage(), toolbarPixels = toolbar->grab().toImage();
+            QCOMPARE(menuPixels.pixelColor(menuPixels.width() - 5, 2), background);
+            QCOMPARE(toolbarPixels.pixelColor(toolbarPixels.width() - 5, 2), background);
+            for (auto *label : window.statusBar()->findChildren<QLabel *>())
+                QCOMPARE(label->palette().color(QPalette::WindowText), window.palette().color(QPalette::WindowText));
+            QCOMPARE(window.findChild<ix::PreviewStrip *>()->palette().color(QPalette::Window), background);
+            QVERIFY(window.grab().save(QStringLiteral(IX_WORKFLOW_OUTPUT "/interface-%1.png").arg(mode)));
+        }
+        QCOMPARE(reindexed.size(), 0);
+        QCOMPARE(zoomed.size(), 0);
+        ix::SettingsDialog cancelled;
+        auto *combo = cancelled.findChild<QComboBox *>(QStringLiteral("ui/theme"));
+        QVERIFY(combo);
+        combo->setCurrentIndex(combo->findData(QStringLiteral("dark")));
+        cancelled.reject();
+        QCOMPARE(settings.value(QStringLiteral("ui/theme")).toString(), QStringLiteral("system"));
+    }
+    void liveLanguageChangePreservesDocument_data() {
+        QTest::addColumn<bool>("fullscreen");
+        QTest::newRow("window") << false;
+        QTest::newRow("fullscreen") << true;
+    }
+    void liveLanguageChangePreservesDocument() {
+        QFETCH(bool, fullscreen);
+        QSettings settings;
+        QVariantMap saved;
+        for (const auto &key : settings.allKeys()) saved.insert(key, settings.value(key));
+        const auto oldLanguage = ix::uiLanguage();
+        const auto oldFont = QApplication::font();
+        const auto defaultLocale = QLocale().name();
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto it = saved.cbegin(); it != saved.cend(); ++it) settings.setValue(it.key(), it.value());
+            ix::applyInterfaceLanguage(oldLanguage);
+            QApplication::setFont(oldFont);
+        });
+        QVERIFY(ix::applyInterfaceLanguage(QStringLiteral("de")));
+        settings.setValue(QStringLiteral("ui/language"), QStringLiteral("de"));
+        settings.setValue(QStringLiteral("view/actionSearch"), true);
+        settings.setValue(QStringLiteral("view/previewStrip"), true);
+        const auto path = photo(QStringLiteral("live-language/image.png"), QColor(30, 100, 210));
+        const auto sourceHash = ix::sha256File(path);
+        ix::MainWindow window;
+        window.show();
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        const auto original = window.document().pixels;
+        window.dispatch(QStringLiteral("grayscale"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        QTest::qWait(150);
+        if (fullscreen) { window.dispatch(QStringLiteral("fullscreen")); QTRY_VERIFY(window.isFullScreen()); }
+        auto *view = window.findChild<ix::ImageView *>();
+        auto *search = window.findChild<ix::ActionSearch *>();
+        auto *resize = window.findChild<QAction *>(QStringLiteral("resize"));
+        auto *toolbar = window.findChild<QToolBar *>(QStringLiteral("mainToolbar"));
+        QVERIFY(view && search && resize && toolbar);
+        view->setZoom(16);
+        view->setSelection(QRect(3, 4, 20, 13));
+        view->horizontalScrollBar()->setValue(31);
+        view->verticalScrollBar()->setValue(29);
+        const auto scroll = QPoint(view->horizontalScrollBar()->value(), view->verticalScrollBar()->value());
+        const auto pixels = window.document().pixels.cacheKey(), display = view->image().cacheKey();
+        const auto selection = view->selection();
+        const auto revision = window.document().sourceRevision;
+        const auto shortcuts = resize->shortcuts();
+        const auto actions = window.findChildren<QAction *>();
+        // A retained modeless message uses the same formatted binding as About.
+        QLabel formatted(&window);
+        ix::bindUiText(&formatted, "text", QStringLiteral("Hintergrundfarbe: %1 …"), {}, {}, {QStringLiteral("#000000")});
+        search->setText(QStringLiteral("dpi"));
+        auto *model = search->completer()->model();
+        QPersistentModelIndex row;
+        for (int i = 0; i < model->rowCount(); ++i)
+            if (model->index(i, 0).data(Qt::UserRole).value<QObject *>() == resize) row = model->index(i, 0);
+        QVERIFY(row.isValid());
+        QSignalSpy rescanned(window.findChild<ix::DirectoryIndexService *>(), &ix::DirectoryIndexService::ready);
+        for (const auto &code : {QStringLiteral("en"), QStringLiteral("ko"), QStringLiteral("ja"),
+                                 QStringLiteral("fr"), QStringLiteral("de")}) {
+            bool handled = false;
+            QTimer::singleShot(20, &window, [&] {
+                auto *dialog = qobject_cast<ix::SettingsDialog *>(QApplication::activeModalWidget());
+                if (!dialog) return;
+                auto *combo = dialog->findChild<QComboBox *>(QStringLiteral("ui/language"));
+                combo->setCurrentIndex(combo->findData(code));
+                handled = true;
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+            });
+            window.dispatch(QStringLiteral("settings"));
+            QVERIFY(handled);
+            QCoreApplication::processEvents();
+            QCOMPARE(ix::uiLanguage(), code);
+            QCOMPARE(window.locale(), ix::uiLocale());
+            QCOMPARE(QLocale().name(), defaultLocale); // no process-locale race with workers
+            QCOMPARE(resize->text(), ix::localized(QStringLiteral("Größe ändern...")));
+            QCOMPARE(window.findChild<QMenu *>(QStringLiteral("datei"))->title(), ix::localized(QStringLiteral("&Datei")));
+            QCOMPARE(window.findChild<QMenu *>(QStringLiteral("bild"))->title(), ix::localized(QStringLiteral("B&ild")));
+            if (code == QStringLiteral("en"))
+                QCOMPARE(window.findChild<QMenu *>(QStringLiteral("bild"))->title(), QStringLiteral("&Image"));
+            QCOMPARE(window.findChild<QAction *>(QStringLiteral("fileJournal"))->text(),
+                     ix::localized(QStringLiteral("Dateijournal / interner Papierkorb …")));
+            QCOMPARE(search->placeholderText(), ix::localized(QStringLiteral("Befehl suchen …")));
+            QCOMPARE(formatted.text(), ix::localized(QStringLiteral("Hintergrundfarbe: %1 …")).arg(QStringLiteral("#000000")));
+            QCOMPARE(search->text(), QStringLiteral("dpi"));
+            QVERIFY(row.isValid());
+            auto label = resize->text(); label.remove(QLatin1Char('&'));
+            QCOMPARE(row.data().toString(), label);
+            QCOMPARE(window.findChildren<QAction *>(), actions);
+            QCOMPARE(resize->shortcuts(), shortcuts);
+            auto *open = window.findChild<QAction *>(QStringLiteral("open"));
+            const auto description = ix::localized(QStringLiteral("Bilddatei öffnen"));
+            QVERIFY(open->toolTip().startsWith(description));
+            QCOMPARE(toolbar->widgetForAction(open)->accessibleName(), description);
+            ix::SettingsDialog next;
+            QCOMPARE(next.windowTitle(), ix::localized(QStringLiteral("Einstellungen")));
+            QCOMPARE(next.findChild<QComboBox *>(QStringLiteral("ui/language"))->currentData().toString(), code);
+            ix::ResizeDialog resizeDialog({400, 200}, 96);
+            QCOMPARE(resizeDialog.findChild<QDoubleSpinBox *>(QStringLiteral("width"))->locale(), ix::uiLocale());
+            QCOMPARE(window.document().pixels.cacheKey(), pixels);
+            QCOMPARE(view->image().cacheKey(), display);
+            QCOMPARE(view->selection(), selection);
+            QCOMPARE(view->zoom(), 16.0);
+            QCOMPARE(QPoint(view->horizontalScrollBar()->value(), view->verticalScrollBar()->value()), scroll);
+            QCOMPARE(window.document().sourceRevision, revision);
+            QCOMPARE(window.document().path, path);
+            QVERIFY(window.document().modified && !window.isBusy());
+            QCOMPARE(window.isFullScreen(), fullscreen);
+            if (!fullscreen) QVERIFY(window.grab().save(QStringLiteral(IX_WORKFLOW_OUTPUT "/live-language-%1.png").arg(code)));
+        }
+        QCOMPARE(rescanned.size(), 0);
+        QTimer::singleShot(20, &window, [&] {
+            auto *dialog = qobject_cast<ix::SettingsDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            dialog->findChild<QComboBox *>(QStringLiteral("ui/language"))->setCurrentIndex(1);
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+        });
+        window.dispatch(QStringLiteral("settings"));
+        QCOMPARE(ix::uiLanguage(), QStringLiteral("de"));
+        QCOMPARE(settings.value(QStringLiteral("ui/language")).toString(), QStringLiteral("de"));
+        QVERIFY(!ix::applyInterfaceLanguage(QStringLiteral("invalid")));
+        QCOMPARE(ix::uiLanguage(), QStringLiteral("de"));
+        window.dispatch(QStringLiteral("undo"));
+        QTRY_VERIFY(!window.isBusy() && window.document().pixels == original);
+        QCOMPARE(ix::sha256File(path), sourceHash);
+        if (fullscreen) window.dispatch(QStringLiteral("fullscreen"));
+    }
+    void languageCatalogSupportsConcurrentReaders() {
+        const auto old = ix::uiLanguage();
+        const auto restore = qScopeGuard([&] { ix::setUiLanguage(old); });
+        const QStringList codes{QStringLiteral("de"), QStringLiteral("en"), QStringLiteral("ko"),
+                                QStringLiteral("ja"), QStringLiteral("fr")};
+        QSet<QString> expected;
+        for (const auto &code : codes) {
+            QVERIFY(ix::setUiLanguage(code));
+            expected.insert(ix::localized(QStringLiteral("&Datei")));
+        }
+        const auto locale = QLocale().name();
+        std::atomic_bool stop = false, failed = false;
+        std::atomic_int reads = 0;
+        const auto read = [&] {
+            while (!stop.load()) {
+                if (!expected.contains(ix::localized(QStringLiteral("&Datei"))) ||
+                    !codes.contains(ix::uiLanguage()) ||
+                    ix::localized(QStringLiteral("untranslated sentinel")) != QStringLiteral("untranslated sentinel"))
+                    failed.store(true);
+                ++reads;
+            }
+        };
+        auto first = QtConcurrent::run(read), second = QtConcurrent::run(read);
+        const auto join = qScopeGuard([&] { stop.store(true); first.waitForFinished(); second.waitForFinished(); });
+        QTRY_VERIFY(reads.load() >= 1000);
+        for (int cycle = 0; cycle < 20; ++cycle)
+            for (const auto &code : codes) { QVERIFY(ix::setUiLanguage(code)); QTest::qWait(1); }
+        QVERIFY(!failed.load());
+        QCOMPARE(QLocale().name(), locale);
+    }
+    void themedDialogsRemainUsable_data() {
+        QTest::addColumn<QString>("mode"); QTest::addColumn<QString>("language");
+        for (const auto *mode : {"light", "dark"})
+            for (const auto *language : {"de", "en", "ko", "ja", "fr"})
+                QTest::newRow(qPrintable(QString::fromLatin1(mode) + QLatin1Char('-') + QString::fromLatin1(language)))
+                    << QString::fromLatin1(mode) << QString::fromLatin1(language);
+    }
+    void themedDialogsRemainUsable() {
+        QFETCH(QString, mode); QFETCH(QString, language);
+        const auto oldLanguage = ix::uiLanguage();
+        const auto oldPalette = QApplication::palette();
+        const auto restore = qScopeGuard([&] {
+            ix::setUiLanguage(oldLanguage);
+            ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+            QApplication::setPalette(oldPalette);
+        });
+        QVERIFY(ix::setUiLanguage(language));
+        ix::applyInterfaceTheme(mode);
+        QImage image(640, 480, QImage::Format_RGB32); image.fill(Qt::darkCyan);
+        ix::ResizeDialog resize(image.size(), 96);
+        ix::ColorDialog colors(image);
+        ix::RotationDialog rotation(image);
+        ix::SettingsDialog settings;
+        for (auto *dialog : {static_cast<QDialog *>(&resize), static_cast<QDialog *>(&colors),
+                            static_cast<QDialog *>(&rotation), static_cast<QDialog *>(&settings)}) {
+            if (language == QStringLiteral("de")) {
+                if (dialog == &settings)
+                    settings.findChild<QListWidget *>(QStringLiteral("settingsCategories"))->setCurrentRow(1);
+                dialog->show();
+                QCoreApplication::processEvents();
+                QVERIFY(dialog->grab().save(QStringLiteral(IX_WORKFLOW_OUTPUT "/%1-%2.png")
+                    .arg(dialog->objectName(), mode)));
+                dialog->hide();
+            }
+            dialog->resize(dialog->width(), 480);
+            dialog->show();
+            QTest::qWait(10);
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            QVERIFY(buttons);
+            for (const auto role : {QDialogButtonBox::Ok, QDialogButtonBox::Cancel}) {
+                auto *button = buttons->button(role);
+                QVERIFY(button && button->isVisible());
+                QVERIFY(dialog->rect().contains(QRect(button->mapTo(dialog, QPoint()), button->size())));
+                QVERIFY(!button->visibleRegion().isEmpty());
+            }
+            QCOMPARE(dialog->palette().color(QPalette::Window), QApplication::palette().color(QPalette::Window));
+            QVERIFY(dialog->grab().save(QStringLiteral(IX_WORKFLOW_OUTPUT "/%1-%2-%3.png")
+                .arg(dialog->objectName().isEmpty() ? QStringLiteral("settings") : dialog->objectName(), mode, language)));
+            dialog->hide();
+        }
+    }
+    void colorLayoutKeepsAdjustmentSemantics() {
+        QImage image(100, 100, QImage::Format_RGB32);
+        image.fill(QColor(50, 100, 150));
+        ix::ColorDialog dialog(image);
+        dialog.show();
+        QCoreApplication::processEvents();
+        auto *contrast = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("contrast"));
+        auto *saturation = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("saturation"));
+        auto *gamma = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("gamma"));
+        auto *original = dialog.findChild<QLabel *>(QStringLiteral("colorOriginal"));
+        QVERIFY(contrast && saturation && gamma && original);
+        contrast->setValue(255); saturation->setValue(-255); gamma->setValue(3.5);
+        QCOMPARE(dialog.values().contrast, 100.0);
+        QCOMPARE(dialog.values().saturation, -100.0);
+        QCOMPARE(dialog.values().gamma, 3.5);
+        auto *reset = button(dialog, QStringLiteral("Standardwerte"));
+        QVERIFY(reset); reset->click();
+        QCOMPARE(dialog.values().contrast, 0.0);
+        QCOMPARE(dialog.values().saturation, 0.0);
+        QCOMPARE(dialog.values().gamma, 1.0);
+        QTest::mouseClick(original, Qt::LeftButton, Qt::NoModifier, original->rect().center());
+        QCOMPARE(dialog.values().red, 100);
+        QCOMPARE(dialog.values().green, 50);
+        QCOMPARE(dialog.values().blue, 0);
+        QSignalSpy applied(&dialog, &ix::ColorDialog::applyRequested);
+        auto *apply = button(dialog, QStringLiteral("Auf Bild anwenden"));
+        QVERIFY(apply); apply->click();
+        QCOMPARE(applied.size(), 1);
+        QCOMPARE(image.pixelColor(0, 0), QColor(50, 100, 150));
     }
     void latestOpenReplacesDeferredRequest() {
         const auto first = photo(QStringLiteral("latest/a.png"), Qt::red);
@@ -677,6 +993,135 @@ class WorkflowTests : public QObject {
         QCOMPARE(QImage(target).size(), QSize(113, 71));
         QCOMPARE(ix::sha256File(source), sourceHash);
         QCOMPARE(window.document().path, source);
+    }
+    void batchPlanHashesOnlyEligibleReplacements() {
+        const auto source = photo(QStringLiteral("plan-eligibility/source.png"), Qt::red);
+        ix::PipelineJob job;
+        job.inputs = {source};
+        job.outputDirectory = temporary_.filePath(QStringLiteral("plan-eligibility/output"));
+        job.namePattern = QStringLiteral("target");
+        job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        QVERIFY(QDir().mkpath(job.outputDirectory));
+        const auto target = job.outputDirectory + QStringLiteral("/target.png");
+        QFile existing(target);
+        QVERIFY(existing.open(QIODevice::WriteOnly));
+        QCOMPARE(existing.write(QByteArray(1024 * 1024, 'x')), qint64(1024 * 1024));
+        existing.close();
+        const auto original = ix::sha256File(target);
+        auto plan = ix::BatchPipeline::plan(job);
+        QCOMPARE(plan.size(), 1);
+        QVERIFY(!plan.first().error.isEmpty());
+        QVERIFY(plan.first().targetHash.isEmpty());
+        job.overwrite = true;
+        plan = ix::BatchPipeline::plan(job);
+        QVERIFY2(plan.first().error.isEmpty(), qPrintable(plan.first().error));
+        QCOMPARE(plan.first().targetHash, original);
+        job.inputs.append(source); // collision must not hash/read the target again
+        plan = ix::BatchPipeline::plan(job);
+        QCOMPARE(plan.size(), 2);
+        QCOMPARE(plan.first().targetHash, original);
+        QVERIFY(!plan.last().error.isEmpty());
+        QVERIFY(plan.last().targetHash.isEmpty());
+        job.inputs = {temporary_.filePath(QStringLiteral("missing.png"))};
+        plan = ix::BatchPipeline::plan(job);
+        QVERIFY(!plan.first().error.isEmpty());
+        QVERIFY(plan.first().targetHash.isEmpty());
+        job.inputs = {source};
+        job.profile.steps.last().parameters.insert(QStringLiteral("quality"), 1000);
+        plan = ix::BatchPipeline::plan(job);
+        QVERIFY(!plan.first().error.isEmpty());
+        QVERIFY(plan.first().targetHash.isEmpty());
+        QCOMPARE(ix::sha256File(target), original);
+    }
+    void batchPlanRejectsDirectoryTargetsBeforeProcessing() {
+        const auto source = photo(QStringLiteral("plan-directory/source.png"), Qt::red);
+        const auto original = ix::sha256File(source);
+        ix::PipelineJob job;
+        job.inputs = {source};
+        job.outputDirectory = temporary_.filePath(QStringLiteral("plan-directory/output"));
+        job.namePattern = QStringLiteral("target");
+        job.overwrite = true;
+        job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        const auto target = job.outputDirectory + QStringLiteral("/target.png");
+        QVERIFY(QDir().mkpath(target));
+        const auto plan = ix::BatchPipeline::plan(job);
+        QCOMPARE(plan.size(), 1);
+        QVERIFY(plan.first().replaces);
+        QVERIFY(!plan.first().error.isEmpty());
+        QVERIFY(plan.first().targetHash.isEmpty());
+        QVERIFY(QFileInfo(target).isDir());
+        QCOMPARE(ix::sha256File(source), original);
+    }
+    void cancelledBatchReviewDoesNotDecodeOrCreateOutput() {
+        class CountingCodec final : public ix::ImageCodec {
+          public:
+            std::shared_ptr<std::atomic_int> reads = std::make_shared<std::atomic_int>(0);
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &, int) const override { ++*reads; return {}; }
+        };
+        const auto source = photo(QStringLiteral("plan-cancel/source.png"), Qt::green);
+        ix::PipelineJob job;
+        job.inputs = {source};
+        job.outputDirectory = temporary_.filePath(QStringLiteral("plan-cancel/output"));
+        job.journalRoot = temporary_.filePath(QStringLiteral("plan-cancel/journal"));
+        job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        const auto plan = ix::BatchPipeline::plan(job);
+        QCOMPARE(plan.size(), 1);
+        std::atomic_bool cancel = true;
+        QVERIFY(ix::BatchPipeline::plan(job, &cancel).isEmpty());
+        const auto preview = ix::BatchPipeline::preview(job, QStringLiteral("missing-input.png"), cancel, plan);
+        QCOMPARE(preview.error, QStringLiteral("Abgebrochen."));
+        QVERIFY(preview.before.isNull() && preview.after.isNull());
+        auto codec = std::make_shared<CountingCodec>();
+        ix::CodecRegistry registry; registry.add(codec);
+        const auto result = ix::BatchPipeline::run(job, plan, cancel, {}, &registry);
+        QCOMPARE(result.size(), plan.size());
+        QVERIFY(result.first().error.startsWith(QStringLiteral("Abgebrochen")));
+        QCOMPARE(codec->reads->load(), 0);
+        QVERIFY(!QFileInfo::exists(job.outputDirectory));
+        QVERIFY(!QFileInfo::exists(job.journalRoot));
+    }
+    void pipelineReviewClearsStaleVisualsAndRecoversAfterCancel() {
+        const auto source = photo(QStringLiteral("review-state/source.png"), Qt::blue);
+        ix::PipelineDialog dialog({source}, nullptr, temporary_.filePath(QStringLiteral("review-state/journal")));
+        auto *output = dialog.findChild<QLineEdit *>(QStringLiteral("pipelineOutput"));
+        auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("pipelinePreview"));
+        auto *start = dialog.findChild<QPushButton *>(QStringLiteral("pipelineStart"));
+        auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("pipelinePlan"));
+        auto *before = dialog.findChild<QLabel *>(QStringLiteral("pipelineBefore"));
+        auto *after = dialog.findChild<QLabel *>(QStringLiteral("pipelineAfter"));
+        auto *status = dialog.findChild<QLabel *>(QStringLiteral("pipelineStatus"));
+        QVERIFY(output && preview && start && table && before && after && status);
+        output->setText(temporary_.filePath(QStringLiteral("review-state/output")));
+        dialog.findChild<QCheckBox *>(QStringLiteral("pipelineAllowLoss"))->setChecked(true);
+        dialog.show();
+        preview->click();
+        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled() && start->isEnabled(), 10000);
+        QCOMPARE(table->rowCount(), 1);
+        QVERIFY(!before->pixmap().isNull() && !after->pixmap().isNull());
+        dialog.findChild<QLineEdit *>(QStringLiteral("pipelinePattern"))->setText(QStringLiteral("changed_####"));
+        QCOMPARE(table->rowCount(), 0);
+        QVERIFY(before->pixmap().isNull() && after->pixmap().isNull());
+        QVERIFY(!start->isEnabled());
+        preview->click();
+        QVERIFY(start->isEnabled()); // running button now means Cancel
+        start->click();
+        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(), 10000);
+        QVERIFY(!start->isEnabled());
+        QCOMPARE(status->text(), ix::localized(QStringLiteral("Abgebrochen.")));
+        QCOMPARE(table->rowCount(), 0);
+        QVERIFY(before->pixmap().isNull() && after->pixmap().isNull());
+        preview->click();
+        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled() && start->isEnabled(), 10000);
+        QCOMPARE(table->rowCount(), 1);
+        QVERIFY(!before->pixmap().isNull() && !after->pixmap().isNull());
+        QVERIFY(!QFileInfo::exists(output->text()));
+        QVERIFY(QFile::remove(source));
+        preview->click();
+        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(), 10000);
+        QVERIFY(!start->isEnabled());
+        QVERIFY(before->pixmap().isNull() && after->pixmap().isNull());
     }
     void pipelineRejectsSourceChangedByDecoder() {
         class ChangingCodec final : public ix::ImageCodec {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dialog_layout.h"
 #include "library_dialog.h"
 #include "core/file_journal.h"
 #include "core/image_catalog.h"
@@ -42,7 +43,7 @@ void journalDialog(QWidget *parent, const QString &journalRoot) {
     dialog.setObjectName(QStringLiteral("fileJournalDialog"));
     dialog.setWindowTitle(IX_TEXT("Dateijournal und interner Papierkorb"));
     dialog.resize(1000, 560);
-    auto *layout = new QVBoxLayout(&dialog);
+    auto *layout = dialogLayout(&dialog);
     auto *note = new QLabel(IX_TEXT("Löschen verschiebt Dateien in den internen Papierkorb. Rückgängig "
                                     "überschreibt keine inzwischen geänderten Dateien. Ausstehende Einträge "
                                     "nach einem Abbruch bitte anhand der angezeigten Pfade prüfen."));
@@ -103,7 +104,7 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
     dialog.setObjectName(QStringLiteral("libraryDialog"));
     dialog.setWindowTitle(IX_TEXT("Bildverwaltung"));
     dialog.resize(1060, 700);
-    auto *layout = new QVBoxLayout(&dialog);
+    auto *layout = dialogLayout(&dialog);
     auto *filters = new QHBoxLayout;
     auto *search = new QLineEdit;
     search->setObjectName(QStringLiteral("catalogSearch"));
@@ -342,7 +343,7 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
         matches.setWindowTitle(kind == 1 ? IX_TEXT("Identische Dateien (SHA-256)")
                                          : IX_TEXT("Ähnliche Bilder – Prüfkandidaten"));
         matches.resize(900, 500);
-        auto *box = new QVBoxLayout(&matches);
+        auto *box = dialogLayout(&matches);
         auto *table = new QTableWidget(result.duplicates.pairs.size(), 3);
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setHorizontalHeaderLabels({IX_TEXT("Bild A"), IX_TEXT("Bild B"), IX_TEXT("Abstand")});

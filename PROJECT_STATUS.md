@@ -18,6 +18,28 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Noch unveröffentlicht: Sprachwechsel ohne Neustart nach „OK“ in Einstellungen
+  → Oberfläche. Menüs, Werkzeugtipps und Befehlssuche werden direkt aktualisiert;
+  Bild, Bearbeitungen, Zoom, Auswahl und Undo bleiben erhalten. Unveränderliche
+  Übersetzungstabellen erlauben parallele Zugriffe aus Hintergrundaufträgen.
+
+- Noch unveröffentlicht: Batch-Dateiplanung als eigenes Kernmodul, Abbruch auch
+  während Prüfsummen und frühzeitige Zielprüfung. Übersprungene Ziele werden
+  nicht mehr vollständig gelesen; im dokumentierten 128-MiB-Test sinkt die
+  Planungszeit von 927 auf 26 ms. Alte Vorschauen/Pläne werden bei Änderungen
+  oder Abbruch verworfen. Die Architektur dokumentiert die nächsten klaren
+  Zuständigkeitsgrenzen. [Wartbarkeitsprüfung](docs/REVIEW_2026-10-27.md).
+
+- Noch unveröffentlicht: Hell-, Dunkel- und Systemdesign unter Einstellungen → Oberfläche;
+  Menü- und Symbolleiste teilen dieselbe Grundfarbe. Einheitliche Dialogabstände,
+  skalierbare Größen-/Farb-/Rotationsdialoge und erreichbare Dialogschaltflächen.
+  Reine Oberflächenänderungen behalten Bild, Auswahl und Zoom ohne erneute
+  Bildberechnung oder Ordnerindizierung. Technischer Aufbau: [UI_STYLE](docs/UI_STYLE.md).
+
+- Noch unveröffentlicht: Feinere Icons mit 1,25 statt 1,65 Einheiten Strichstärke, dezente Trennlinien, flaches Zoomfeld mit sichtbarem Auswahlpfeil und durchgehende Statuszeile ohne versenkte Kästchen. Symbolformen, Klickflächen, Suche rechts und Tastaturbedienung bleiben erhalten. Größen 20/24/28/32 px sowie vier DPI-Skalierungen geprüft; [Gestaltungsregeln](docs/UI_STYLE.md).
+
+- Noch unveröffentlicht: CI-Lauf `8878b46` zeigt denselben Pfadtestfehler auf Windows und beiden Macs sowie einen falschen Linux-Anzeigetreiber im Pakettest. Erwartete Pfade werden jetzt kanonisch verglichen; Linux prüft XCB über Xvfb. Alle 42 lokalen Python-Tests einschließlich acht simulierter Shell-Abläufe bestehen. Linux hat im veröffentlichten Lauf bereits gebaut und alle fünf CTest-Suiten bestanden; die korrigierten vollständigen Jobs benötigen einen neuen Lauf. [CI-Nachprüfung](docs/CI_REPAIR_2026-10-27.md).
+
 - Noch unveröffentlicht: Standard-Nachschärfen nutzt eine pixelgleiche Ganzzahlberechnung statt der allgemeinen Faltung. Davon profitieren Bearbeitung, Größenänderung mit Nachschärfen, Standard-Stapelverarbeitung und aktivierte Anzeigeschärfung. Bei getesteten 6/24-MP-Bildern 2,8–8,3-fach schneller; kein zusätzlicher Bildpuffer oder neue Bibliothek. Alle 20 lokalen Prüfschritte mit 41 Python- und 300 Qt-Prüfungen bestehen. [Messung und Grenzen](docs/PERFORMANCE.md#exact-integer-standard-sharpening--2026-10-27).
 
 - Noch unveröffentlicht: Build-Prüfung aus frischem Source-Archiv für Vollausbau und reduzierte Fassung; CI und Release verlangen jetzt Exiv2, LibRaw und Qt Network. Modul-Ladeprüfungen, serielle CTest-Ausführung mit Zeitlimit und zusätzliche Installations-/Paketprotokolle ergänzt. Lokal bestehen 41 Python-Tests und alle 270 Qt-Kernprüfungen mit vollständigen Testdaten; der aktuelle Linux-/macOS-Stand braucht weiterhin einen neuen GitHub-Lauf. [Build-Prüfung vom 27.10.](docs/BUILD_REVIEW_2026-10-27.md).

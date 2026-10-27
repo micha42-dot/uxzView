@@ -43,6 +43,7 @@ class PipelineDialog : public QDialog {
     bool working_ = false, closing_ = false;
     PipelineJob job() const;
     void addStep(PipelineStep step);
+    void clearReview();
     void invalidate();
     void showPlan(const QList<PipelineFile> &plan, bool completed = false);
     void setWorking(bool value);

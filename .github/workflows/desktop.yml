@@ -100,7 +100,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libturbojpeg0-dev libexiv2-dev libtiff-dev libraw-dev liblcms2-dev libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libfontconfig1-dev desktop-file-utils
+          sudo apt-get install -y cmake ninja-build pkg-config libturbojpeg0-dev libexiv2-dev libtiff-dev libraw-dev liblcms2-dev libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libfontconfig1-dev desktop-file-utils xvfb xauth
       - name: macOS libraries
         if: runner.os == 'macOS'
         run: brew install cmake ninja pkg-config jpeg-turbo exiv2 libtiff libraw little-cms2
@@ -143,14 +143,16 @@ jobs:
         shell: bash
         run: |
           unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH LD_LIBRARY_PATH DYLD_LIBRARY_PATH QML2_IMPORT_PATH
+          smoke_runner=()
           if [[ "$RUNNER_OS" == macOS ]]; then
             export QT_QPA_PLATFORM=cocoa
             app=dist/native/uxzView.app/Contents/MacOS/uxzView
           else
-            export QT_QPA_PLATFORM=offscreen
+            export QT_QPA_PLATFORM=xcb
+            smoke_runner=(xvfb-run -a)
             app=dist/native/bin/uxzView
           fi
-          if "$app" --version > build/native/installed-version.log 2>&1; then
+          if "${smoke_runner[@]}" "$app" --version > build/native/installed-version.log 2>&1; then
             cat build/native/installed-version.log
           else
             status=$?
@@ -160,7 +162,7 @@ jobs:
           if [[ "$RUNNER_OS" == Linux ]]; then
             desktop-file-validate dist/native/share/applications/org.ixview.IxView.desktop
           fi
-          if "$app" --probe-image tests/fixtures/smoke.png > build/native/installed-image-probe.json 2> build/native/installed-image-probe.log; then
+          if "${smoke_runner[@]}" "$app" --probe-image tests/fixtures/smoke.png > build/native/installed-image-probe.json 2> build/native/installed-image-probe.log; then
             cat build/native/installed-image-probe.log
           else
             status=$?

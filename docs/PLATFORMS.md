@@ -1,14 +1,14 @@
 # Plattformen und native Builds
 
-üxzView verwendet C++20 und Qt Widgets auf Windows, Linux und macOS. **Zunächst wird ausschließlich eine fertige Windows-x64-Fassung veröffentlicht.** Alle vier GitHub-Jobs haben bereits kompiliert; der zuletzt veröffentlichte Stand `c795e2a` scheitert noch an Windows-/Linux-Testfällen und den macOS-Paketstartprüfungen. Die entsprechenden Korrekturen liegen lokal vor und brauchen einen neuen CI-Lauf. Der aktuelle Stand ist damit noch nicht auf allen Zielsystemen bestätigt; siehe [Build-Prüfung](BUILD_REVIEW_2026-10-27.md).
+üxzView verwendet C++20 und Qt Widgets auf Windows, Linux und macOS. **Zunächst wird ausschließlich eine fertige Windows-x64-Fassung veröffentlicht.** Linux-Build und CTest sind für `8878b46` in CI bestätigt. Korrekturen am Linux-Paketstart und an einem Pfadtest für Windows und beide Macs brauchen einen neuen CI-Lauf. Der aktuelle Stand ist noch nicht auf allen Zielsystemen vollständig bestätigt; siehe [CI-Nachprüfung](CI_REPAIR_2026-10-27.md) und [Build-Prüfung](BUILD_REVIEW_2026-10-27.md).
 
 Alle Befehle werden im Wurzelverzeichnis eines Checkouts oder entpackten Quellpakets ausgeführt. Ein Windows-Build erzeugt keine Linux- oder macOS-Binärdatei; für diese Builds einen entsprechenden Host verwenden.
 
 | System | Ziel / Build-Konfiguration | Hier nachgewiesen |
 | --- | --- | --- |
 | Windows | Windows 10 ab 1809 und neuer, x64; MSYS2-UCRT-SDK | Windows-11-Build, alle fünf Offscreen-Suiten und vierunddreißig native Fensterabläufe; portables Paket ohne SDK-Pfade |
-| Linux | zunächst Ubuntu 24.04 x64; andere Distributionen mit Qt ≥ 6.8 und passenden Bibliotheken aus Quellcode | `c795e2a` kompiliert in CI; ein Testdatenfehler ist lokal korrigiert, aktueller CI-Lauf steht aus |
-| macOS | zunächst macOS 15 und neuer, getrennte arm64-/Intel-Builds | `c795e2a` kompiliert und besteht CTest für beide CPUs; korrigierter Paketstart braucht einen neuen CI-Lauf |
+| Linux | zunächst Ubuntu 24.04 x64; andere Distributionen mit Qt ≥ 6.8 und passenden Bibliotheken aus Quellcode | `8878b46` kompiliert und besteht alle fünf CTest-Suiten; korrigierter Paketstart braucht einen neuen Lauf |
+| macOS | zunächst macOS 15 und neuer, getrennte arm64-/Intel-Builds | Frühere CI-Builds/CTest bestehen für beide CPUs; `8878b46` stoppt vor dem Build an einem lokal korrigierten Python-Pfadtest |
 
 Die Windows-Untergrenze entspricht der [Qt-6.11-Plattformmatrix](https://doc.qt.io/qt-6.11/supported-platforms.html) des gesperrten Windows-SDKs; der komplette üxzView-Build wurde bisher auf Windows 11 geprüft. Qt 6.8 selbst kann macOS ab 12 unterstützen; die hier vorbereiteten Mac-Pakete zielen zunächst auf 15, weil zusätzlich die Mindestversionen der Homebrew-Bibliotheken berücksichtigt werden müssen. Eine niedrigere Grenze benötigt einen passenden Build sämtlicher Abhängigkeiten und einen Test auf diesem System. Neue Betriebssystemversionen werden durch die gemeinsame Codebasis angestrebt, gelten ohne Test aber nicht automatisch als validiert.
 

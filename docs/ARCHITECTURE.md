@@ -42,6 +42,29 @@ The load service reads no settings and installs no document. Its optional previe
 
 `platform_support` owns UI font selection. Startup applies `configureUiFont()` after selecting the UI language; legacy fixed-geometry dialogs use `referenceFont()` from the same policy. Korean/Japanese text has a minimum 9-point size and language-specific family preferences with system fallback. Font selection does not load downloadable assets or change image text rendering.
 
+`core/localization.*` publishes an atomic language index into immutable embedded
+catalogs. Non-German catalogs load once on the first non-German selection, and
+remain available to concurrent worker readers; live switching never mutates a
+map being read. The setter runs on the GUI thread. `uiLocale()` returns an
+explicit value for widgets and presentation. `QLocale::setDefault()` runs only
+at executable startup, before application workers: changing this non-reentrant
+global during live work is unsafe according to the
+[Qt locale contract](https://doc.qt.io/qt-6.8/qlocale.html#setDefault).
+Directory collation therefore remains stable across an interface-language change.
+
+`ui/interface_language.*` owns the application-lifetime Qt translator, UI font
+refresh and LanguageChange notification. `bindUiText` retains source text and
+optional formatting arguments on persistent UI objects; `retranslateUiText`
+updates them without deleting actions, menus or widgets. Toolbar descriptions
+regenerate native shortcut labels and accessible names too. ActionSearch observes
+the existing QAction metadata, retaining its model rows and query. Dynamic crop
+and recent menus use the active language when opened. Newly constructed dialogs
+use active catalog text, and `dialogLayout` sets their explicit numeric locale.
+If Qt retains a modeless About message, its title/version text is bound too.
+Keep paths, user text, command IDs, shortcuts and settings keys outside translation.
+Settings cancellation never publishes the pending language. A live change must
+not reload pixels, clear history/selection, reset manual zoom or rescan a folder.
+
 Workers receive captured value inputs and must not dereference widgets or implicitly use a later document. Results are installed on the GUI thread. Generation numbers reject obsolete RAW previews and thumbnail notifications; directory indexing uses pending-refresh state before installing a snapshot. Cancellation is cooperative: third-party decoders can continue until their reads return. Destruction must join active work or retain ownership until completion; a raw `this` capture is not cancellation.
 
 `SlideshowController` owns sequencing; permission to advance remains with `MainWindow` and `DocumentActivity`. `FileJournal` owns file transactions and conflict checks. Document pixel history and file-operation undo are separate concepts.
@@ -56,6 +79,25 @@ source state. The Save-as regression checks this against a fresh target decode
 and compares the complete export-loss report before/after Undo.
 
 Batch runs check source revisions before/after reading and before installation. An optional configured codec registry is copied into workers; custom readers must support the chosen parallelism. The synchronous run joins workers before returning, so the supplied registry is never retained afterward. Journal Undo refuses unknown operation kinds before touching target files.
+
+`core/batch_plan.cpp` owns read-only destination planning separately from image
+transformation and execution in `batch_pipeline.cpp`. `plan(job, cancel)` returns
+a complete review or an empty list on cancellation; a partial plan must never be
+offered for execution. It checks cancellation while enumerating and inside
+destination/resource hashing. File identity, input/output collisions and overwrite
+policy are resolved before hashing a destination; only eligible regular-file
+replacements receive a content hash. Repeated watermark paths share one hash.
+Existing target revisions are rechecked after hashing. Execution still verifies
+reviewed revisions/content and journals replacements; skipping an ineligible
+target's hash must not weaken those commit guards.
+
+PipelineDialog clears reviewed data and images when inputs/options change or a
+review is cancelled. Completion must not enable Start from cancelled or stale
+results. A new explicit review resets the cancellation token after previous work
+has finished. Preview/run reject already-cancelled requests before decode/resource
+work. Cancellation remains cooperative: it does not interrupt a blocking OS read
+or third-party decoder already in progress. Worker exceptions must be contained
+at the GUI completion boundary and shown as errors, never as successful empty runs.
 
 ## Caches and expensive work
 
@@ -133,4 +175,19 @@ Windows fullscreen presentation and global hotkeys belong in `ui/platform_suppor
 
 `MainWindow` remains too broad. Extract loading/navigation coordination, save transactions and file-management presentation incrementally, retaining the state/Undo/native-window regressions. Moving methods into another `.cpp` alone does not separate ownership. Put new pure transformations and worker preparation outside dialogs; introduce generic interfaces when another implementation actually needs them.
 
-Open risks include native Windows 10/Linux/macOS coverage, total-memory coordination, uncommon RAW/color variants and very large catalogs. [The latest review](REVIEW_0.4.8.md) tracks them; this document does not claim they are solved.
+Prioritize the remaining boundaries in this order:
+
+| Boundary | Responsibility to move | Contract to retain |
+| --- | --- | --- |
+| Loading/navigation controller | Worker, request generation, deferred opens and queued steps | Latest explicit choice wins; file/save phases remain exclusive; stale previews cannot install. |
+| Save transaction | Immutable source snapshot, destination revision and nested-dialog lifetime | External target changes survive; failure retains edits; selection export keeps the active document. |
+| Document history | Undo/Redo ownership, selection and memory accounting | Original precision/metadata and source state survive; budgets distinguish shared buffers from total RAM. |
+| Catalog storage | Large snapshot/search/index persistence | Ratings and marks survive concurrent index updates; backups/migration and corruption rejection precede a format change. |
+
+Take one ownership boundary per change, define its value inputs/results first,
+then exercise the existing workflows before removing the original path. Keep
+performance evidence for first decode, cached navigation and large-folder work
+separate. A new dependency or storage format needs a demonstrated benefit and
+compatibility/migration coverage.
+
+Open risks include native Windows 10/Linux/macOS coverage, total-memory coordination, uncommon RAW/color variants and very large catalogs. [The latest review](REVIEW_2026-10-27.md) records the current scope and remaining boundaries; this document does not claim they are solved.

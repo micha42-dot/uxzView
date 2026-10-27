@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "preview_strip.h"
+#include "interface_language.h"
 #include "core/localization.h"
 #include "icons.h"
 #include <QtWidgets>
@@ -23,7 +24,7 @@ PreviewStrip::PreviewStrip(QWidget *parent) : QWidget(parent) {
     currentMarker_->setAlignment(Qt::AlignCenter);
     currentMarker_->setFixedWidth(64);
     currentMarker_->setObjectName(QStringLiteral("currentNeighborMarker"));
-    currentMarker_->setAccessibleName(IX_TEXT("Aktuelles Bild"));
+    bindUiText(currentMarker_, "accessibleName", QStringLiteral("Aktuelles Bild"));
     currentMarker_->hide();
     scroll->setWidget(contents);
     layout->addWidget(scroll, 1);
@@ -41,10 +42,11 @@ PreviewStrip::PreviewStrip(QWidget *parent) : QWidget(parent) {
                             button->setProperty("previewImageKey", key);
                         }
                         button->setToolTip(path);
+                        unbindUiText(button, "toolTip");
                     } else {
                         button->setIcon(uiIcon(QStringLiteral("image"), palette()));
                         button->setProperty("previewImageKey", QVariant());
-                        button->setToolTip(path + IX_TEXT("\nKeine schnelle Vorschau verfügbar."));
+                        bindUiText(button, "toolTip", QStringLiteral("\nKeine schnelle Vorschau verfügbar."), {}, path);
                     }
                 }
             });

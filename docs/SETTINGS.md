@@ -1,12 +1,12 @@
-# Einstellungen und Symbole in üxzView 0.4.6
+# Einstellungen und Symbole in üxzView
 
 **Optionen → Einstellungen** enthält zehn Bereiche in einer vertikalen Kategorienliste. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
 
 | Bereich | Verfügbare Einstellungen |
 | --- | --- |
 | Anzeige | Bildanpassung, Zentrierung, Glättung, ICC-Anzeige nach sRGB, Anzeigeschärfe, Hintergrundfarbe |
-| Oberfläche | Sprache (Deutsch/English/한국어/日本語/Français; nach Neustart), Symbol-/Status-/Menüleiste, Aktionssuche, Symbolgröße 20–32 px, optionale Symbolbeschriftungen, Fenstergröße/-position merken |
-| Vorschauen | Nachbarleiste ein/aus, unabhängig 1–5 vorherige und 1–5 kommende Bilder, Hintergrund im Systemdesign / wie Bildhintergrund / transparent |
+| Oberfläche | Farbschema (Systemdesign/Hell/Dunkel) und Sprache (Deutsch/English/한국어/日本語/Français), beide sofort nach OK; Symbol-/Status-/Menüleiste, Aktionssuche, Symbolgröße 20–32 px, optionale Symbolbeschriftungen, Fenstergröße/-position merken |
+| Vorschauen | Nachbarleiste ein/aus, unabhängig 1–5 vorherige und 1–5 kommende Bilder, Hintergrund wie Oberfläche / wie Bildhintergrund / transparent |
 | Navigation | Natürliche/alphabetische/Datums-/Größensortierung, Reihenfolge umkehren, Wiederholung am Ordnerende, Zoom und Scrollposition beim Bildwechsel behalten, optionale Speicherabfrage (standardmäßig aus) |
 | Vollbild | Ganze Bilder beim Eintritt, kleine Bilder optional vergrößern, Mauszeiger ausblenden, eigene Hintergrundfarbe (Standard Schwarz), optionale Informationsanzeige mit vier Ecken und auswählbaren Datei-/Bild-/EXIF-Daten; keine Bildflächenumrandung |
 | Diashow | Anzeigedauer, Start im Vollbild, Wiederholung, Zufallsreihenfolge; sonst Sortierung unter Navigation |
@@ -29,7 +29,7 @@ Das Bildcachebudget steht standardmäßig auf 192 MiB, Miniaturen auf 16 MiB. Ma
 
 ## Bedeutung der Symbole
 
-Die eigenen SVG-Konturen sind im Quellcode unter `src/ui/icons.cpp` definiert. Farbe und deaktivierter Zustand folgen der Systempalette; Rasterungen werden nach Größe, Farbe und Pixeldichte zwischengespeichert. Es werden keine externen Iconpakete oder Netzwerkzugriffe benötigt.
+Die eigenen SVG-Konturen sind im Quellcode unter `src/ui/icons.cpp` definiert. Farbe und deaktivierter Zustand folgen dem gewählten Farbschema; Rasterungen werden nach Größe, Farbe und Pixeldichte zwischengespeichert. Es werden keine externen Iconpakete oder Netzwerkzugriffe benötigt.
 
 | Symbol | Bedeutung |
 | --- | --- |
@@ -54,7 +54,7 @@ Der bisherige kleine Einstellungsdialog war unvollständig. Die zehn Bereiche er
 
 ## Sprache und Screenshot-Kürzel
 
-Die Oberfläche verwendet eingebettete Übersetzungen; die Sprachauswahl unter Oberfläche wird nach Neustart wirksam. Qt-Standarddialoge nutzen die passenden mitgelieferten qtbase-Sprachdateien. Bibliotheksdiagnosen und einige technische Fehlermeldungen können weiterhin die Ausgangssprache verwenden. Die Übersetzungen sind funktional geprüft; eine muttersprachliche Sprachprüfung steht aus.
+Die Oberfläche verwendet eingebettete Übersetzungen. **Optionen → Einstellungen → Oberfläche → Sprache** wechselt nach „OK“ ohne Neustart; „Abbrechen“ behält die bisherige Sprache. Menüs, Werkzeugtipps, Befehlssuche, Schriftwahl und neue Dialoge folgen der Auswahl. Bild, ungespeicherte Bearbeitungen, Auswahl, Zoom und Undo bleiben erhalten, auch im Vollbild. Qt-Standarddialoge nutzen die passenden mitgelieferten qtbase-Sprachdateien. Zahlenfelder folgen der gewählten Oberflächensprache; ein Sprachwechsel sortiert den aktuellen Ordner nicht neu. Bibliotheksdiagnosen und einige technische Fehlermeldungen können weiterhin die Ausgangssprache verwenden. Die Übersetzungen sind funktional geprüft; eine muttersprachliche Sprachprüfung steht aus.
 
 Das Screenshot-Kürzel ist ein einzelner Tastendruck mit Modifikatoren. Ein leeres Feld schaltet es ab. Belegte üxzView-Kürzel werden beim Speichern abgewiesen. Unter Windows ist auf Wunsch ein globales Kürzel verfügbar (F1–F24, Buchstaben, Ziffern oder Druck, mit Modifikatoren). Bei einem Systemkonflikt bleibt das lokale Kürzel verfügbar; der Tooltip des Screenshot-Menüeintrags zeigt den Fehler. Globale Kürzel auf Linux/macOS und Screenshot-Portale für Wayland stehen noch aus.
 

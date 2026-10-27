@@ -58,7 +58,7 @@ QString fullscreenInfoText(const ImageDocument &document, const FullscreenInfoOp
                 value = QStringLiteral("%1 × %2").arg(document.dpiX(), 0, 'f', 1).arg(document.dpiY(), 0, 'f', 1);
         } else if (key == QStringLiteral("fileSize")) {
             if (!document.path.isEmpty() && document.fileBytes >= 0)
-                value = QLocale().formattedDataSize(document.fileBytes);
+                value = uiLocale().formattedDataSize(document.fileBytes);
         } else if (key == QStringLiteral("format"))
             value = QString::fromLatin1(document.format).toUpper();
         else if (key == QStringLiteral("zoom"))

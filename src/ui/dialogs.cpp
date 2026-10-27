@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "dialogs.h"
+#include "dialog_layout.h"
 #include "core/batch_processor.h"
 #include "core/localization.h"
 #include "platform_support.h"
@@ -28,133 +29,158 @@ QSpinBox *integer(QFormLayout *f, QString label, int value, int low, int high) {
 }
 } // namespace
 ColorDialog::ColorDialog(const QImage &image, QWidget *parent) : QDialog(parent) {
+    setObjectName(QStringLiteral("colorDialog"));
     setWindowTitle(IX_TEXT("Farben ändern"));
-    setFixedSize(490, 420);
-    auto label = [&](QString text, QRect rect) {
-        auto *w = new QLabel(text, this);
-        w->setGeometry(rect);
-        return w;
+    auto *outer = dialogLayout(this);
+    auto *body = dialogBody(outer);
+    auto *grid = new QGridLayout(body);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(16);
+    grid->setVerticalSpacing(12);
+    grid->setColumnStretch(0, 1);
+    grid->setColumnStretch(1, 1);
+    auto preview = [&](const QString &title, int column) {
+        auto *label = new QLabel(title);
+        label->setAlignment(Qt::AlignCenter);
+        grid->addWidget(label, 0, column);
+        auto *pixels = new QLabel;
+        pixels->setMinimumSize(230, 150);
+        pixels->setAlignment(Qt::AlignCenter);
+        pixels->setFrameStyle(QFrame::Box);
+        grid->addWidget(pixels, 1, column);
+        return pixels;
     };
-    label(IX_TEXT("Originalbild"), {10, 2, 225, 18})->setAlignment(Qt::AlignCenter);
-    label(IX_TEXT("Neues Bild"), {250, 2, 232, 18})->setAlignment(Qt::AlignCenter);
-    originalLabel_ = label({}, {8, 22, 230, 150});
-    originalLabel_->setAlignment(Qt::AlignCenter);
-    originalLabel_->setFrameStyle(QFrame::Box);
+    originalLabel_ = preview(IX_TEXT("Originalbild"), 0);
+    originalLabel_->setObjectName(QStringLiteral("colorOriginal"));
+    preview_ = preview(IX_TEXT("Neues Bild"), 1);
     originalLabel_->installEventFilter(this);
-    preview_ = label({}, {250, 22, 232, 150});
-    preview_->setAlignment(Qt::AlignCenter);
-    preview_->setFrameStyle(QFrame::Box);
-    auto group = [&](QString name, QRect rect) {
-        auto *g = new QGroupBox(name, this);
-        g->setGeometry(rect);
-        return g;
+    originalLabel_->setCursor(Qt::CrossCursor);
+    originalLabel_->setToolTip(IX_TEXT("Info: Klicken Sie ins Originalbild (heller Bereich)\num Weißabgleich zu ändern (RGB-Werte)"));
+    auto section = [&](const QString &title, int row, int column) {
+        auto *group = new QGroupBox(title);
+        auto *form = dialogFormLayout();
+        form->setContentsMargins(12, 12, 12, 12);
+        group->setLayout(form);
+        grid->addWidget(group, row, column);
+        return form;
     };
-    group(IX_TEXT("Helligkeit:"), {8, 174, 230, 44});
-    group(IX_TEXT("Kontrast:"), {250, 174, 232, 44});
-    group(IX_TEXT("Farb-Balancierung:"), {8, 220, 230, 96});
-    group(IX_TEXT("Gamma-Korrektur:"), {250, 220, 232, 44});
-    group(IX_TEXT("Farbsättigung:"), {250, 267, 232, 49});
-    for (int i = 0; i < 7; ++i) {
-        int x = i == 0 || i >= 4 ? 16 : 260;
-        int y = i == 0 || i == 1 ? 189 : i == 2 ? 236 : i == 3 ? 283 : 237 + (i - 4) * 24;
-        int span = i >= 4 ? 155 : 175;
-        if (i >= 4) {
-            label(QStringList{QStringLiteral("R:"), QStringLiteral("G:"), QStringLiteral("B:")}[i - 4],
-                  {16, y, 20, 20});
-            x = 36;
-        }
-        auto *slider = new QSlider(Qt::Horizontal, this);
-        slider->setGeometry(x, y, span, 20);
-        auto *spin = new QDoubleSpinBox(this);
-        spin->setGeometry(i == 0 || i >= 4 ? 205 : 441, y, 35, 21);
+    inputs_.resize(7);
+    auto control = [&](QFormLayout *form, int index, const QString &name = QString()) {
+        auto *row = new QWidget;
+        auto *layout = new QHBoxLayout(row);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(8);
+        auto *slider = new QSlider(Qt::Horizontal);
+        auto *spin = new QDoubleSpinBox;
+        spin->setObjectName(QStringList{QStringLiteral("brightness"), QStringLiteral("contrast"),
+            QStringLiteral("gamma"), QStringLiteral("saturation"), QStringLiteral("red"),
+            QStringLiteral("green"), QStringLiteral("blue")}[index]);
         spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
-        spin->setRange(i == 2             ? .01
-                       : i == 1 || i == 3 ? -100
-                                          : -255,
-                       i == 2             ? 10
-                       : i == 1 || i == 3 ? 100
-                                          : 255);
-        spin->setDecimals(i == 2 ? 2 : 0);
-        spin->setValue(i == 2 ? 1 : 0);
-        inputs_.append(spin);
-        slider->setRange(i == 2 ? 1 : int(spin->minimum()), i == 2 ? 1000 : int(spin->maximum()));
-        slider->setValue(i == 2 ? 100 : 0);
-        connect(slider, &QSlider::valueChanged, this,
-                [spin, i](int v) { spin->setValue(i == 2 ? v / 100.0 : v); });
-        connect(spin, &QDoubleSpinBox::valueChanged, this, [this, slider, i](double v) {
+        spin->setMinimumWidth(72);
+        spin->setRange(index == 2 ? .01 : index == 1 || index == 3 ? -100 : -255,
+                       index == 2 ? 10 : index == 1 || index == 3 ? 100 : 255);
+        spin->setDecimals(index == 2 ? 2 : 0);
+        spin->setValue(index == 2 ? 1 : 0);
+        inputs_[index] = spin;
+        slider->setRange(index == 2 ? 1 : int(spin->minimum()), index == 2 ? 1000 : int(spin->maximum()));
+        slider->setValue(index == 2 ? 100 : 0);
+        layout->addWidget(slider, 1);
+        layout->addWidget(spin);
+        if (name.isEmpty()) form->addRow(row); else form->addRow(name, row);
+        connect(slider, &QSlider::valueChanged, this, [spin, index](int value) {
+            spin->setValue(index == 2 ? value / 100.0 : value);
+        });
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this, slider, index](double value) {
             QSignalBlocker block(slider);
-            slider->setValue(qRound(i == 2 ? v * 100 : v));
+            slider->setValue(qRound(index == 2 ? value * 100 : value));
             updatePreview();
         });
-    }
-    auto reset = [this] {
-        for (int i = 0; i < inputs_.size(); ++i)
-            inputs_[i]->setValue(i == 2 ? 1 : 0);
     };
-    group(IX_TEXT("Profile:"), {8, 318, 230, 67});
-    auto *profiles = new QComboBox(this);
+    control(section(IX_TEXT("Helligkeit:"), 2, 0), 0);
+    control(section(IX_TEXT("Kontrast:"), 2, 1), 1);
+    auto *balance = section(IX_TEXT("Farb-Balancierung:"), 3, 0);
+    for (int index = 4; index < 7; ++index)
+        control(balance, index, QStringList{QStringLiteral("R:"), QStringLiteral("G:"), QStringLiteral("B:")}[index - 4]);
+    auto *tones = new QWidget;
+    auto *toneLayout = new QVBoxLayout(tones);
+    toneLayout->setContentsMargins(0, 0, 0, 0);
+    toneLayout->setSpacing(12);
+    auto *gammaGroup = new QGroupBox(IX_TEXT("Gamma-Korrektur:"));
+    auto *gamma = dialogFormLayout(); gamma->setContentsMargins(12, 12, 12, 12); gammaGroup->setLayout(gamma);
+    control(gamma, 2);
+    auto *saturationGroup = new QGroupBox(IX_TEXT("Farbsättigung:"));
+    auto *saturation = dialogFormLayout(); saturation->setContentsMargins(12, 12, 12, 12); saturationGroup->setLayout(saturation);
+    control(saturation, 3);
+    toneLayout->addWidget(gammaGroup);
+    toneLayout->addWidget(saturationGroup);
+    grid->addWidget(tones, 3, 1);
+    auto *profileForm = section(IX_TEXT("Profile:"), 4, 0);
+    auto *profiles = new QComboBox;
     profiles->setEditable(true);
-    profiles->setGeometry(18, 334, 212, 21);
-    setImage(image);
+    profileForm->addRow(profiles);
     QSettings settings;
     settings.beginGroup(QStringLiteral("color/profiles"));
     profiles->addItems(settings.childKeys());
     settings.endGroup();
-    auto button = [&](QString title, QRect rect, auto fn) {
-        auto *b = new QPushButton(title, this);
-        b->setGeometry(rect);
-        connect(b, &QPushButton::clicked, this, fn);
-        return b;
+    auto *profileButtons = new QHBoxLayout;
+    profileButtons->setSpacing(8);
+    profileForm->addRow(profileButtons);
+    auto button = [&](const QString &title, QHBoxLayout *layout, auto action) {
+        auto *widget = new QPushButton(title);
+        layout->addWidget(widget);
+        connect(widget, &QPushButton::clicked, this, action);
+        return widget;
     };
-    button(IX_TEXT("Laden"), {18, 359, 61, 22}, [=, this] {
-        auto list = QSettings().value(QStringLiteral("color/profiles/") + profiles->currentText()).toList();
-        if (list.size() == 7)
-            for (int i = 0; i < 7; ++i)
-                inputs_[i]->setValue(list[i].toDouble());
+    button(IX_TEXT("Laden"), profileButtons, [=, this] {
+        const auto list = QSettings().value(QStringLiteral("color/profiles/") + profiles->currentText()).toList();
+        if (list.size() == 7) for (int i = 0; i < 7; ++i) inputs_[i]->setValue(list[i].toDouble());
     });
-    button(IX_TEXT("Löschen"), {89, 359, 61, 22}, [=] {
+    button(IX_TEXT("Löschen"), profileButtons, [=] {
         QSettings().remove(QStringLiteral("color/profiles/") + profiles->currentText());
         profiles->removeItem(profiles->currentIndex());
     });
-    button(IX_TEXT("Speichern"), {162, 359, 68, 22}, [=, this] {
-        QString name = profiles->currentText().trimmed();
-        if (name.isEmpty() || name.contains(QLatin1Char('/')))
-            return;
+    button(IX_TEXT("Speichern"), profileButtons, [=, this] {
+        const auto name = profiles->currentText().trimmed();
+        if (name.isEmpty() || name.contains(QLatin1Char('/'))) return;
         QVariantList list;
-        for (auto *spin : inputs_)
-            list << spin->value();
+        for (auto *spin : inputs_) list << spin->value();
         QSettings().setValue(QStringLiteral("color/profiles/") + name, list);
-        if (profiles->findText(name) < 0)
-            profiles->addItem(name);
+        if (profiles->findText(name) < 0) profiles->addItem(name);
     });
-    auto *apply =
-        button(IX_TEXT("Auf Bild anwenden"), {259, 331, 106, 23}, [this] { emit applyRequested(values()); });
-    button(IX_TEXT("Standardwerte"), {377, 331, 105, 23}, reset);
-    auto *remember = new QCheckBox(IX_TEXT("Werte speichern"), this);
-    remember->setGeometry(258, 360, 200, 20);
+    auto *actions = new QWidget;
+    auto *actionLayout = new QVBoxLayout(actions);
+    actionLayout->setContentsMargins(0, 0, 0, 0);
+    actionLayout->setSpacing(8);
+    auto *actionButtons = new QHBoxLayout;
+    actionButtons->setSpacing(8);
+    actionLayout->addLayout(actionButtons);
+    button(IX_TEXT("Auf Bild anwenden"), actionButtons, [this] { emit applyRequested(values()); });
+    button(IX_TEXT("Standardwerte"), actionButtons, [this] {
+        for (int i = 0; i < inputs_.size(); ++i) inputs_[i]->setValue(i == 2 ? 1 : 0);
+    });
+    auto *remember = new QCheckBox(IX_TEXT("Werte speichern"));
     remember->setChecked(settings.value(QStringLiteral("color/remember"), false).toBool());
-    if (remember->isChecked()) {
-        auto values = settings.value(QStringLiteral("color/values")).toList();
-        if (values.size() == 7)
-            for (int i = 0; i < 7; ++i)
-                inputs_[i]->setValue(values[i].toDouble());
-    }
-    label(
-        IX_TEXT("Info: Klicken Sie ins Originalbild (heller Bereich)\num Weißabgleich zu ändern (RGB-Werte)"),
-        {14, 385, 229, 32})
-        ->setFont(referenceFont(8));
-    auto *ok = button(QStringLiteral("OK"), {259, 390, 106, 23}, [this, remember] {
-        QSettings s;
-        s.setValue(QStringLiteral("color/remember"), remember->isChecked());
-        QVariantList values;
-        for (auto *spin : inputs_)
-            values << spin->value();
-        s.setValue(QStringLiteral("color/values"), values);
+    actionLayout->addWidget(remember);
+    actionLayout->addStretch();
+    grid->addWidget(actions, 4, 1);
+    auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    box->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));
+    outer->addWidget(box);
+    connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(box, &QDialogButtonBox::accepted, this, [this, remember] {
+        QSettings settings;
+        settings.setValue(QStringLiteral("color/remember"), remember->isChecked());
+        QVariantList list;
+        for (auto *spin : inputs_) list << spin->value();
+        settings.setValue(QStringLiteral("color/values"), list);
         accept();
     });
-    ok->setDefault(true);
-    button(IX_TEXT("Abbrechen"), {377, 390, 105, 23}, [this] { reject(); });
-    Q_UNUSED(apply);
+    setImage(image);
+    if (remember->isChecked()) {
+        const auto list = settings.value(QStringLiteral("color/values")).toList();
+        if (list.size() == 7) for (int i = 0; i < 7; ++i) inputs_[i]->setValue(list[i].toDouble());
+    }
+    resize(740, std::min(640, screen()->availableGeometry().height() - 64));
     updatePreview();
 }
 void ColorDialog::setImage(const QImage &image) {
@@ -198,8 +224,8 @@ void ColorDialog::updatePreview() {
 bool newImageDialog(QWidget *p, ImageDocument &out) {
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("Neues Bild erzeugen"));
-    auto *v = new QVBoxLayout(&d);
-    auto *f = new QFormLayout;
+    auto *v = dialogLayout(&d);
+    auto *f = dialogFormLayout();
     v->addLayout(f);
     auto *w = integer(f, IX_TEXT("Bildbreite:"), 100, 1, 100000),
          *h = integer(f, IX_TEXT("Bildhöhe:"), 100, 1, 100000),
@@ -239,8 +265,8 @@ bool newImageDialog(QWidget *p, ImageDocument &out) {
 bool selectionDialog(QWidget *p, QSize image, QRect &r) {
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("Spezielle Markierung erstellen"));
-    auto *v = new QVBoxLayout(&d);
-    auto *f = new QFormLayout;
+    auto *v = dialogLayout(&d);
+    auto *f = dialogFormLayout();
     v->addLayout(f);
     auto *x = integer(f, IX_TEXT("X-Position:"), r.x(), 0, image.width() - 1),
          *y = integer(f, IX_TEXT("Y-Position:"), r.y(), 0, image.height() - 1),
@@ -255,8 +281,8 @@ bool selectionDialog(QWidget *p, QSize image, QRect &r) {
 bool canvasDialog(QWidget *p, int &l, int &r, int &t, int &b, QColor &c) {
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("Farb-Rahmen hinzufügen (Leinwandgröße ändern)"));
-    auto *v = new QVBoxLayout(&d);
-    auto *f = new QFormLayout;
+    auto *v = dialogLayout(&d);
+    auto *f = dialogFormLayout();
     v->addLayout(f);
     auto *ls = integer(f, IX_TEXT("Links:"), l, -100000, 100000),
          *rs = integer(f, IX_TEXT("Rechts:"), r, -100000, 100000),
@@ -282,8 +308,8 @@ void imageInformation(QWidget *p, const ImageDocument &d) {
     QDialog dialog(p);
     dialog.setWindowTitle(IX_TEXT("Bild-Information"));
     dialog.resize(570, 440);
-    auto *v = new QVBoxLayout(&dialog);
-    auto *f = new QFormLayout;
+    auto *v = dialogLayout(&dialog);
+    auto *f = dialogFormLayout();
     v->addLayout(f);
     auto row = [&](QString a, QString b) {
         auto *l = new QLabel(b);
@@ -324,7 +350,7 @@ void imageInformation(QWidget *p, const ImageDocument &d) {
 void histogramDialog(QWidget *parent, const QImage &image) {
     QDialog dialog(parent);
     dialog.setWindowTitle(IX_TEXT("Histogramm"));
-    auto *layout = new QVBoxLayout(&dialog);
+    auto *layout = dialogLayout(&dialog);
     auto *chart = new QLabel(IX_TEXT("Histogramm wird berechnet …"));
     chart->setObjectName(QStringLiteral("histogramChart"));
     chart->setFixedSize(768, 280);
@@ -382,7 +408,7 @@ void formatDialog(QWidget *p, const CodecRegistry &registry) {
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("üxzView – verfügbare Bildformate"));
     d.resize(650, 450);
-    auto *v = new QVBoxLayout(&d);
+    auto *v = dialogLayout(&d);
     auto *table = new QTableWidget(0, 5);
     table->setHorizontalHeaderLabels({IX_TEXT("Format"), IX_TEXT("Erweiterungen"), IX_TEXT("Lesen"),
                                       IX_TEXT("Schreiben"), IX_TEXT("Bibliothek")});
@@ -407,7 +433,7 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("Batch(Stapel)-Konvertierung/Umbenennung"));
     d.resize(720, 570);
-    auto *v = new QVBoxLayout(&d);
+    auto *v = dialogLayout(&d);
     auto *files = new QListWidget;
     files->addItems(initial);
     files->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -424,7 +450,7 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
     auto *remove = new QPushButton(IX_TEXT("Aus Liste entfernen"));
     v->addWidget(remove);
     QObject::connect(remove, &QPushButton::clicked, &d, [&] { qDeleteAll(files->selectedItems()); });
-    auto *f = new QFormLayout;
+    auto *f = dialogFormLayout();
     v->addLayout(f);
     auto *mode = new QComboBox;
     mode->addItems({IX_TEXT("Batch-Konvertierung"), IX_TEXT("Batch-Umbenennung (Dateien verschieben)")});
@@ -521,7 +547,7 @@ void thumbnailsDialog(QWidget *p, const QStringList &files, const std::function<
     QDialog d(p);
     d.setWindowTitle(QStringLiteral("üxzView Thumbnails"));
     d.resize(850, 570);
-    auto *v = new QVBoxLayout(&d);
+    auto *v = dialogLayout(&d);
     auto *list = new QListWidget;
     list->setViewMode(QListView::IconMode);
     list->setIconSize({128, 96});
