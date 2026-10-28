@@ -22,7 +22,7 @@ add_library(ixcore STATIC
     src/core/image_document.cpp src/core/codec_registry.cpp src/core/processing.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
     src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
-    src/core/file_journal.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_plan.cpp src/core/plugin_store.cpp
+    src/core/file_journal.cpp src/core/file_journal_recovery.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_plan.cpp src/core/batch_report.cpp src/core/plugin_store.cpp
     src/core/app_storage.cpp src/core/extension_storage.cpp src/core/tool_store.cpp src/core/recognition_input.cpp
     src/core/image_loading.cpp src/core/directory_index_service.cpp)
 target_include_directories(ixcore PUBLIC src)
@@ -32,7 +32,7 @@ if(TARGET IxView::Exiv2)
     target_compile_definitions(ixcore PRIVATE IX_HAVE_EXIV2)
 endif()
 add_library(ixui STATIC src/ui/appearance.cpp src/ui/interface_language.cpp src/ui/image_view.cpp src/ui/fullscreen_info.cpp src/ui/resize_dialog.cpp src/ui/dialogs.cpp
-    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
+    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/pipeline_step_editor.cpp src/ui/pipeline_result_model.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
 target_link_libraries(ixui PUBLIC ixcore Qt6::Widgets Qt6::PrintSupport Qt6::Svg)
 target_compile_definitions(ixui PUBLIC QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII)
 qt_add_executable(IxView WIN32 MACOSX_BUNDLE src/main.cpp resources/app.qrc)
@@ -186,6 +186,12 @@ if(BUILD_TESTING)
     add_test(NAME ixview_storage_tests COMMAND ixview_storage_tests
         -o ${CMAKE_CURRENT_BINARY_DIR}/storage-test-results.txt,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/storage-test-results.xml,junitxml)
+    qt_add_executable(ixview_journal_tests tests/journal_ixview.cpp)
+    target_link_libraries(ixview_journal_tests PRIVATE ixcore Qt6::Test)
+    target_compile_definitions(ixview_journal_tests PRIVATE IX_JOURNAL_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output")
+    add_test(NAME ixview_journal_tests COMMAND ixview_journal_tests
+        -o ${CMAKE_CURRENT_BINARY_DIR}/journal-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/journal-test-results.xml,junitxml)
     qt_add_executable(ixview_extension_tests tests/extensions_ixview.cpp resources/app.qrc)
     target_link_libraries(ixview_extension_tests PRIVATE ixui Qt6::Test)
     target_compile_definitions(ixview_extension_tests PRIVATE
@@ -201,7 +207,7 @@ if(BUILD_TESTING)
     # Suites share GUI/profile state. Honor this even when a caller uses ctest -j.
     # A blocked dialog must fail with retained logs rather than occupy CI for hours.
     set_tests_properties(ixview_tests ixview_workflow_tests ixview_quality_tests
-        ixview_storage_tests ixview_extension_tests PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+        ixview_storage_tests ixview_journal_tests ixview_extension_tests PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
 endif()
 # Standard install layout supports Qt's native deployment tools on all desktop hosts.
 install(TARGETS IxView BUNDLE DESTINATION . RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -225,18 +231,8 @@ if(UNIX AND NOT APPLE)
 endif()
 option(IX_DEPLOY_QT "Bundle runtime libraries/plugins during native cmake install" OFF)
 if(IX_DEPLOY_QT)
-    set(ix_deploy_modules "")
-    foreach(module ixrawpreview ixextensions)
-        if(TARGET ${module})
-            if(APPLE)
-                string(APPEND ix_deploy_modules " \"uxzView.app/Contents/PlugIns/IxView/$<TARGET_FILE_NAME:${module}>\"")
-            elseif(WIN32)
-                string(APPEND ix_deploy_modules " \"${CMAKE_INSTALL_BINDIR}/$<TARGET_FILE_NAME:${module}>\"")
-            else()
-                string(APPEND ix_deploy_modules " \"lib/IxView/$<TARGET_FILE_NAME:${module}>\"")
-            endif()
-        endif()
-    endforeach()
+    include(cmake/NativeDeployment.cmake)
+    ix_deployment_module_arguments(ix_deploy_modules)
     if(APPLE)
         set(ix_deploy_executable "uxzView.app")
         set(ix_deploy_conf "")

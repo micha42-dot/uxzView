@@ -10,13 +10,13 @@ jobs:
     name: Windows x64
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
       - name: Test SDK installer, translations and registry generation offline
         run: python -m unittest discover -s tests -p "test_*.py" -v
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6.1.0
         with:
           path: .deps/cache
           key: windows-sdk-${{ hashFiles('scripts/sdk-lock.json') }}
@@ -50,7 +50,7 @@ jobs:
       - name: Print complete test diagnostics
         if: failure()
         run: python scripts/report_test_logs.py --build-dir build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: development-windows-x64
@@ -90,8 +90,8 @@ jobs:
             qt_archives: qtbase qtsvg qttools qttranslations
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
       - name: Test build and release scripts offline
@@ -101,11 +101,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libturbojpeg0-dev libexiv2-dev libtiff-dev libraw-dev liblcms2-dev libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libfontconfig1-dev desktop-file-utils xvfb xauth
+      - name: Linux optional-module deployment regression
+        if: runner.os == 'Linux'
+        run: python3 tests/check_linux_module_deployment.py
       - name: macOS libraries
         if: runner.os == 'macOS'
         run: brew install cmake ninja pkg-config jpeg-turbo exiv2 libtiff libraw little-cms2
       - uses: jurplel/install-qt-action@v4
         with:
+          setup-python: false
           version: '6.8.3'
           host: ${{ matrix.host }}
           target: desktop
@@ -184,7 +188,7 @@ jobs:
       - name: Print complete test diagnostics
         if: failure()
         run: python scripts/report_test_logs.py --build-dir build/native
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: development-${{ matrix.artifact }}

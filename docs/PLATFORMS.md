@@ -157,3 +157,25 @@ Hier ist Windows 11 verfügbar. Die fünf vollständigen Offscreen-Suiten, das p
 
 
 Native Archive schließen persönliche Portabelprofile und die appnahen Tools-Ordner aus. Das Mitliefern der vorkonfigurierten OCR-/QR-Pakete ist derzeit nur im Windows-Paket eingerichtet; die native Paketerstellung übernimmt keine lokal installierten Werkzeuge.
+
+### GitHub Actions runtime — 28 October 2026
+
+All three workflows use Node.js 24 action releases: Checkout 7.0.1, Setup Python
+7.1.0, Upload Artifact 7.0.2 and Cache 6.1.0. Their input names used here remain
+supported. Python remains 3.14; this changes the JavaScript action runner, not
+Python, Qt, C++ targets or the application's runtime dependencies. The Qt installer
+reuses the already selected Python 3.14 instead of running its own setup step.
+Self-hosted
+runners need Actions Runner 2.327.1 or newer for the Node.js 24 generation;
+keep the Windows 10 runner current before dispatching its manual validation.
+
+The Apple Silicon capacity notice is GitHub's runner-queue notice. It is not a
+compiler/test failure and cannot be removed by changing the viewer's source.
+Retain both native Mac architectures; do not replace arm64 coverage with Intel
+execution merely to hide the queue warning.
+
+References: [GitHub Node.js 20 migration](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/),
+[Checkout](https://github.com/actions/checkout/releases/tag/v7.0.1),
+[Setup Python](https://github.com/actions/setup-python/releases/tag/v7.1.0),
+[Upload Artifact](https://github.com/actions/upload-artifact/releases/tag/v7.0.2),
+[Cache](https://github.com/actions/cache/releases/tag/v6.1.0).

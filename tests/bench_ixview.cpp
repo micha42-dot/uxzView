@@ -9,6 +9,7 @@
 #include "core/metadata.h"
 #include "core/preview_service.h"
 #include "ui/image_view.h"
+#include "ui/pipeline_result_model.h"
 #include "ui/main_window.h"
 #include "ui/appearance.h"
 #include "ui/platform_support.h"
@@ -29,6 +30,52 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QJsonObject profileBatchResults() {
+    QList<ix::PipelineFile> entries;
+    constexpr int count = 20000;
+    entries.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        ix::PipelineFile entry;
+        entry.input = QStringLiteral("/photos/image-%1.png").arg(i);
+        entry.output = QStringLiteral("/export/image-%1.webp").arg(i);
+        entries.append(entry);
+    }
+    QJsonArray samples;
+    for (int sample = 0; sample < 5; ++sample)
+      for (bool legacy : {sample % 2 == 0, sample % 2 != 0}) {
+        QElapsedTimer timer;
+        timer.start();
+        double elapsed = 0;
+        if (legacy) {
+            QTableWidget table(0, 4);
+            table.setRowCount(count);
+            for (int row = 0; row < count; ++row) {
+                const auto &entry = entries.at(row);
+                table.setItem(row, 0, new QTableWidgetItem(QFileInfo(entry.input).fileName()));
+                table.item(row, 0)->setToolTip(entry.input);
+                table.setItem(row, 1, new QTableWidgetItem(QFileInfo(entry.output).fileName()));
+                table.item(row, 1)->setToolTip(entry.output);
+                table.setItem(row, 2, new QTableWidgetItem(QStringLiteral("Create")));
+                table.setItem(row, 3, new QTableWidgetItem(QStringLiteral("Ready")));
+                table.item(row, 3)->setToolTip(QStringLiteral("Ready"));
+            }
+            elapsed = timer.nsecsElapsed() / 1e6;
+        } else {
+            ix::PipelineResultModel model;
+            QTableView table;
+            table.setModel(&model);
+            model.setEntries(entries, false);
+            // Include the first 25 rows, rather than timing an unread model only.
+            for (int row = 0; row < 25; ++row)
+                for (int col = 0; col < 4; ++col) model.data(model.index(row, col));
+            elapsed = timer.nsecsElapsed() / 1e6;
+        }
+        samples.append(QJsonObject{{QStringLiteral("legacy"), legacy}, {QStringLiteral("ms"), elapsed}});
+    }
+    return {{QStringLiteral("rows"), count}, {QStringLiteral("samples"), samples},
+        {QStringLiteral("note"), QStringLiteral("In-process setup only; fixture creation/destruction excluded; model includes 25 visible rows. No file IO, image conversion or viewer navigation measured.")},
+        {QStringLiteral("qt"), QString::fromLatin1(qVersion())}};
+}
 QJsonObject profileBatchPlan() {
     QTemporaryDir temporary(QDir::current().filePath(QStringLiteral("build/batch-plan-XXXXXX")));
     if (!temporary.isValid()) return {{QStringLiteral("error"), QStringLiteral("Temporary directory failed")}};
@@ -726,6 +773,12 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-batch-results"))) {
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(profileBatchResults()).toJson());
+        return 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-batch-plan"))) {
         const auto report = profileBatchPlan();
         QFile out(app.arguments().value(1));

@@ -1,6 +1,6 @@
 # Quality checks
 
-üxzView 0.4.8 has five Qt test suites. On Windows 11, the development build and the portable runtime each pass **155 functional checks, 13 quality checks, 12 storage checks, 17 extension checks and 48 workflow checks, with no skips**. Twenty-seven Python tests cover SDK extraction, translations, Windows registration generation and release artifact validation. These counts include Qt's setup/cleanup checks and data-driven cases; they are not a count of independent features.
+üxzView 0.4.8 has six Qt test suites. On Windows 11, the current development build and portable runtime each pass **356 Qt cases: 159 functional, 101 workflow, 43 quality, 12 storage, 24 journal and 17 extension cases, with no skips**. All 43 Python tests and all 24 local validator blocks pass. These counts include Qt's setup/cleanup checks and data-driven cases; they are not a count of independent features.
 
 `tests/workflow_ixview.cpp` covers superseded modal opens, queued folder navigation, EXIF-rotated preview detail, random rounds after directory changes, external rewrites during Rename, and exact export pixels/profile/DPI with failed-save preservation. The first, rotated-preview and rename cases were reproduced against the previous implementation. See [the follow-up review](REVIEW_2026-10-24.md).
 
@@ -67,13 +67,13 @@ The viewer currently converts tagged images to sRGB for display. Calibrated moni
 ## State and storage regressions
 
 - Portable-mode Settings Cancel and failed imports retain the original preferences. Successful import stays inactive until restart; disabling preserves both profiles.
-- Repeated fullscreen transitions retain window identity, visibility, maximized state, geometry, zoom and enabled updates, with the neighbor strip both shown and hidden. Toolbar/thumbnail icons and preview widgets are retained; browsing in fullscreen refreshes the neighbor strip on return. Enter autorepeat is disabled. On Windows a scoped native event filter suppresses intermediate frame/background paints and adds `SWP_NOREDRAW` to geometry changes; tests check the resulting native resize flags. The final client and frame are repainted together before restoring normal DWM animation behavior. This automated check does not prove absence of every compositor/GPU-specific visual artifact. The mechanisms use [DWM transition control](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute) and [native window positioning flags](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos).
+- Repeated fullscreen transitions retain window identity, visibility, maximized state, geometry and enabled updates, with the neighbor strip both shown and hidden. Leaving fullscreen cancels manual zoom/pan and restores the window browsing mode; whole-image fit has no remaining scroll ranges. Toolbar/thumbnail icons and preview widgets are retained; browsing in fullscreen refreshes the neighbor strip on return. Enter autorepeat is disabled. On Windows a scoped native event filter suppresses intermediate frame/background paints and adds `SWP_NOREDRAW` to geometry changes; tests check the resulting native resize flags. The final client and frame are repainted together before restoring normal DWM animation behavior. This automated check does not prove absence of every compositor/GPU-specific visual artifact. The mechanisms use [DWM transition control](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute) and [native window positioning flags](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos).
 
 - Browsing between images retains toolbar enabled states without transient dimming. Mutating commands remain blocked until loading finishes. Settings categories fit vertically, support keyboard selection and select the corresponding scrollable page. Preview backgrounds are pixel-checked against dark/light image colors and inherited transparency; switching colors retains button/icon identity.
 
 - A complete 65,536-value Grayscale16 ramp retains its samples through PNG, identity color adjustment/resampling, normal/inverted selection composition, zero-margin canvas, transparent watermark and quarter-turn rotation. The test also checks unchanged samples outside an edited selection and extended float values in identity selection/canvas. This does not establish HDR preservation in every processing filter.
 - Animation resume tests cover Cancel, Discard and Save, paused display refresh and restarting a completed one-shot animation.
-- Real file-undo and reviewed pipeline dialogs replace the active file: clean documents reload and clear history; dirty documents retain pixels/history with an explicit disk-change warning.
+- Real file-undo and direct-start pipeline dialogs replace the active file: clean documents reload and clear history; dirty documents retain pixels/history with an explicit disk-change warning.
 - Undo/Redo display work commits history only after the worker succeeds; the GUI event loop continues during display sharpening.
 - APNG sequences of 20/40/80 frames parse once and compose exactly that many frames at document-cache budgets of 0/16/192 MiB. Returned frames stay immutable; backward seek, same-size/same-mtime replacement, cache clearing and over-budget eviction are checked. Existing blend/disposal/CRC checks remain.
 
@@ -90,7 +90,7 @@ Navigation tests crop and convert to grayscale before moving by keyboard and whe
 
 The additional review covers opening a duplicate without leaving blocking dialogs, retaining ordinary window geometry/fit after fullscreen, offering PNG Save as for decode-only sources, and retaining JPEG commands after saving an uppercase `.JPG`. Tagged image watermarks are converted into the destination image's profile before composition; the source watermark remains unchanged. Release packaging rejects missing or stale üxzView executables/modules relative to the current build. This last check does not replace rebuilding after source changes; `prepare_release.ps1` performs that build.
 
-The journal still needs manual inspection of `pending`/`undoPending` entries after a process crash; automatic recovery is not implemented. Its history UI still reads the full entry index, and the metadata catalog remains a bounded JSON snapshot rather than a database.
+The journal offers explicit reconciliation of interrupted operations, checking content hashes on a worker; Undo also reconciles its selected interrupted entry. Changed or ambiguous files and old Undo records without discard paths still need manual inspection. Startup never scans image contents for recovery; power-loss durability is not established. Its history UI still reads the full entry index, and the metadata catalog remains a bounded JSON snapshot rather than a database.
 
 ## Reproduce
 
@@ -103,7 +103,7 @@ python scripts/deploy.py
 python scripts/verify_portable.py
 ```
 
-`build/test-results.*` and `build/quality-test-results.*` contain the development results. `verify_portable.py` runs all five suites with only Windows system paths in `PATH`, checks the installed application's version and actual PNG decoding, then removes the temporary test executables and Qt Test DLL. Reports are `build/portable-test-results.*`, `build/portable-{quality,storage,extension,workflow}-test-results.*` and `build/portable-image-probe.json`.
+`build/test-results.*` and `build/quality-test-results.*` contain the development results. `verify_portable.py` runs all six suites with only Windows system paths in `PATH`, checks the installed application's version and actual PNG decoding, then removes the temporary test executables and Qt Test DLL. Reports are `build/portable-test-results.*`, `build/portable-{quality,storage,extension,workflow,journal}-test-results.*` and `build/portable-image-probe.json`.
 
 Thirty-four targeted behaviors also passed with the native Windows platform plugin on Windows 11: fullscreen fit and closing, saving during slideshow, animation export, file opening during save, keyboard folder navigation, duplicate-result opening, saving decode-only formats, uppercase JPEG extensions, tagged watermark composition, fitted-image wheel navigation, default edit disposal, optional save confirmation, aspect-ratio crop/undo and fullscreen mouse navigation. The run also includes the grayscale, animation, file-replacement, worker-history and APNG regressions above, plus stable toolbar states, keyboard-accessible settings categories, preference Cancel/OK/persistence and preview background rendering without thumbnail replacement. This automated run does not replace manual DPI, printing, multi-monitor and drag-and-drop checks. The restricted session initially denied clipboard access; the successful run used a normal desktop context outside that restriction.
 
@@ -112,3 +112,47 @@ Native Windows 10, Linux and macOS results remain outstanding. The separate Wind
 Aspect-ratio crop checks cover preset/custom validation, Settings Cancel/OK/persistence, dragging in all directions to image edges, redraw inside an existing frame, constrained keyboard resizing, moving, exact crop pixels/ICC and undo. Fullscreen mouse checks cover previous/next clicks, background clicks, selection drags, right-drag movement, modifier clicks, return to window editing and double-click entry.
 
 Streaming directory checks compare natural/alphabetical/date/size sorting in both directions against a reference list, including Unicode, case, hidden/type filters, latest-file selection and cancelled/missing folders. Neighbor-strip checks retain widget/icon identity across navigation, verify click targets, refresh changed/deleted files and reset a new directory snapshot. Native Windows checks include the neighbor strip.
+
+## Direct batch, resize and fullscreen controls — 2026-10-27
+
+The complete local validation passed all 24 blocks (43 Python checks and 327 Qt
+cases), including native transitions and existing appearance regressions at
+100/125/150/200 percent scaling. The final destination-button layout was then
+checked with all 96 native workflow cases, focused resize/batch/fullscreen tests
+and the batch footer/button-width regression at those four scales.
+
+Updated coverage types dimensions through the real editor without leaving the
+field and checks both proportional directions. Localized decimal entry (2,5)
+remains intact: synchronizing other fields must neither reset the active editor
+nor reapply unchanged decimal precision. The standard-size dropdown covers built-in
+and saved user sizes; saved presets still commit only on OK.
+
+Batch tests cover an initially empty chain, direct processing without a preview
+widget, case-insensitive combined filename/format filters, cancellation/restart,
+actual committed byte counts, four result columns, and an optional CSV. CSV checks
+cover Unicode/quotes, formula prefixes, distinct report names and missing output
+folders. Fullscreen checks cover six modes, legacy upscale preferences, missing
+monitor fallback and cancellation of windowed manual zoom on exit. Native checks
+for distinct connected monitors and the newest changes on Windows 10, Linux and
+macOS remain to be run on those systems.
+
+## Batch scale/failure review and Linux package repair — 28 October 2026
+
+The [current review](REVIEW_2026-10-28.md) records the vertical batch layout,
+read-only result model, worker-streamed logs, decoder-exception regression,
+resource-skip optimization and Linux ELF dependency fix. All 24 local validation
+blocks pass with 43 Python and 356 Qt cases. Native batch checks cover 800×480
+without an outer scroll area, complete controls, equal list edges/ordered sections,
+five real language fonts, two themes and four DPI scales. Source planning,
+conversion cancellation/retry, stale-summary clearing, result-model contracts and
+per-file exception containment pass. The Linux CI fixture additionally builds
+and relocates a real isolated module/dependency pair; its native run and the Qt
+Linux package check remain pending on this Windows host.
+
+The dedicated `tests/journal_ixview.cpp` suite injects journal persistence failures
+and verifies both forward operations and Undo, missing-target backup restoration,
+changed-file retention, ambiguous states, lock exclusion and safe retries. The
+workflow suite exercises its actual journal-dialog repair action. Batch progress
+checks merge sequential and concurrent bursts of 100,000 completions, retain the
+last count and reject regressions from late notifications. Details and limitations
+are in [the 28 October review](REVIEW_2026-10-28.md).

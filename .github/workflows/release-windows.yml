@@ -14,7 +14,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
@@ -29,17 +29,17 @@ jobs:
           $tagCommit = git rev-parse "refs/tags/$env:RELEASE_TAG^{commit}"
           if ($LASTEXITCODE -ne 0) { throw 'Existing tag required' }
           if ($tagCommit -ne (git rev-parse HEAD)) { throw 'Tag and checkout differ' }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6.1.0
         with:
           path: .deps/cache
           key: windows-sdk-${{ hashFiles('scripts/sdk-lock.json') }}
       - name: Build, test and prepare Windows assets
         shell: pwsh
         run: ./scripts/prepare_release.ps1 -BootstrapSDK
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: windows-release-candidate
           path: |

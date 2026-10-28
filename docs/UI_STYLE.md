@@ -93,9 +93,42 @@ when styling the field, or depend on fixed-color arrow assets.
 ## Status information
 
 Status labels form one continuous row, without sunken label or item frames.
+One logical-pixel top border separates the row from the image/neighbor strip.
+Its color blends Window toward WindowText by 18 percent and follows theme changes.
 Their information, stretch proportions and resizing grip remain available.
 Colors continue to follow the application palette. Avoid replacing informational
 values with extra captions, badges or decorative boxes.
+
+## Resize, fullscreen and batch dialogs
+
+Resize updates the opposite dimension while typing, without moving focus. A
+single standard-size dropdown contains built-in dimensions and saved user sizes.
+Leaving fullscreen cancels manual zoom/pan and recomputes the previous window
+browsing mode against the restored client, including visible bars and previews.
+Original-size mode returns to 100 percent. Keep the native presentation cover.
+Fullscreen has its own scaling mode and monitor selection; a disconnected monitor
+falls back to the current screen. Cursor hiding remains independently selectable.
+
+Batch opens with an empty chain. Search and format filters select which inputs
+will run; the visible/total count makes that scope explicit. The file picker also
+provides per-format filters and a detail view. Keep configuration and results in
+separate tabs, without a dialog-level scroll area. Only file/step/result lists
+scroll when their contents exceed the viewport. Start switches to Results and
+changes to Cancel; Processing remains inspectable while its controls are disabled.
+Hide empty status/progress widgets until there is something to show.
+Put run status/progress on the Results page, so they do not squeeze configuration
+out of a short window. Configuration errors stay on Processing.
+
+Keep one vertical reading order: full-width files with their search/format row,
+file actions/count, a shallow full-width processing chain, step/profile actions,
+then destination and output options. Both lists share left/right edges. Avoid
+competing side-by-side list boxes. Use equal grid columns for action buttons;
+leave a small gap above the destination row and no folder icon.
+Results have four equal stretching columns and format data on demand. No preview
+prerequisite, before/after panel or speculative savings estimate is introduced.
+Only committed successful outputs contribute to size totals. Optional CSV logs
+use unique names and are streamed by the worker; completion shows any report error
+separately from conversion results.
 
 ## Review workflow
 

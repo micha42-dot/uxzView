@@ -31,6 +31,7 @@ struct PipelineFile {
     QString targetHash;
     QHash<QString, QString> resourceHashes;
     bool replaces = false;
+    qint64 inputBytes = 0, outputBytes = 0;
 };
 struct PipelinePreview {
     QImage before, after;

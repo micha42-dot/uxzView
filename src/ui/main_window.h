@@ -94,11 +94,9 @@ class MainWindow : public QMainWindow {
     int pendingNavigation_ = 0;
     int loadGeneration_ = 0;
     bool rawPreviewShown_ = false;
-    ImageView::Fit windowFit_ = ImageView::Fit::LargeOnly;
     ImageView::Fit windowBrowsingFit_ = ImageView::Fit::LargeOnly;
     QByteArray windowGeometry_;
-    double windowZoom_ = 1;
-    QPoint windowScroll_;
+    bool fullscreenScreenChanged_ = false;
     bool windowWasMaximized_ = false;
     bool slideshowFullscreen_ = false;
     FullscreenInfoOptions fullscreenInfo_;

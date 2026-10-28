@@ -2,6 +2,7 @@
 #include "core/codec_registry.h"
 #include "core/directory_index_service.h"
 #include "core/batch_pipeline.h"
+#include "core/batch_report.h"
 #include "core/file_journal.h"
 #include "core/resize_model.h"
 #include "core/image_loading.h"
@@ -17,6 +18,9 @@
 #include "ui/preview_strip.h"
 #include "ui/platform_support.h"
 #include "ui/pipeline_dialog.h"
+#include "ui/pipeline_result_model.h"
+#include "ui/batch_progress.h"
+#include <QAbstractItemModelTester>
 #include "ui/resize_dialog.h"
 #include "ui/rotation_dialog.h"
 #include "ui/settings_dialog.h"
@@ -49,6 +53,61 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void batchProgressCoalescesBurstsWithoutLosingLastUpdate() {
+        ix::BatchProgress progress(100000);
+        int notifications = 0;
+        for (int i = 1; i <= 99999; ++i) notifications += progress.publish(i);
+        QCOMPARE(notifications, 1);
+        QCOMPARE(progress.take(), 99999);
+        QVERIFY(!progress.publish(90000)); // late parallel completion
+        QVERIFY(progress.publish(100000));
+        QCOMPARE(progress.take(), 100000);
+        QVERIFY(!progress.publish(100000));
+        QCOMPARE(progress.total(), 100000);
+    }
+    void batchProgressMergesConcurrentWorkers() {
+        ix::BatchProgress progress(100000);
+        auto first = QtConcurrent::run([&] {
+            int scheduled = 0;
+            for (int i = 1; i <= 100000; i += 2) scheduled += progress.publish(i);
+            return scheduled;
+        });
+        auto second = QtConcurrent::run([&] {
+            int scheduled = 0;
+            for (int i = 2; i <= 100000; i += 2) scheduled += progress.publish(i);
+            return scheduled;
+        });
+        QCOMPARE(first.result() + second.result(), 1);
+        QCOMPARE(progress.take(), 100000);
+        QVERIFY(!progress.publish(1));
+    }
+    void journalDialogRepairsInterruptedOperation() {
+        const auto source = photo(QStringLiteral("repair-journal/source.png"), Qt::cyan);
+        const auto target = temporary_.filePath(QStringLiteral("repair-journal/copy.png"));
+        const auto root = temporary_.filePath(QStringLiteral("repair-journal/history"));
+        ix::FileJournal faulty(root, [](const QJsonObject &entry) {
+            return entry.value(QStringLiteral("state")).toString() == QStringLiteral("committed")
+                ? QStringLiteral("injected full disk") : QString();
+        });
+        QVERIFY(!faulty.perform(QStringLiteral("copy"), source, target).isEmpty());
+        bool repaired = false;
+        QTimer::singleShot(30, qApp, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            auto *repair = dialog->findChild<QPushButton *>(QStringLiteral("recoverJournal"));
+            auto *table = dialog->findChild<QTableWidget *>(QStringLiteral("fileJournalTable"));
+            if (repair && table) {
+                repair->click();
+                repaired = table->rowCount() == 1 && table->item(0, 2)->text() == QStringLiteral("committed");
+            }
+            dialog->reject();
+        });
+        ix::journalDialog(nullptr, root);
+        QVERIFY(repaired);
+        QVERIFY(ix::FileJournal(root).undo().isEmpty());
+        QVERIFY(!QFileInfo::exists(target));
+        QVERIFY(QFileInfo::exists(source));
+    }
     void initTestCase() {
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewWorkflowTests"));
@@ -1082,46 +1141,215 @@ class WorkflowTests : public QObject {
         QVERIFY(!QFileInfo::exists(job.outputDirectory));
         QVERIFY(!QFileInfo::exists(job.journalRoot));
     }
-    void pipelineReviewClearsStaleVisualsAndRecoversAfterCancel() {
-        const auto source = photo(QStringLiteral("review-state/source.png"), Qt::blue);
-        ix::PipelineDialog dialog({source}, nullptr, temporary_.filePath(QStringLiteral("review-state/journal")));
+    void pipelineFiltersAndDirectRunRecoverAfterCancel() {
+        const auto first = photo(QStringLiteral("filter-state/alpha.PNG"), Qt::blue);
+        const auto second = photo(QStringLiteral("filter-state/beta.jpg"), Qt::red);
+        ix::PipelineDialog dialog({first, second}, nullptr, temporary_.filePath(QStringLiteral("filter-state/journal")));
+        auto *chain = dialog.findChild<QListWidget *>(QStringLiteral("pipelineChain"));
+        QCOMPARE(chain->count(), 0);
+        auto *item = new QListWidgetItem(QStringLiteral("PNG"), chain);
+        item->setData(Qt::UserRole, QJsonObject{{QStringLiteral("type"), QStringLiteral("export")},
+            {QStringLiteral("parameters"), QJsonObject{{QStringLiteral("format"), QStringLiteral("png")}}}});
         auto *output = dialog.findChild<QLineEdit *>(QStringLiteral("pipelineOutput"));
-        auto *preview = dialog.findChild<QPushButton *>(QStringLiteral("pipelinePreview"));
+        output->setText(temporary_.filePath(QStringLiteral("filter-state/output")));
         auto *start = dialog.findChild<QPushButton *>(QStringLiteral("pipelineStart"));
-        auto *table = dialog.findChild<QTableWidget *>(QStringLiteral("pipelinePlan"));
-        auto *before = dialog.findChild<QLabel *>(QStringLiteral("pipelineBefore"));
-        auto *after = dialog.findChild<QLabel *>(QStringLiteral("pipelineAfter"));
-        auto *status = dialog.findChild<QLabel *>(QStringLiteral("pipelineStatus"));
-        QVERIFY(output && preview && start && table && before && after && status);
-        output->setText(temporary_.filePath(QStringLiteral("review-state/output")));
-        dialog.findChild<QCheckBox *>(QStringLiteral("pipelineAllowLoss"))->setChecked(true);
-        dialog.show();
-        preview->click();
-        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled() && start->isEnabled(), 10000);
-        QCOMPARE(table->rowCount(), 1);
-        QVERIFY(!before->pixmap().isNull() && !after->pixmap().isNull());
-        dialog.findChild<QLineEdit *>(QStringLiteral("pipelinePattern"))->setText(QStringLiteral("changed_####"));
-        QCOMPARE(table->rowCount(), 0);
-        QVERIFY(before->pixmap().isNull() && after->pixmap().isNull());
+        auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("pipelineSearch"));
+        auto *format = dialog.findChild<QComboBox *>(QStringLiteral("pipelineFormat"));
+        auto *inputs = dialog.findChild<QListWidget *>(QStringLiteral("pipelineInputs"));
+        QVERIFY(start->isEnabled());
+        search->setText(QStringLiteral("missing"));
         QVERIFY(!start->isEnabled());
-        preview->click();
-        QVERIFY(start->isEnabled()); // running button now means Cancel
+        search->setText(QStringLiteral("ALPHA"));
+        QVERIFY(start->isEnabled());
+        QVERIFY(!inputs->item(0)->isHidden() && inputs->item(1)->isHidden());
+        search->clear();
+        for (int i = 1; i < format->count(); ++i)
+            if (format->itemData(i).toStringList().contains(QStringLiteral("png"))) { format->setCurrentIndex(i); break; }
+        QVERIFY(!inputs->item(0)->isHidden() && inputs->item(1)->isHidden());
+        dialog.findChild<QLineEdit *>(QStringLiteral("pipelinePattern"))->setText(QStringLiteral("cancel_{name}_####"));
         start->click();
-        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(), 10000);
-        QVERIFY(!start->isEnabled());
-        QCOMPARE(status->text(), ix::localized(QStringLiteral("Abgebrochen.")));
-        QCOMPARE(table->rowCount(), 0);
-        QVERIFY(before->pixmap().isNull() && after->pixmap().isNull());
-        preview->click();
-        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled() && start->isEnabled(), 10000);
-        QCOMPARE(table->rowCount(), 1);
-        QVERIFY(!before->pixmap().isNull() && !after->pixmap().isNull());
-        QVERIFY(!QFileInfo::exists(output->text()));
-        QVERIFY(QFile::remove(source));
-        preview->click();
-        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(), 10000);
-        QVERIFY(!start->isEnabled());
-        QVERIFY(before->pixmap().isNull() && after->pixmap().isNull());
+        start->click(); // Cancel automatic planning, then recover without manual review.
+        QTRY_COMPARE_WITH_TIMEOUT(start->text(), ix::localized(QStringLiteral("Starten")), 10000);
+        dialog.findChild<QLineEdit *>(QStringLiteral("pipelinePattern"))->setText(QStringLiteral("{name}_####"));
+        search->setText(QStringLiteral("alpha"));
+        QVERIFY(start->isEnabled());
+        start->click();
+        QTRY_COMPARE_WITH_TIMEOUT(start->text(), ix::localized(QStringLiteral("Starten")), 10000);
+        QVERIFY(QFileInfo::exists(output->text() + QStringLiteral("/alpha_0001.png")));
+        QVERIFY(!QFileInfo::exists(output->text() + QStringLiteral("/beta_0002.png")));
+        const auto *status = dialog.findChild<QLabel *>(QStringLiteral("pipelineStatus"));
+        const auto *results = dialog.findChild<QTableView *>(QStringLiteral("pipelinePlan"));
+        QVERIFY(!status->text().isEmpty());
+        dialog.findChild<QLineEdit *>(QStringLiteral("pipelinePattern"))->setText(QStringLiteral("next_####"));
+        QVERIFY(status->text().isEmpty());
+        QVERIFY(status->isHidden());
+        QVERIFY(dialog.findChild<QProgressBar *>()->isHidden());
+        QCOMPARE(results->model()->rowCount(), 0);
+    }
+    void fullscreenFitModesRespectWindowPreference_data() {
+        QTest::addColumn<int>("fit");
+        for (int fit = 0; fit < 6; ++fit) QTest::newRow(qPrintable(QString::number(fit))) << fit;
+    }
+    void fullscreenFitModesRespectWindowPreference() {
+        QFETCH(int, fit);
+        QSettings settings;
+        QVariantMap saved;
+        for (const auto &key : settings.allKeys()) saved.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto it = saved.cbegin(); it != saved.cend(); ++it) settings.setValue(it.key(), it.value());
+        });
+        settings.remove(QStringLiteral("fullscreen/fit"));
+        settings.setValue(QStringLiteral("fullscreen/upscale"), true);
+        QCOMPARE(ix::ImageView::fullscreenFit(), ix::ImageView::Fit::Window);
+        settings.setValue(QStringLiteral("fullscreen/fit"), fit);
+        settings.setValue(QStringLiteral("fullscreen/screen"), QStringLiteral("disconnected-monitor"));
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::LargeOnly));
+        ix::SettingsDialog options;
+        auto *choice = options.findChild<QComboBox *>(QStringLiteral("fullscreen/fit"));
+        auto *monitor = options.findChild<QComboBox *>(QStringLiteral("fullscreen/screen"));
+        QVERIFY(choice && monitor);
+        QCOMPARE(choice->count(), 6);
+        QCOMPARE(choice->currentIndex(), fit);
+        QCOMPARE(monitor->count(), QGuiApplication::screens().size() + 1);
+        QCOMPARE(monitor->currentIndex(), 0);
+        ix::MainWindow window;
+        window.show();
+        const auto path = photo(QStringLiteral("fullscreen-modes/image.png"), Qt::blue);
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        auto *view = window.findChild<ix::ImageView *>();
+        view->setZoom(8);
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(window.isFullScreen());
+        QCOMPARE(view->fit(), ix::ImageView::Fit(fit));
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(!window.isFullScreen());
+        QCOMPARE(view->fit(), ix::ImageView::Fit::LargeOnly);
+        QCOMPARE(view->visibleImageRect(), view->image().rect());
+    }
+    void batchDialogKeepsActionsVisibleOnSmallScreen() {
+        const auto oldPalette = QApplication::palette();
+        const auto oldFont = QApplication::font();
+        const auto oldLanguage = ix::uiLanguage();
+        const auto restore = qScopeGuard([&] {
+            ix::setUiLanguage(oldLanguage);
+            QApplication::setFont(oldFont);
+            ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+            QApplication::setPalette(oldPalette);
+        });
+        for (const auto &language : {QStringLiteral("de"), QStringLiteral("en"), QStringLiteral("ko"), QStringLiteral("ja"), QStringLiteral("fr")}) {
+          QVERIFY(ix::setUiLanguage(language));
+          ix::configureUiFont();
+          for (const auto &mode : {QStringLiteral("light"), QStringLiteral("dark")}) {
+            ix::applyInterfaceTheme(mode);
+            ix::PipelineDialog dialog({});
+            dialog.resize(800, 480);
+            dialog.show();
+            QCoreApplication::processEvents();
+            QCOMPARE(dialog.size(), QSize(800, 480));
+            QVERIFY(dialog.findChildren<QScrollArea *>().isEmpty());
+            auto *tabs = dialog.findChild<QTabWidget *>(QStringLiteral("pipelineTabs"));
+            QVERIFY(tabs && tabs->count() == 2);
+            for (const auto &id : {QStringLiteral("pipelineStart"), QStringLiteral("pipelineClose"),
+                    QStringLiteral("pipelineChooseOutput"), QStringLiteral("pipelineSaveProfile"),
+                    QStringLiteral("pipelineOutput"), QStringLiteral("pipelinePattern"),
+                    QStringLiteral("pipelineOverwrite"), QStringLiteral("pipelineAllowLoss"), QStringLiteral("pipelineLog")}) {
+                const auto *control = dialog.findChild<QWidget *>(id);
+                QVERIFY2(control && control->isVisible(), qPrintable(language + QLatin1Char(':') + id));
+                QVERIFY(dialog.rect().contains(QRect(control->mapTo(&dialog, QPoint()), control->size())));
+                QVERIFY(!control->visibleRegion().isEmpty());
+            }
+            const auto *choose = dialog.findChild<QPushButton *>(QStringLiteral("pipelineChooseOutput"));
+            const auto *save = dialog.findChild<QPushButton *>(QStringLiteral("pipelineSaveProfile"));
+            QVERIFY(choose->icon().isNull());
+            QVERIFY(qAbs(choose->width() - save->width()) <= 1);
+            const auto *files = dialog.findChild<QListWidget *>(QStringLiteral("pipelineInputs"));
+            const auto *steps = dialog.findChild<QListWidget *>(QStringLiteral("pipelineChain"));
+            QVERIFY(files->mapTo(&dialog, QPoint()).y() + files->height() < steps->mapTo(&dialog, QPoint()).y());
+            QCOMPARE(files->width(), steps->width());
+            QVERIFY(dialog.grab().save(QStringLiteral(IX_WORKFLOW_OUTPUT "/pipeline-%1-%2.png").arg(mode, language)));
+            tabs->setCurrentIndex(1);
+            const auto *results = dialog.findChild<QTableView *>(QStringLiteral("pipelinePlan"));
+            QVERIFY(results && results->isVisible() && !results->visibleRegion().isEmpty());
+          }
+        }
+    }
+    void pipelineResultsModelFormatsVisibleCells() {
+        ix::PipelineResultModel model;
+        QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        ix::PipelineFile entry;
+        entry.input = QStringLiteral("/photos/한글.png");
+        entry.output = QStringLiteral("/export/한글.webp");
+        model.setEntries({entry}, false);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.columnCount(), 4);
+        QCOMPARE(model.data(model.index(0, 0)).toString(), QStringLiteral("한글.png"));
+        QCOMPARE(model.data(model.index(0, 1), Qt::ToolTipRole).toString(), entry.output);
+        QCOMPARE(model.data(model.index(0, 3)).toString(), ix::localized(QStringLiteral("Bereit")));
+        entry.error = QStringLiteral("error");
+        model.setEntries({entry}, true);
+        QCOMPARE(model.data(model.index(0, 3)).toString(), entry.error);
+        QVERIFY(!model.data(QModelIndex()).isValid());
+        QCOMPARE(model.rowCount(model.index(0, 0)), 0);
+        model.setEntries({}, true);
+        QCOMPARE(model.rowCount(), 0);
+    }
+    void pipelineSkipsUnusedResourcesAndContainsDecoderExceptions() {
+        ix::PipelineJob job;
+        job.outputDirectory = temporary_.filePath(QStringLiteral("skip-resources/output"));
+        job.journalRoot = temporary_.filePath(QStringLiteral("skip-resources/journal"));
+        job.profile.steps = {{QStringLiteral("watermark"), {{QStringLiteral("image"), QStringLiteral("missing.png")}}},
+                            {QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        ix::PipelineFile skipped;
+        skipped.error = QStringLiteral("skip");
+        std::atomic_bool cancel = false;
+        auto result = ix::BatchPipeline::run(job, {skipped}, cancel);
+        QCOMPARE(result.first().error, skipped.error);
+        QVERIFY(!QFileInfo::exists(job.outputDirectory));
+        QVERIFY(!QFileInfo::exists(job.journalRoot));
+        class ThrowingCodec final : public ix::ImageCodec {
+          public:
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &, int) const override { throw 7; }
+        };
+        ix::CodecRegistry registry;
+        registry.add(std::make_shared<ThrowingCodec>());
+        job.profile.steps.removeFirst();
+        job.inputs = {photo(QStringLiteral("skip-resources/source.png"), Qt::red)};
+        const auto plan = ix::BatchPipeline::plan(job);
+        QVERIFY(plan.first().error.isEmpty());
+        result = ix::BatchPipeline::run(job, plan, cancel, {}, &registry);
+        QCOMPARE(result.size(), 1);
+        QVERIFY(!result.first().error.isEmpty());
+        QVERIFY(!QFileInfo::exists(result.first().output));
+    }
+    void pipelineReportCountsOnlyCommittedFiles() {
+        ix::PipelineFile ok;
+        ok.input = QStringLiteral("=source,\"한글.png");
+        ok.output = QStringLiteral("out.webp");
+        ok.inputBytes = 1000; ok.outputBytes = 600;
+        auto failed = ok;
+        failed.error = QStringLiteral("failed");
+        failed.outputBytes = 0;
+        const auto summary = ix::pipelineSummary({ok, failed});
+        QCOMPARE(summary.succeeded, 1);
+        QCOMPARE(summary.failed, 1);
+        QCOMPARE(summary.inputBytes, 1000);
+        QCOMPARE(summary.outputBytes, 600);
+        QString path;
+        QVERIFY(ix::writePipelineReport({ok, failed}, temporary_.path(), path).isEmpty());
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto bytes = file.readAll();
+        QVERIFY(bytes.startsWith("\xef\xbb\xbfsource,target"));
+        QVERIFY(bytes.contains("\"'=source,\"\""));
+        QVERIFY(bytes.contains(",1000,600\r\n"));
+        QString secondPath;
+        QVERIFY(ix::writePipelineReport({ok}, temporary_.path(), secondPath).isEmpty());
+        QVERIFY(path != secondPath);
+        QVERIFY(!ix::writePipelineReport({}, temporary_.filePath(QStringLiteral("missing")), path).isEmpty());
     }
     void pipelineRejectsSourceChangedByDecoder() {
         class ChangingCodec final : public ix::ImageCodec {
@@ -1177,13 +1405,13 @@ class WorkflowTests : public QObject {
         auto *absolute = button(dialog, QStringLiteral("Neue Größe:"));
         QVERIFY(percent && absolute);
         percent->click();
-        if (choice == QStringLiteral("custom")) {
-            QComboBox *presets = nullptr;
-            for (auto *combo : dialog.findChildren<QComboBox *>())
-                if (combo->findText(QStringLiteral("90 x 60")) >= 0) presets = combo;
+        if (choice == QStringLiteral("custom") || choice == QStringLiteral("640 x 480")) {
+            auto *presets = dialog.findChild<QComboBox *>(QStringLiteral("resizePresets"));
             QVERIFY(presets);
-            presets->setCurrentIndex(1);
-            QVERIFY(QMetaObject::invokeMethod(presets, "activated", Q_ARG(int, 1)));
+            const auto index = presets->findData(choice == QStringLiteral("custom") ? QSize(90, 60) : QSize(640, 480));
+            QVERIFY(index >= 0);
+            presets->setCurrentIndex(index);
+            QVERIFY(QMetaObject::invokeMethod(presets, "activated", Q_ARG(int, index)));
         } else {
             auto *selected = button(dialog, choice);
             QVERIFY(selected);
@@ -1289,9 +1517,10 @@ class WorkflowTests : public QObject {
     void pipelineFilterMatchesAppliedClampAndResizeNames() {
         ix::PipelineDialog pipeline({});
         auto *chain = pipeline.findChild<QListWidget *>(QStringLiteral("pipelineChain"));
-        QVERIFY(chain && chain->count() > 0);
-        auto *item = chain->item(0);
-        auto step = item->data(Qt::UserRole).toJsonObject();
+        QVERIFY(chain && chain->count() == 0);
+        auto *item = new QListWidgetItem(QStringLiteral("Resize"), chain);
+        auto step = QJsonObject{{QStringLiteral("type"), QStringLiteral("resize")},
+            {QStringLiteral("parameters"), QJsonObject{{QStringLiteral("width"), 2048}, {QStringLiteral("height"), 2048}}}};
         auto parameters = step.value(QStringLiteral("parameters")).toObject();
         parameters.insert(QStringLiteral("filter"), 99);
         step.insert(QStringLiteral("parameters"), parameters);

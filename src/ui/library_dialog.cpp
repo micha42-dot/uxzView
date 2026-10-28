@@ -27,16 +27,24 @@ class ViewportObserver final : public QObject {
   private:
     std::function<void()> changed_;
 };
-} // namespace
-QString undoFileOperation(QWidget *parent, const QString &id, const QString &journalRoot) {
-    QProgressDialog progress(IX_TEXT("Dateioperation wird rückgängig gemacht …"), {}, 0, 0, parent);
+QString runJournalTask(QWidget *parent, const QString &caption, std::function<QString()> task) {
+    QProgressDialog progress(caption, {}, 0, 0, parent);
     progress.setCancelButton(nullptr);
     progress.setWindowModality(Qt::WindowModal);
     QFutureWatcher<QString> watcher;
     QObject::connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
-    watcher.setFuture(QtConcurrent::run([id, journalRoot] { return FileJournal(journalRoot).undo(id); }));
+    watcher.setFuture(QtConcurrent::run([task = std::move(task)] {
+        try { return task(); }
+        catch (const std::exception &exception) { return QString::fromUtf8(exception.what()); }
+        catch (...) { return IX_TEXT("Vorgang fehlgeschlagen."); }
+    }));
     progress.exec();
     return watcher.result();
+}
+} // namespace
+QString undoFileOperation(QWidget *parent, const QString &id, const QString &journalRoot) {
+    return runJournalTask(parent, IX_TEXT("Dateioperation wird rückgängig gemacht …"),
+                          [id, journalRoot] { return FileJournal(journalRoot).undo(id); });
 }
 void journalDialog(QWidget *parent, const QString &journalRoot) {
     QDialog dialog(parent);
@@ -44,11 +52,6 @@ void journalDialog(QWidget *parent, const QString &journalRoot) {
     dialog.setWindowTitle(IX_TEXT("Dateijournal und interner Papierkorb"));
     dialog.resize(1000, 560);
     auto *layout = dialogLayout(&dialog);
-    auto *note = new QLabel(IX_TEXT("Löschen verschiebt Dateien in den internen Papierkorb. Rückgängig "
-                                    "überschreibt keine inzwischen geänderten Dateien. Ausstehende Einträge "
-                                    "nach einem Abbruch bitte anhand der angezeigten Pfade prüfen."));
-    note->setWordWrap(true);
-    layout->addWidget(note);
     auto *storageStatus = new QLabel;
     storageStatus->setWordWrap(true);
     layout->addWidget(storageStatus);
@@ -65,6 +68,7 @@ void journalDialog(QWidget *parent, const QString &journalRoot) {
         QString error;
         const auto entries = FileJournal(journalRoot).entries(&error);
         storageStatus->setText(localized(error));
+        storageStatus->setVisible(!error.isEmpty());
         for (int n = entries.size() - 1; n >= 0; --n) {
             auto o = entries[n].toObject();
             int r = table->rowCount();
@@ -83,6 +87,8 @@ void journalDialog(QWidget *parent, const QString &journalRoot) {
     auto *restore =
         buttons->addButton(IX_TEXT("Ausgewählte Operation rückgängig"), QDialogButtonBox::ActionRole);
     auto *folder = buttons->addButton(IX_TEXT("Papierkorb öffnen"), QDialogButtonBox::ActionRole);
+    auto *repair = buttons->addButton(IX_TEXT("Unterbrochene Vorgänge prüfen"), QDialogButtonBox::ActionRole);
+    repair->setObjectName(QStringLiteral("recoverJournal"));
     layout->addWidget(buttons);
     QObject::connect(restore, &QPushButton::clicked, &dialog, [&] {
         int r = table->currentRow();
@@ -95,6 +101,12 @@ void journalDialog(QWidget *parent, const QString &journalRoot) {
     });
     QObject::connect(folder, &QPushButton::clicked, &dialog, [journalRoot] {
         QDesktopServices::openUrl(QUrl::fromLocalFile(FileJournal(journalRoot).root() + QStringLiteral("/trash")));
+    });
+    QObject::connect(repair, &QPushButton::clicked, &dialog, [&] {
+        const auto error = runJournalTask(&dialog, IX_TEXT("Unterbrochene Vorgänge prüfen"),
+                                          [journalRoot] { return FileJournal(journalRoot).recover(); });
+        reload();
+        if (!error.isEmpty()) QMessageBox::warning(&dialog, IX_TEXT("Dateijournal"), error);
     });
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     dialog.exec();

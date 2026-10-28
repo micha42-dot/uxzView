@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.4.8 · Stand: 27.10.2026**
+**Version 0.4.8 · Stand: 28.10.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -8,7 +8,7 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 
 - Bild-/Ordnernavigation, Auswahlzoom, Vollbild, Diashow, Animationen und mehrseitige Bilder; optionale Nachbarvorschauen und rechts angeordnete Befehlssuche.
 - Größenänderung einschließlich exakter Pixelverdopplung, Freistellen mit eigenen Seitenverhältnissen, Drehen, Farbkorrektur und Bild-/Datei-Undo.
-- Visuelle Stapelverarbeitung mit Profilen, Wasserzeichen, echter Exportvorschau und geprüftem Dateiplan; klassische Batch-Konvertierung und Umbenennung.
+- Visuelle Stapelverarbeitung mit Profilen, Wasserzeichen, direktem Start, automatischer Zielprüfung, Such-/Formatfiltern und optionalem CSV-Protokoll; klassische Batch-Konvertierung und Umbenennung.
 - Bildverwaltung mit Bewertungen, Farbmarkierungen, Metadatensuche, identischen Dateien und Ähnlichkeitskandidaten; internes Dateijournal und Papierkorb.
 - Offline-Texterkennung und QR-/Barcode-Lesen für ganze Bilder oder eine Auswahl. Beide Engines und fünf OCR-Sprachen sind unter `tools` mitgeliefert, einzeln entfernbar und nur bei Bedarf aktiv. Speicherorte sind konfigurierbar.
 - Getrennte Bildformat- und Funktionserweiterungen; Portabelmodus für Einstellungen, Profile, Bewertungen, Erweiterungen und Dateihistorie.
@@ -17,6 +17,33 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Noch unveröffentlicht: Unterbrochene Dateivorgänge lassen sich im Dateijournal
+  anhand von Prüfsummen abgleichen; fehlende Ziele aus geprüften Sicherungen
+  wiederherstellen. Undo speichert den Ablagepfad vor dem Verschieben und setzt
+  bei Wiederholung denselben Vorgang fort. Mehrdeutige/geänderte Dateien bleiben
+  erhalten. Fortschrittsmeldungen großer Stapel werden pro Lauf zusammengefasst.
+  Alle 24 lokalen Prüfschritte bestehen mit 43 Python- und 356 Qt-Fällen.
+
+- Noch unveröffentlicht: Linux-Paketierung prüft die Build-Module mit vorhandenem
+  SDK-Suchpfad, damit auch nur optional geladene Abhängigkeiten wie Qt Network
+  mitgeliefert werden. Neuer nativer ELF-/Umzugstest im Linux-CI-Lauf;
+  Bestätigung durch den nächsten GitHub-Lauf steht aus.
+
+- Noch unveröffentlicht: Stapelverarbeitung ohne äußere Scrollleiste, mit getrennten
+  Reitern für Verarbeitung und Ergebnis. Schlankes Ergebnismodell, ausgelagerte
+  Schrittbearbeitung, lineare Dateiduplikatprüfung und CSV-Export im Hintergrund.
+  Übersprungene Stapel laden keine Wasserzeichen und starten keine Decoderthreads.
+  Alle 24 lokalen Prüfschritte mit 43 Python- und 356 Qt-Fällen bestehen,
+  ebenso die portable Fassung mit 356 Qt-Fällen ohne SDK-Pfade.
+  [Kritische Prüfung und verbleibende Prioritäten](docs/REVIEW_2026-10-28.md).
+
+- Noch unveröffentlicht: Proportionale Pixelmaße aktualisieren sich beim Tippen;
+  Standarddimensionen stehen in einem einzigen Dropdown. Die Stapelverarbeitung
+  startet mit leerer Kette und prüft Ziele automatisch beim Start, hat Such-/Formatfilter
+  und optionales CSV-Protokoll mit tatsächlichen Größen. Vollbild erhält eigene
+  Anpassungsmodi und eine Bildschirmwahl. Rückkehr ins Fenster verwirft manuellen
+  Zoom/Pan; die Trennlinie über Dateiinfos ist wieder sichtbar.
 
 - Noch unveröffentlicht: Sprachwechsel ohne Neustart nach „OK“ in Einstellungen
   → Oberfläche. Menüs, Werkzeugtipps und Befehlssuche werden direkt aktualisiert;

@@ -9,7 +9,7 @@ jobs:
     # cannot establish compatibility with the Windows 10 desktop.
     runs-on: [self-hosted, Windows, X64, ixview-windows10]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Require Windows 10 desktop build 1809 or newer
         shell: pwsh
         run: |
@@ -19,7 +19,7 @@ jobs:
             throw 'This validation requires an actual Windows 10 desktop (1809 or newer).'
           }
           $os | Select-Object Caption, Version, BuildNumber | ConvertTo-Json | Set-Content platform-result.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
       - name: Build and validate portable release candidate
@@ -31,7 +31,7 @@ jobs:
         run: |
           python scripts/validate.py --suite native --require-assets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: windows10-validation

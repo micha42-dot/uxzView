@@ -8,7 +8,7 @@
 | Oberfläche | Farbschema (Systemdesign/Hell/Dunkel) und Sprache (Deutsch/English/한국어/日本語/Français), beide sofort nach OK; Symbol-/Status-/Menüleiste, Aktionssuche, Symbolgröße 20–32 px, optionale Symbolbeschriftungen, Fenstergröße/-position merken |
 | Vorschauen | Nachbarleiste ein/aus, unabhängig 1–5 vorherige und 1–5 kommende Bilder, Hintergrund wie Oberfläche / wie Bildhintergrund / transparent |
 | Navigation | Natürliche/alphabetische/Datums-/Größensortierung, Reihenfolge umkehren, Wiederholung am Ordnerende, Zoom und Scrollposition beim Bildwechsel behalten, optionale Speicherabfrage (standardmäßig aus) |
-| Vollbild | Ganze Bilder beim Eintritt, kleine Bilder optional vergrößern, Mauszeiger ausblenden, eigene Hintergrundfarbe (Standard Schwarz), optionale Informationsanzeige mit vier Ecken und auswählbaren Datei-/Bild-/EXIF-Daten; keine Bildflächenumrandung |
+| Vollbild | Eigene Bildanpassung (100 %, ganzes Bild, nur große Bilder, Breite, Höhe, kurze Seite), Zielbildschirm bei mehreren Monitoren, Mauszeiger ausblenden, eigene Hintergrundfarbe (Standard Schwarz), optionale Informationsanzeige mit vier Ecken und auswählbaren Datei-/Bild-/EXIF-Daten; keine Bildflächenumrandung |
 | Diashow | Anzeigedauer, Start im Vollbild, Wiederholung, Zufallsreihenfolge; sonst Sortierung unter Navigation |
 | Screenshots | Einstellbare Tastenkombination, Verzögerung, Bildschirm unter Mauszeiger oder Hauptbildschirm; unter Windows optional systemweites Kürzel während üxzView läuft |
 | Freistellen | Sechs Standardverhältnisse und bis zu 32 eigene Formate (Breite-/Höhe-Felder mit Hinzufügen/Entfernen) |
@@ -19,7 +19,9 @@ Beim Bildwechsel werden ungespeicherte Bearbeitungen standardmäßig verworfen. 
 
 Die Modi **An Fenster anpassen** und **Nur große Bilder verkleinern** zeigen das gesamte Bild ohne automatische Scrollleisten. Das Mausrad blättert dann durch die Bilddateien. Bei tatsächlichem Zoom scrollt es weiterhin im Bild; Strg+Mausrad verändert den Zoom.
 
-Die Vorschaubilderleiste hat unter **Ansicht** einen eigenen Abschnitt vor Vollbild; die Aktionssuche bleibt dort separat schaltbar. Beide Schalter bleiben erhalten und verwenden dieselben Einstellungen. Die Anzahl wird ausschließlich im Einstellungsdialog geändert. Die Vorschaugruppe wird mittig platziert, auch am Ordneranfang/-ende und bei unterschiedlicher Anzahl links und rechts. In schmalen Fenstern ist sie horizontal scrollbar. Die Leiste und ihre Hintergrundarbeit bleiben optional.
+Beim Verlassen des Vollbilds werden manueller Zoom und Verschiebung aufgehoben. Der zuvor gewählte Anzeigemodus des Fensters wird neu berechnet, einschließlich Vorschauleiste und maximiertem Fenster. **Originalgröße** kehrt zu 100 % zurück. Der Vollbildmodus hat eine eigene Anpassung und einen wählbaren Zielmonitor; ein nicht mehr angeschlossener Monitor fällt auf den aktuellen Bildschirm zurück. Die Bildschirmwahl gilt beim nächsten Vollbildeintritt.
+
+Die Vorschaubilderleiste hat unter **Ansicht** einen eigenen Abschnitt vor Vollbild; die Befehlssuche steht direkt unter dem Titelleisten-Schalter. Beide Schalter bleiben erhalten und verwenden dieselben Einstellungen. Die Anzahl wird ausschließlich im Einstellungsdialog geändert. Die Vorschaugruppe wird mittig platziert, auch am Ordneranfang/-ende und bei unterschiedlicher Anzahl links und rechts. In schmalen Fenstern ist sie horizontal scrollbar. Die Leiste und ihre Hintergrundarbeit bleiben optional.
 
 **Ansicht → Informationen anzeigen (Vollbildmodus)** steht direkt unter **Anzeige-Optionen (Fenstermodus)**. Dort lässt sich die Einblendung aktivieren und eine der vier Ecken auswählen. Einzeln wählbar sind Dateiname, Auflösung, DPI, Dateigröße, Format, Zoom, Kamera, Objektiv, Aufnahmedatum, Belichtungszeit, Blende, ISO, Brennweite und Copyright. Fehlende Angaben entfallen. Dieselben Optionen stehen unter **Einstellungen → Vollbild**. Die Anzeige liest bereits geladene Metadaten, verändert keine Bildpixel und nimmt keine Mausklicks weg; sie bleibt im Fenstermodus unsichtbar.
 
@@ -75,3 +77,25 @@ Größenvorgaben, Halb/Doppelt und Seiten vertauschen aktivieren die absoluten G
 Manuelle und automatisch berechnete DPI liegen zwischen 1 und 100000. Extremes Skalieren kann diese Grenze erreichen; die Druckgröße wird dann nicht mehr exakt erhalten. Ungültige Auflösungswerte werden vor der Verarbeitung abgelehnt.
 
 Die Einstellungsseiten enthalten die Bedienelemente ohne begleitende Anleitungsabsätze. Unter Speicherorte bleibt der aktuell aktive Modus sichtbar; das schreibgeschützte Datenordnerfeld lässt sich markieren und kopieren. Der Portabel-Schalter wird weiterhin erst nach erfolgreicher Übernahme und Neustart wirksam.
+
+## Stapelverarbeitung
+
+Der Dialog hat die Reiter **Verarbeitung** und **Ergebnis**, ohne äußere Scrollleiste.
+Dateilisten und Ergebnisse können bei vielen Einträgen weiterhin selbst scrollen.
+Die Kette beginnt leer. Schritte hinzufügen oder ein Profil laden; genau ein
+Speicherschritt steht am Ende. Suche und Formatfilter bestimmen die verarbeiteten
+Dateien, deren Anzahl über der Dateiliste angezeigt wird. Beim Hinzufügen lassen
+sich ebenfalls einzelne Formate auswählen; die Detailansicht unterstützt die
+übliche Sortierung nach Dateigröße. „Starten“ prüft die Ziele automatisch und
+verarbeitet die Dateien im Hintergrund. „Abbrechen“ stoppt zwischen Arbeitsschritten;
+ein bereits laufender Decoder muss zuerst zurückkehren. Bestehende Ziele werden
+standardmäßig übersprungen; freigegebene Ersetzungen bleiben gesichert und über
+das Dateijournal rückgängig machbar.
+
+Das Ergebnis nennt erfolgreiche und fehlgeschlagene Dateien sowie tatsächliche
+Größen vor/nach der Konvertierung und die prozentuale Änderung. Die Größensumme
+enthält nur erfolgreiche Ausgaben. Optional liegt ein UTF-8-CSV-Protokoll mit
+Quelle, Ziel, Ergebnis und Bytegrößen im Zielordner; jeder Lauf bekommt eine eigene
+Datei. Ein Protokollfehler verändert bereits erfolgreich erzeugte Bilder nicht.
+Die Größenstatistik bezieht sich auf die Bilddateien; Journal-Sicherungen und
+CSV-Dateien sind darin nicht enthalten. Eine Vorabschätzung wird nicht berechnet.

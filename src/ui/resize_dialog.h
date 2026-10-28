@@ -26,7 +26,7 @@ class ResizeDialog : public QDialog {
     QRadioButton *absolute_, *percent_, *megapixel_;
     QGroupBox *absoluteGroup_, *percentGroup_, *mpGroup_;
     bool syncing_ = false;
-    void sync();
+    void sync(QDoubleSpinBox *editing = nullptr);
     void updateMode();
     void accept() override;
 };

@@ -8,13 +8,17 @@ class QLineEdit;
 class QCheckBox;
 class QSpinBox;
 class QLabel;
-class QTableWidget;
+class QTableView;
+class QTabWidget;
 class QPushButton;
 class QProgressBar;
+class QComboBox;
 namespace ix {
-struct PipelineReview {
-    QList<PipelineFile> plan;
-    PipelinePreview preview;
+class PipelineResultModel;
+class BatchProgress;
+struct PipelineRunResult {
+    QList<PipelineFile> entries;
+    QString reportPath, reportError;
 };
 class PipelineDialog : public QDialog {
     Q_OBJECT
@@ -27,27 +31,31 @@ class PipelineDialog : public QDialog {
 
   private:
     QListWidget *inputs_, *chain_;
-    QLineEdit *output_, *pattern_;
-    QCheckBox *overwrite_, *loss_;
+    QLineEdit *output_, *pattern_, *search_;
+    QComboBox *format_;
+    QCheckBox *overwrite_, *loss_, *log_;
     QSpinBox *threads_;
-    QLabel *before_, *after_, *status_;
-    QTableWidget *planTable_;
-    QPushButton *preview_, *start_;
+    QLabel *status_, *count_, *validation_;
+    QTableView *planTable_;
+    PipelineResultModel *planModel_;
+    QTabWidget *tabs_;
+    QPushButton *start_;
     QProgressBar *progress_;
-    QWidget *editor_;
-    QFutureWatcher<PipelineReview> reviewWorker_;
-    QFutureWatcher<QList<PipelineFile>> runWorker_;
+    QWidget *editor_, *results_;
+    QFutureWatcher<PipelineRunResult> runWorker_;
     std::shared_ptr<std::atomic_bool> cancel_;
-    QList<PipelineFile> reviewed_;
+    std::shared_ptr<BatchProgress> progressMailbox_;
     QString journalRoot_;
     bool working_ = false, closing_ = false;
     PipelineJob job() const;
+    PipelineProfile profile() const;
+    void setStatus(const QString &text);
+    void setValidation(const QString &text);
     void addStep(PipelineStep step);
-    void clearReview();
-    void invalidate();
+    void filterInputs();
+    void invalidate(bool clearResults = true);
     void showPlan(const QList<PipelineFile> &plan, bool completed = false);
     void setWorking(bool value);
-    void review();
     void run();
 };
 } // namespace ix

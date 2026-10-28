@@ -332,7 +332,15 @@ QString CodecRegistry::openFilter() const {
     QStringList patterns;
     for (const auto &e : extensions())
         patterns << QStringLiteral("*.%1").arg(e);
-    return QStringLiteral("Bilddateien (%1);;Alle Dateien (*)").arg(patterns.join(QLatin1Char(' ')));
+    QStringList filters{QStringLiteral("Bilddateien (%1)").arg(patterns.join(QLatin1Char(' ')))};
+    for (const auto &cap : capabilities()) {
+        if (!cap.read) continue;
+        QStringList extensions;
+        for (const auto &extension : cap.extensions) extensions << QStringLiteral("*.%1").arg(extension);
+        filters << QStringLiteral("%1 (%2)").arg(cap.name, extensions.join(QLatin1Char(' ')));
+    }
+    filters << QStringLiteral("Alle Dateien (*)");
+    return filters.join(QStringLiteral(";;"));
 }
 QString CodecRegistry::saveFilter() const {
     QStringList filters;

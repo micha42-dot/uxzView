@@ -115,11 +115,9 @@ bool reviewedOverwrite(ix::MainWindow &window, const QString &input, const QStri
         dialog->findChild<QLineEdit *>(QStringLiteral("pipelinePattern"))->setText(QFileInfo(target).completeBaseName());
         dialog->findChild<QCheckBox *>(QStringLiteral("pipelineOverwrite"))->setChecked(true);
         auto *start = dialog->findChild<QPushButton *>(QStringLiteral("pipelineStart"));
-        auto *preview = dialog->findChild<QPushButton *>(QStringLiteral("pipelinePreview"));
-        preview->click();
-        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled() && start->isEnabled(), 10000);
+        QVERIFY(start->isEnabled());
         start->click();
-        QTRY_VERIFY_WITH_TIMEOUT(preview->isEnabled(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(start->text() == ix::localized(QStringLiteral("Starten")), 10000);
         completed = QImage(target) == QImage(input);
     });
     window.dispatch(QStringLiteral("batch"));
@@ -1136,6 +1134,7 @@ class IxTests : public QObject {
         auto *toolbarAction = window.findChild<QToolBar *>()->actions().first();
         const auto iconKey = toolbarAction->icon().cacheKey();
         const auto id = window.winId();
+        const auto browsingFitBefore = view->browsingFit();
         window.installEventFilter(&probe);
         for (bool maximized : {false, true}) {
             if (maximized) {
@@ -1144,8 +1143,8 @@ class IxTests : public QObject {
                 QTRY_VERIFY(window.size() != normalSize);
             }
             QTRY_COMPARE(window.isMaximized(), maximized);
-            view->setZoom(2);
             for (bool previews : {false, true}) {
+                view->setZoom(2);
                 previewToggle->setChecked(previews);
                 QTRY_COMPARE(strip->isVisible(), previews);
                 const auto size = window.size();
@@ -1197,7 +1196,10 @@ class IxTests : public QObject {
                 QVERIFY(!window.isMinimized());
                 QVERIFY(window.updatesEnabled());
                 QCOMPARE(window.winId(), id);
-                QCOMPARE(view->zoom(), 2.0);
+                QCOMPARE(view->fit(), browsingFitBefore);
+                QCOMPARE(view->browsingFit(), browsingFitBefore);
+                QCOMPARE(view->horizontalScrollBar()->value(), 0);
+                QCOMPARE(view->verticalScrollBar()->value(), 0);
             }
         }
 #ifdef Q_OS_WIN
@@ -1771,6 +1773,8 @@ class IxTests : public QObject {
         QVERIFY(!QFileInfo::exists(plan[0].output));
         auto result = ix::BatchPipeline::run(job, plan, cancel);
         QVERIFY2(result[0].error.isEmpty(), qPrintable(result[0].error));
+        QCOMPARE(result[0].inputBytes, QFileInfo(input).size());
+        QCOMPARE(result[0].outputBytes, QFileInfo(result[0].output).size());
         QImage output(result[0].output);
         QCOMPARE(output.size(), QSize(60, 40));
         QCOMPARE(output.scaled(500, 360, Qt::KeepAspectRatio, Qt::SmoothTransformation), preview.after);
@@ -1840,7 +1844,7 @@ class IxTests : public QObject {
         for (int i = 1; i < 4; ++i)
             QVERIFY(result[i].error.isEmpty());
     }
-    void pipelineDialogRealPreviewAndRun() {
+    void pipelineDialogDirectRunAndReport() {
         auto source = dir(QStringLiteral("pipeline-ui.png"));
         QVERIFY(pattern().save(source));
         ix::PipelineDialog dialog({source}, nullptr, dir(QStringLiteral("pipeline-ui-journal")));
@@ -1848,22 +1852,25 @@ class IxTests : public QObject {
         dialog.findChild<QCheckBox *>(QStringLiteral("pipelineAllowLoss"))->setChecked(true);
         auto *start = dialog.findChild<QPushButton *>(QStringLiteral("pipelineStart"));
         QVERIFY(!start->isEnabled());
+        QVERIFY(!dialog.findChild<QPushButton *>(QStringLiteral("pipelinePreview")));
+        QVERIFY(!dialog.findChild<QLabel *>(QStringLiteral("pipelineBefore")));
         auto *output = dialog.findChild<QLineEdit *>(QStringLiteral("pipelineOutput"));
         output->setText(dir(QStringLiteral("pipeline-ui-out")));
         auto *chain = dialog.findChild<QListWidget *>(QStringLiteral("pipelineChain"));
-        delete chain->takeItem(0);
-        dialog.findChild<QPushButton *>(QStringLiteral("pipelinePreview"))->click();
-        QTRY_VERIFY_WITH_TIMEOUT(
-            dialog.findChild<QPushButton *>(QStringLiteral("pipelinePreview"))->isEnabled() &&
-                start->isEnabled(),
-            10000);
-        QVERIFY(!QFileInfo::exists(output->text() + QStringLiteral("/pipeline-ui_0001.webp")));
-        dialog.grab().save(QStringLiteral(IX_TEST_OUTPUT "/pipeline.png"));
+        QCOMPARE(chain->count(), 0);
+        auto *item = new QListWidgetItem(QStringLiteral("WebP"), chain);
+        item->setData(Qt::UserRole, QJsonObject{{QStringLiteral("type"), QStringLiteral("export")},
+            {QStringLiteral("parameters"), QJsonObject{{QStringLiteral("format"), QStringLiteral("webp")}}}});
+        QVERIFY(start->isEnabled());
+        dialog.findChild<QCheckBox *>(QStringLiteral("pipelineLog"))->setChecked(true);
         start->click();
-        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(output->text() + QStringLiteral("/pipeline-ui_0001.webp")),
-                                 10000);
-        QTRY_VERIFY_WITH_TIMEOUT(
-            dialog.findChild<QPushButton *>(QStringLiteral("pipelinePreview"))->isEnabled(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(start->text() == ix::localized(QStringLiteral("Starten")), 10000);
+        QVERIFY(QFileInfo::exists(output->text() + QStringLiteral("/pipeline-ui_0001.webp")));
+        QCOMPARE(QDir(output->text()).entryList({QStringLiteral("*.csv")}, QDir::Files).size(), 1);
+        const auto *table = dialog.findChild<QTableView *>(QStringLiteral("pipelinePlan"));
+        QCOMPARE(table->model()->columnCount(), 4);
+        QCOMPARE(table->model()->data(table->model()->index(0, 3)).toString(), ix::localized(QStringLiteral("Fertig")));
+        dialog.grab().save(QStringLiteral(IX_TEST_OUTPUT "/pipeline.png"));
         QCOMPARE(ix::FileJournal(dir(QStringLiteral("pipeline-ui-journal"))).entries().size(), 1);
     }
     void catalogAnnotationsIndexSearchAndCorruption() {
@@ -3152,8 +3159,20 @@ class IxTests : public QObject {
         auto *h = d.findChild<QDoubleSpinBox *>(QStringLiteral("height"));
         auto *p = d.findChild<QCheckBox *>(QStringLiteral("proportional"));
         QVERIFY(w && h && p);
-        w->setValue(100);
+        d.show();
+        w->setFocus();
+        auto *widthEdit = w->findChild<QLineEdit *>();
+        widthEdit->selectAll();
+        const auto *focusedBefore = d.focusWidget();
+        QTest::keyClicks(widthEdit, QStringLiteral("100"));
         QCOMPARE(h->value(), 50.0);
+        QCOMPARE(d.focusWidget(), focusedBefore);
+        auto *heightEdit = h->findChild<QLineEdit *>();
+        heightEdit->setFocus();
+        heightEdit->selectAll();
+        QTest::keyClicks(heightEdit, QStringLiteral("30"));
+        QCOMPARE(w->value(), 60.0);
+        h->setValue(50);
         p->setChecked(false);
         w->setValue(80);
         QCOMPARE(h->value(), 50.0);
@@ -3233,12 +3252,15 @@ class IxTests : public QObject {
         QSettings settings;
         const auto previousStrip = settings.value(QStringLiteral("view/previewStrip"));
         const auto previousCursor = settings.value(QStringLiteral("fullscreen/hideCursor"));
+        const auto previousFit = settings.value(QStringLiteral("view/fit"));
         auto restore = qScopeGuard([&] {
             settings.setValue(QStringLiteral("view/previewStrip"), previousStrip);
             settings.setValue(QStringLiteral("fullscreen/hideCursor"), previousCursor);
+            settings.setValue(QStringLiteral("view/fit"), previousFit);
         });
         settings.setValue(QStringLiteral("view/previewStrip"), true);
         settings.setValue(QStringLiteral("fullscreen/hideCursor"), true);
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::LargeOnly));
         const auto path = dir(QStringLiteral("fullscreen.png"));
         QVERIFY(pattern(1600, 1200).save(path));
         ix::MainWindow window;
@@ -3248,6 +3270,8 @@ class IxTests : public QObject {
         auto *view = window.findChild<ix::ImageView *>();
         const auto browsingFitBefore = view->browsingFit();
         view->setZoom(3);
+        view->horizontalScrollBar()->setValue(51);
+        view->verticalScrollBar()->setValue(38);
         view->setSelection(QRect(30, 40, 300, 200));
         window.dispatch(QStringLiteral("fullscreen"));
         QTRY_VERIFY(window.isFullScreen());
@@ -3261,9 +3285,14 @@ class IxTests : public QObject {
         QVERIFY(window.grab().save(QStringLiteral(IX_TEST_OUTPUT "/fullscreen-borderless.png")));
         window.dispatch(QStringLiteral("fullscreen"));
         QTRY_VERIFY(!window.isFullScreen());
-        QCOMPARE(view->zoom(), 3.0);
+        QCOMPARE(view->fit(), browsingFitBefore);
         QCOMPARE(view->browsingFit(), browsingFitBefore);
+        QTRY_COMPARE(view->visibleImageRect(), view->image().rect());
+        QTRY_COMPARE(view->horizontalScrollBar()->maximum(), 0);
+        QTRY_COMPARE(view->verticalScrollBar()->maximum(), 0);
+        QVERIFY(view->zoom() < 1.0);
         QVERIFY(!window.findChild<ix::PreviewStrip *>()->isHidden());
+        QVERIFY(window.grab().save(QStringLiteral(IX_TEST_OUTPUT "/fullscreen-restored-fit.png")));
         auto *menu = window.menuBar()->findChild<QMenu *>(QStringLiteral("ansicht"));
         const auto actions = menu->actions();
         const int strip = actions.indexOf(window.findChild<QAction *>(QStringLiteral("previewStripToggle")));

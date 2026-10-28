@@ -171,8 +171,26 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     check(navigation, QStringLiteral("view/lockScroll"),
           IX_TEXT("Scrollposition beim Bildwechsel beibehalten"), false);
     auto *fullscreen = page(IX_TEXT("Vollbild"));
-    check(fullscreen, QStringLiteral("fullscreen/upscale"),
-          IX_TEXT("Kleine Bilder auf Bildschirmgröße vergrößern"), false);
+    fullscreenFit_ = new QComboBox;
+    fullscreenFit_->setObjectName(QStringLiteral("fullscreen/fit"));
+    const QStringList fullscreenFitLabels{IX_TEXT("Originalgröße (100 %)"), IX_TEXT("Alle Bilder an Bildschirm anpassen"),
+        IX_TEXT("Nur große Bilder verkleinern"), IX_TEXT("An Bildschirmbreite anpassen"),
+        IX_TEXT("An Bildschirmhöhe anpassen"), IX_TEXT("Kurze Bildseite an Bildschirm anpassen")};
+    for (int i = 0; i < fullscreenFitLabels.size(); ++i) fullscreenFit_->addItem(fullscreenFitLabels[i], i);
+    fullscreenFit_->setCurrentIndex(int(ImageView::fullscreenFit()));
+    fullscreen->addRow(IX_TEXT("Bildanpassung:"), fullscreenFit_);
+    fullscreenScreen_ = new QComboBox;
+    fullscreenScreen_->setObjectName(QStringLiteral("fullscreen/screen"));
+    fullscreenScreen_->addItem(IX_TEXT("Aktueller Bildschirm"), QString());
+    int screenNumber = 0;
+    for (auto *screen : QGuiApplication::screens()) {
+        const auto size = screen->geometry().size();
+        fullscreenScreen_->addItem(QStringLiteral("%1: %2 (%3 × %4)").arg(++screenNumber)
+            .arg(screen->name()).arg(size.width()).arg(size.height()), screen->name());
+    }
+    fullscreenScreen_->setCurrentIndex(std::max(0, fullscreenScreen_->findData(
+        settings.value(QStringLiteral("fullscreen/screen"), QString()))));
+    fullscreen->addRow(IX_TEXT("Bildschirm:"), fullscreenScreen_);
     check(fullscreen, QStringLiteral("fullscreen/hideCursor"), IX_TEXT("Mauszeiger ausblenden"), true);
     fullscreenBackground_ =
         settings.value(QStringLiteral("fullscreen/background"), QColor(Qt::black)).value<QColor>();
@@ -315,6 +333,8 @@ void SettingsDialog::accept() {
     for (auto it = integers_.begin(); it != integers_.end(); ++it)
         values.insert(it.key(), it.value()->value());
     values.insert(QStringLiteral("view/fit"), fit_->currentData());
+    values.insert(QStringLiteral("fullscreen/fit"), fullscreenFit_->currentData());
+    values.insert(QStringLiteral("fullscreen/screen"), fullscreenScreen_->currentData());
     values.insert(QStringLiteral("navigation/sort"), sort_->currentIndex());
     values.insert(QStringLiteral("toolbar/iconSize"), iconSize_->currentData());
     values.insert(QStringLiteral("preview/background"), previewBackground_->currentData());

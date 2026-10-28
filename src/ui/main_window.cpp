@@ -132,7 +132,6 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
         status_.append(label);
     }
     statusBar()->setSizeGripEnabled(true);
-    statusBar()->setStyleSheet(QStringLiteral("QStatusBar::item { border: none; }"));
     connect(view_, &ImageView::zoomChanged, this, [this](double value) {
         QSignalBlocker blocker(zoom_);
         QSignalBlocker editorBlocker(zoom_->lineEdit());
@@ -695,7 +694,9 @@ void MainWindow::buildExtraFeatures() {
     about->setIcon(uiIcon(QStringLiteral("about"), palette()));
     bindUiText(about, "toolTip", QStringLiteral("Über üxzView (A)"));
     toolbar_->addAction(about);
-    auto *search = viewMenu->addAction(IX_TEXT("Befehlssuche anzeigen"));
+    auto *search = new QAction(viewMenu);
+    const auto titleIndex = viewMenu->actions().indexOf(actions_.value(QStringLiteral("titlebar")));
+    viewMenu->insertAction(viewMenu->actions().value(titleIndex + 1), search);
     bindUiText(search, "text", QStringLiteral("Befehlssuche anzeigen"));
     search->setObjectName(QStringLiteral("actionSearchToggle"));
     search->setCheckable(true);
@@ -898,9 +899,7 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
     int sx = view_->horizontalScrollBar()->value(), sy = view_->verticalScrollBar()->value();
     view_->setImage(display.isNull() ? document_.pixels : display);
     if (isFullScreen() && clearHistory)
-        view_->setFit(QSettings().value(QStringLiteral("fullscreen/upscale"), false).toBool()
-                          ? ImageView::Fit::Window
-                          : ImageView::Fit::LargeOnly);
+        view_->setFit(ImageView::fullscreenFit());
     else if (lockZoom_ || (!clearHistory && fit == ImageView::Fit::Original))
         view_->setZoom(z);
     else
@@ -1154,6 +1153,9 @@ void MainWindow::refreshToolbarIcons() {
     };
     toolbar_->setPalette(colors);
     statusBar()->setPalette(colors);
+    statusBar()->setStyleSheet(QStringLiteral(
+        "QStatusBar { border-top: 1px solid %1; }"
+        "QStatusBar::item { border: none; }").arg(blend(.18)));
     for (auto *label : status_) label->setPalette(colors);
     menuBar()->setPalette(colors);
     menuBar()->setStyleSheet(QStringLiteral(
@@ -1259,6 +1261,10 @@ void MainWindow::applyWindowAppearance(bool fullscreen) {
     view_->background = settings.value(fullscreen ? QStringLiteral("fullscreen/background")
                                                 : QStringLiteral("view/background"), QColor(Qt::black)).value<QColor>();
     view_->viewport()->setAttribute(Qt::WA_OpaquePaintEvent, view_->background.alpha() == 255);
+    const bool hidePointer = fullscreen && settings.value(QStringLiteral("fullscreen/hideCursor"), true).toBool();
+    view_->setProperty("hidePointer", hidePointer);
+    if (hidePointer) view_->viewport()->setCursor(Qt::BlankCursor);
+    else view_->viewport()->unsetCursor();
     view_->setCentered(fullscreen || settings.value(QStringLiteral("view/center"), true).toBool());
     menuBar()->setVisible(!fullscreen && settings.value(QStringLiteral("window/menubar"), true).toBool());
     toolbar_->setVisible(!fullscreen && settings.value(QStringLiteral("window/toolbar"), true).toBool());
@@ -1286,7 +1292,7 @@ void MainWindow::stopAnimation() {
     animationLoops_ = 0;
 }
 void MainWindow::fullscreen() {
-    // Commit an actual pending edit before saving the window's zoom state.
+    // Commit a pending zoom edit before switching display modes.
     if (zoom_->lineEdit()->hasFocus())
         view_->setFocus();
     WindowTransition transition(this);
@@ -1297,23 +1303,23 @@ void MainWindow::fullscreen() {
         view_->viewport()->unsetCursor();
         view_->setProperty("hidePointer", false);
         applyWindowAppearance(false);
+        if (fullscreenScreenChanged_) {
+            restoreGeometry(windowGeometry_);
+            fullscreenScreenChanged_ = false;
+        }
         if (windowWasMaximized_)
             showMaximized();
         else
             showNormal();
         layout()->activate();
-        // Fit against the restored client and its visible bars/preview strip.
+        // Cancel manual zoom/pan and recompute the window's browsing fit against
+        // its restored client, including visible bars and the preview strip.
         view_->setFit(windowBrowsingFit_);
-        if (windowFit_ == ImageView::Fit::Original)
-            view_->setZoom(windowZoom_);
-        view_->horizontalScrollBar()->setValue(windowScroll_.x());
-        view_->verticalScrollBar()->setValue(windowScroll_.y());
+        view_->horizontalScrollBar()->setValue(0);
+        view_->verticalScrollBar()->setValue(0);
     } else {
-        windowFit_ = view_->fit();
         windowBrowsingFit_ = view_->browsingFit();
         windowGeometry_ = saveGeometry();
-        windowZoom_ = view_->zoom();
-        windowScroll_ = {view_->horizontalScrollBar()->value(), view_->verticalScrollBar()->value()};
         windowWasMaximized_ = isMaximized();
         applyWindowAppearance(true);
         view_->setFrameStyle(QFrame::NoFrame);
@@ -1324,11 +1330,17 @@ void MainWindow::fullscreen() {
             view_->viewport()->setCursor(Qt::BlankCursor);
         view_->setProperty("hidePointer",
                            QSettings().value(QStringLiteral("fullscreen/hideCursor"), true).toBool());
+        const auto screenName = QSettings().value(QStringLiteral("fullscreen/screen")).toString();
+        for (auto *target : QGuiApplication::screens())
+            if (!screenName.isEmpty() && target->name() == screenName && target != screen()) {
+                setScreen(target);
+                setGeometry(target->geometry());
+                fullscreenScreenChanged_ = true;
+                break;
+            }
         showFullScreen();
         layout()->activate();
-        view_->setFit(QSettings().value(QStringLiteral("fullscreen/upscale"), false).toBool()
-                          ? ImageView::Fit::Window
-                          : ImageView::Fit::LargeOnly);
+        view_->setFit(ImageView::fullscreenFit());
     }
     updateStatus();
 }
@@ -1434,6 +1446,7 @@ void MainWindow::dispatch(const QString &cmd) {
         const auto reverse = before.value(QStringLiteral("navigation/reverse"), false).toBool();
         const auto manage = before.value(QStringLiteral("color/manage"), true).toBool();
         const auto sharpen = displaySharpen_;
+        const auto fullscreenFitBefore = ImageView::fullscreenFit();
         SettingsDialog dialog(this);
         if (cmd == QStringLiteral("cropSettings"))
             dialog.selectPage(QStringLiteral("cropSettingsPage"));
@@ -1441,6 +1454,7 @@ void MainWindow::dispatch(const QString &cmd) {
             const QSettings after;
             const auto language = after.value(QStringLiteral("ui/language"), uiLanguage()).toString();
             if (language != uiLanguage()) applyInterfaceLanguage(language);
+            if (isFullScreen() && fullscreenFitBefore != ImageView::fullscreenFit()) view_->setFit(ImageView::fullscreenFit());
             applySettings(fit != after.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt());
             if (sort != after.value(QStringLiteral("navigation/sort"), 0).toInt() ||
                 reverse != after.value(QStringLiteral("navigation/reverse"), false).toBool())

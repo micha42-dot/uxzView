@@ -91,13 +91,13 @@ Existing target revisions are rechecked after hashing. Execution still verifies
 reviewed revisions/content and journals replacements; skipping an ineligible
 target's hash must not weaken those commit guards.
 
-PipelineDialog clears reviewed data and images when inputs/options change or a
-review is cancelled. Completion must not enable Start from cancelled or stale
-results. A new explicit review resets the cancellation token after previous work
-has finished. Preview/run reject already-cancelled requests before decode/resource
-work. Cancellation remains cooperative: it does not interrupt a blocking OS read
-or third-party decoder already in progress. Worker exceptions must be contained
-at the GUI completion boundary and shown as errors, never as successful empty runs.
+PipelineDialog clears previous results when inputs/options change and captures a
+new job only when Start is pressed. A new run resets cancellation after previous
+work has finished. Planning and execution share one worker lifecycle; no separate
+preview is required. Preview/run APIs reject pre-cancelled requests before
+resource/decode work. Cancellation does not interrupt a blocking OS read or a
+third-party decoder. Worker exceptions are contained at the GUI completion
+boundary and shown as errors, never as successful empty runs.
 
 ## Caches and expensive work
 
@@ -190,4 +190,76 @@ performance evidence for first decode, cached navigation and large-folder work
 separate. A new dependency or storage format needs a demonstrated benefit and
 compatibility/migration coverage.
 
-Open risks include native Windows 10/Linux/macOS coverage, total-memory coordination, uncommon RAW/color variants and very large catalogs. [The latest review](REVIEW_2026-10-27.md) records the current scope and remaining boundaries; this document does not claim they are solved.
+Open risks include native Windows 10/Linux/macOS coverage, total-memory coordination, uncommon RAW/color variants and very large catalogs. [The latest review](REVIEW_2026-10-28.md) records the current scope and remaining boundaries; this document does not claim they are solved.
+
+### Direct batch execution and reporting
+
+`PipelineDialog` captures the filtered input list and current validated profile
+when Start is pressed. Its worker calls `plan` then `run`; the plan table is a
+queued observational update, not an approval gate. Editing is disabled until
+completion; cancellation also covers planning. No preview decoder runs in this
+path. Keep the lower-level preview API for non-dialog consumers and its codec
+quality tests. New dialogs do not install default processing steps.
+
+`PipelineFile::inputBytes/outputBytes` record actual source and staged output sizes;
+output bytes are set only after journal commit succeeds. `core/batch_report.*`
+aggregates successful entries and writes an optional uniquely named UTF-8 CSV
+without replacing existing files. Text fields are quoted and spreadsheet formula
+prefixes escaped. Logging failure is separate from conversion success. Statistics
+measure image bytes, not journal backup/storage overhead. A decoder/encoder is
+never run just to guess savings. Monitor selection and fullscreen sizing reuse
+Qt screen APIs and the existing ImageView modes; default monitor selection does
+not relocate the native window or alter the presentation-cover path.
+
+### Batch UI and throughput review — 28 October 2026
+
+`pipeline_step_editor.*` owns step labels and modal parameter editing.
+`PipelineResultModel` owns a shared immutable result-list snapshot; `QTableView`
+asks for cell/tooltip strings only as needed. Do not recreate four persistent
+cell objects per input or walk every result merely to display the table.
+`PipelineDialog::profile()` reads only the small chain; routine validation must
+not construct a full job/input snapshot. Capture inputs only when starting work.
+File additions use a set for exact-path deduplication, matching earlier semantics.
+
+The execution result includes optional report path/error. Logging stays on the
+worker, with approximately 64 KiB CSV chunks plus the current row and partial-file cleanup. Return conversion
+results even when logging fails. The core skips watermark resources and threads
+when no entries are eligible, limits threads to useful work, and catches unknown
+C++ exceptions inside each file operation. Existing source revision, target hash,
+resource hash and journal commit guards remain in force.
+
+The batch Processing page uses a single vertical order (inputs, shallow chain,
+output/options) instead of side-by-side large lists. Results and their status/
+progress occupy another page, so running/reporting does not raise the minimum
+configuration-window height. Configuration feedback has a separate label.
+
+### Journal recovery boundary
+
+`core/file_journal.cpp` owns journal locking, atomic per-entry persistence and
+normal file operations. `file_journal_recovery.cpp` owns the reconciliation state
+machine; `file_journal_io.h` shares the non-overwriting file-move primitives.
+Forward intent records contain output/backup hashes. Undo intent also persists
+its exact discard path before any move. Do not infer discard paths by scanning
+trash, and do not repair at application startup or in image/navigation hot paths.
+
+`FileJournal::recover()` is explicit and holds the same mutex/QLockFile as other
+mutations. It accepts only verifiable pending/undoPending states (plus a stranded
+backup from a failed replacement). Matching regular files allow completion or
+restoration of an absent target; occupied/changed/ambiguous paths remain untouched.
+Only the relevant interrupted entry is reconciled before `undo(id)`. The default
+Undo fixes the entry it originally selected rather than selecting an older entry
+after discovering that an interrupted Undo already moved the file successfully.
+Journal persistence can reject a write through the narrow WriteGuard test seam;
+it cannot bypass the actual writer, locking or integrity checks.
+
+Recovery uses SHA-256 on a worker only when requested. Native revision checks
+around hashing detect ordinary concurrent changes, but no portable filesystem
+transaction excludes unrelated writers or guarantees durability after power loss.
+The journal dialog still loads its full entry index. Keep those limits explicit.
+
+`ui/batch_progress.h` is a per-run atomic mailbox, independent of widgets and
+Qt's event queue. Workers advance a maximum completion count and request a GUI
+delivery only when none is queued. The consumer clears the flag before reading
+the counter, so a concurrent update is either included or schedules another
+notification. Completion/new-run boundaries invalidate the dialog's mailbox;
+late plan/progress events check identity and never replace a newer run's state.

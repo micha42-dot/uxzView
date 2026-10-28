@@ -16,6 +16,7 @@
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <thread>
@@ -271,6 +272,12 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
             e.error = validation;
         return result;
     }
+    const auto eligible = std::count_if(plan.cbegin(), plan.cend(), [](const PipelineFile &entry) {
+        return entry.error.isEmpty();
+    });
+    // Nothing will be converted: preserve each skip/error and avoid decoding
+    // resources or constructing codecs/journals/threads for an empty workload.
+    if (!eligible) return plan;
     std::vector<PipelineFile> results(plan.begin(), plan.end());
     QHash<QString, QImage> resources;
     try {
@@ -287,7 +294,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
         return failed;
     }
     std::atomic_int next = 0, done = 0;
-    const int threads = std::clamp(job.parallelism, 1, 4);
+    const int threads = std::min(int(eligible), std::clamp(job.parallelism, 1, 4));
     std::vector<std::thread> workers;
     auto joinWorkers = qScopeGuard([&] {
         for (auto &worker : workers)
@@ -308,6 +315,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                         checkCancel(cancel);
                         if (imageFileKey(entry.input) != entry.inputStamp)
                             throw std::runtime_error("Quelle wurde seit der Vorschau geändert.");
+                        entry.inputBytes = QFileInfo(entry.input).size();
                         auto read = registry.read(entry.input);
                         if (!read.ok())
                             throw std::runtime_error(read.error.toStdString());
@@ -328,6 +336,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                             registry.save(image, stage, format, p.value(QStringLiteral("quality")).toInt(95),
                                           job.allowLoss);
                         if (entry.error.isEmpty()) {
+                            const auto outputBytes = QFileInfo(stage).size();
                             if (imageFileKey(entry.input) != entry.inputStamp)
                                 entry.error = QStringLiteral("Quelle wurde während der Verarbeitung verändert.");
                             else if (cancel.load())
@@ -335,10 +344,13 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                             else
                                 entry.error = journal.installOutput(stage, entry.output, job.overwrite,
                                                                     entry.targetStamp, entry.targetHash);
+                            if (entry.error.isEmpty()) entry.outputBytes = outputBytes;
                         }
                         QFile::remove(stage);
                     } catch (const std::exception &e) {
                         entry.error = QString::fromUtf8(e.what());
+                    } catch (...) {
+                        entry.error = QStringLiteral("Vorgang fehlgeschlagen.");
                     }
                 int completed = done.fetch_add(1) + 1;
                 if (progress)

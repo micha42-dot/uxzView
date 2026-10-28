@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Reconcile interrupted file-journal operations using verified file states and
+  hashes. Persist Undo discard paths before moving files; retry the same interrupted
+  Undo safely and offer a worker-based repair action in the journal dialog.
+- Coalesce batch progress into a monotonic per-run mailbox with bounded GUI events;
+  reject stale plan/progress deliveries after completion or a new run.
+
+- Update Checkout, Setup Python, Upload Artifact and Cache to verified Node.js 24
+  action releases across desktop, Windows release and Windows 10 workflows.
+
+- Fix Linux deployment of dependencies used only by optional modules: scan build
+  artifacts with their SDK RUNPATH before relying on installed relative paths.
+  Add an actual ELF dependency/relocation regression to the Linux CI job.
+
+- Give batch processing separate Processing/Results tabs without an outer scroll
+  area; retain equal-width profile/destination buttons and their vertical gap.
+- Present batch results through a lazy read-only table model, remove repeated
+  full input-list copies during validation, and deduplicate added files with a set.
+- Stream optional CSV logs in bounded chunks on the batch worker rather than
+  assembling/writing the whole report on the GUI thread.
+- Skip resource decoding and worker creation when no batch entry is eligible;
+  cap worker count to eligible entries and contain non-standard decoder exceptions.
+- Separate batch step editing and result presentation into dedicated UI modules.
+
+- Resize proportionally while typing and use a single working standard-size
+  dropdown with built-in and user dimensions.
+- Start batch processing directly with an initially empty chain. Remove the
+  preview/review prerequisite and before/after panels; retain automatic planning,
+  freshness checks, cancellation, replacement backups and file Undo.
+- Add batch filename search, format filters (also in the file picker), balanced
+  result columns, actual success/failure and size totals, and optional UTF-8 CSV logs.
+- Add fullscreen scaling modes and a target-monitor selector, retaining the
+  existing cursor/background/information options and legacy scaling preferences.
+- Restore the subtle divider above file information and cancel manual zoom/pan
+  when returning from fullscreen to the window's selected browsing mode.
+- Move command-search visibility directly below the title-bar option in View.
+
 - Apply German, English, Korean, Japanese and French immediately after accepting
   Settings, without restarting or rebuilding the window. Retranslate menus,
   toolbar/accessibility text and command search in place; refresh Qt translations,

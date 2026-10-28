@@ -9,6 +9,7 @@ class ImageView : public QAbstractScrollArea {
   public:
     enum class Fit { Original, Window, LargeOnly, Width, Height, ShortSide };
     explicit ImageView(QWidget *parent = nullptr);
+    static Fit fullscreenFit();
     void setImage(QImage image);
     const QImage &image() const {
         return image_;

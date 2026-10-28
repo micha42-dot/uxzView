@@ -8,9 +8,17 @@
 #include <QPaintEvent>
 #include <QScrollBar>
 #include <QStyle>
+#include <QSettings>
+#include <algorithm>
 #include <QWheelEvent>
 #include <cmath>
 namespace ix {
+ImageView::Fit ImageView::fullscreenFit() {
+    const QSettings settings;
+    const auto fallback = settings.value(QStringLiteral("fullscreen/upscale"), false).toBool()
+        ? Fit::Window : Fit::LargeOnly;
+    return Fit(std::clamp(settings.value(QStringLiteral("fullscreen/fit"), int(fallback)).toInt(), 0, 5));
+}
 ImageView::ImageView(QWidget *p) : QAbstractScrollArea(p) {
     setFrameStyle(QFrame::StyledPanel | QFrame::Sunken);
     setFocusPolicy(Qt::StrongFocus);

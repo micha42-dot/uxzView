@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_storage.h"
 #include "file_journal.h"
+#include "file_journal_io.h"
+#include "localization.h"
 #include "image_catalog.h"
 #include "json_storage.h"
 #include "file_revision.h"
@@ -21,22 +23,9 @@
 namespace ix {
 namespace {
 QMutex journalMutex;
-bool moveFile(const QString &from, const QString &to) {
-    if (QFileInfo::exists(to))
-        return false;
-    if (QFile::rename(from, to))
-        return true;
-    if (!QFile::copy(from, to))
-        return false;
-    if (QFile::remove(from))
-        return true;
-    QFile::remove(to);
-    return false;
-}
-bool regular(const QString &path) {
-    QFileInfo f(path);
-    return f.isFile() && !f.isSymLink();
-}
+using journal_detail::moveFile;
+using journal_detail::regular;
+using journal_detail::occupied;
 QString abs(const QString &path) {
     return QFileInfo(path).absoluteFilePath();
 }
@@ -56,10 +45,10 @@ QString sha256File(const QString &path, const std::atomic_bool *cancel) {
     }
     return QString::fromLatin1(hash.result().toHex());
 }
-FileJournal::FileJournal(QString root)
+FileJournal::FileJournal(QString root, WriteGuard writeGuard)
     : root_(root.isEmpty() ? AppStorage::dataRoot() +
                                  QStringLiteral("/file-journal")
-                           : std::move(root)) {}
+                           : std::move(root)), writeGuard_(std::move(writeGuard)) {}
 namespace {
 constexpr qint64 LegacyLimit = 256LL * 1024 * 1024;
 constexpr qint64 EntryLimit = 64LL * 1024 * 1024;
@@ -208,6 +197,10 @@ QString FileJournal::writeEntry(QJsonObject &entry, bool reserve) const {
     // user file. The limit applies to one operation, never the whole history.
     if (bytes.size() > EntryLimit - (reserve ? 256 * 1024 : 0))
         return QStringLiteral("Journaleintrag ist zu groß; keine Datei geändert.");
+    if (writeGuard_) {
+        const auto error = writeGuard_(entry);
+        if (!error.isEmpty()) return error;
+    }
     QSaveFile file(root_ + QStringLiteral("/entries/") + entryName(entry));
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
         return file.errorString();
@@ -230,7 +223,7 @@ QString FileJournal::perform(const QString &kind, const QString &source, const Q
                                                         : abs(destination);
     if (destination.isEmpty() && kind != QStringLiteral("delete"))
         return QStringLiteral("Ziel fehlt.");
-    if (QFileInfo::exists(to) || from == to)
+    if (occupied(to) || from == to)
         return QStringLiteral("Zieldatei existiert bereits.");
     const auto digest = sha256File(from);
     if (digest.isEmpty())
@@ -257,7 +250,8 @@ QString FileJournal::perform(const QString &kind, const QString &source, const Q
     entry.insert(QStringLiteral("state"), ok ? QStringLiteral("committed") : QStringLiteral("failed"));
     error = writeEntry(entry);
     if (!error.isEmpty())
-        return error;
+        return ok ? IX_TEXT("Dateiänderung ausgeführt, Journalabschluss fehlgeschlagen. Bitte im Dateijournal prüfen: %1").arg(error)
+                  : error;
     return ok ? QString() : QStringLiteral("Dateioperation fehlgeschlagen; Eintrag steht im Journal.");
 }
 QString FileJournal::installOutput(const QString &stage, const QString &destination, bool overwrite,
@@ -271,7 +265,7 @@ QString FileJournal::installOutput(const QString &stage, const QString &destinat
     if (!regular(stage))
         return QStringLiteral("Ausgabedatei fehlt.");
     const auto target = abs(destination);
-    const bool exists = QFileInfo::exists(target);
+    const bool exists = occupied(target);
     if (exists && (!overwrite || !regular(target)))
         return QStringLiteral("Ziel existiert oder ist keine normale Datei.");
     if ((exists ? imageFileKey(target) : QString()) != expectedStamp)
@@ -311,8 +305,20 @@ QString FileJournal::installOutput(const QString &stage, const QString &destinat
     entry.insert(QStringLiteral("state"), ok ? QStringLiteral("committed") : QStringLiteral("failed"));
     error = writeEntry(entry);
     if (!error.isEmpty())
-        return error;
+        return ok ? IX_TEXT("Dateiänderung ausgeführt, Journalabschluss fehlgeschlagen. Bitte im Dateijournal prüfen: %1").arg(error)
+                  : error;
     return ok ? QString() : QStringLiteral("Ausgabe konnte nicht installiert werden.");
+}
+QString FileJournal::recover() {
+    QMutexLocker guard(&journalMutex);
+    if (!QFileInfo::exists(root_)) return {};
+    QLockFile lock(root_ + QStringLiteral("/journal.lock"));
+    if (!lock.tryLock(0)) return IX_TEXT("Dateijournal ist belegt.");
+    auto error = migrateLegacy();
+    if (!error.isEmpty()) return error;
+    auto all = readEntries(error);
+    if (!error.isEmpty()) return error;
+    return recoverEntries(all);
 }
 QString FileJournal::undo(const QString &chosen) {
     QMutexLocker guard(&journalMutex);
@@ -329,14 +335,23 @@ QString FileJournal::undo(const QString &chosen) {
         return readError;
     int index = -1;
     for (int i = all.size() - 1; i >= 0; --i) {
-        auto e = all[i].toObject();
-        if ((chosen.isEmpty() || e.value(QStringLiteral("id")).toString() == chosen) &&
-            e.value(QStringLiteral("state")).toString() == QStringLiteral("committed")) {
-            index = i;
-            break;
-        }
+        const auto entry = all.at(i).toObject();
+        const auto state = entry.value(QStringLiteral("state")).toString();
+        if (!chosen.isEmpty()) {
+            if (entry.value(QStringLiteral("id")).toString() == chosen) { index = i; break; }
+        } else if (state == QStringLiteral("committed") || state == QStringLiteral("pending") ||
+                   state == QStringLiteral("undoPending")) { index = i; break; }
     }
-    if (index < 0)
+    if (index < 0) return QStringLiteral("Keine rückgängig machbare Dateioperation vorhanden.");
+    const auto originalState = all.at(index).toObject().value(QStringLiteral("state")).toString();
+    const auto selectedId = all.at(index).toObject().value(QStringLiteral("id")).toString();
+    readError = recoverEntries(all, selectedId);
+    if (!readError.isEmpty()) return readError;
+    const auto recoveredState = all.at(index).toObject().value(QStringLiteral("state")).toString();
+    // A retry of an interrupted Undo must not consume the previous operation.
+    if ((originalState == QStringLiteral("pending") || originalState == QStringLiteral("undoPending")) &&
+        (recoveredState == QStringLiteral("undone") || recoveredState == QStringLiteral("failed"))) return {};
+    if (recoveredState != QStringLiteral("committed"))
         return QStringLiteral("Keine rückgängig machbare Dateioperation vorhanden.");
     auto entry = all[index].toObject();
     const auto kind = entry.value(QStringLiteral("kind")).toString(),
@@ -349,12 +364,15 @@ QString FileJournal::undo(const QString &chosen) {
     if (!regular(target) || sha256File(target) != entry.value(QStringLiteral("hash")).toString())
         return QStringLiteral("Zieldatei fehlt oder wurde geändert; sie bleibt unverändert.");
     const bool restoreSource = kind == QStringLiteral("move") || kind == QStringLiteral("delete");
-    if (restoreSource && QFileInfo::exists(from))
+    if (restoreSource && occupied(from))
         return QStringLiteral("Ursprünglicher Pfad ist belegt; keine Datei überschrieben.");
     auto backup = entry.value(QStringLiteral("backup")).toString();
     if (kind == QStringLiteral("replace") &&
         (!regular(backup) || sha256File(backup) != entry.value(QStringLiteral("backupHash")).toString()))
         return QStringLiteral("Sicherung der ersetzten Datei fehlt.");
+    const auto discard = restoreSource ? QString() : root_ + QStringLiteral("/trash/") +
+        QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral("-undo-") + QFileInfo(target).fileName();
+    if (!restoreSource) entry.insert(QStringLiteral("discard"), discard);
     entry.insert(QStringLiteral("state"), QStringLiteral("undoPending"));
     auto error = writeEntry(entry, true);
     if (!error.isEmpty())
@@ -364,9 +382,6 @@ QString FileJournal::undo(const QString &chosen) {
         QDir().mkpath(QFileInfo(from).absolutePath());
         ok = moveFile(target, from);
     } else {
-        const QString discard = root_ + QStringLiteral("/trash/") +
-                                QUuid::createUuid().toString(QUuid::WithoutBraces) +
-                                QStringLiteral("-undo-") + QFileInfo(target).fileName();
         ok = moveFile(target, discard);
         if (ok && kind == QStringLiteral("replace")) {
             ok = moveFile(backup, target);
@@ -380,11 +395,17 @@ QString FileJournal::undo(const QString &chosen) {
         if (!warning.isEmpty())
             entry.insert(QStringLiteral("warning"), warning.left(4096));
     }
-    entry.insert(QStringLiteral("state"), ok ? QStringLiteral("undone") : QStringLiteral("committed"));
+    // If restoring the original AND rolling back both fail, retain the intent
+    // so explicit recovery can finish restoring the verified backup later.
+    const bool interruptedRestore = !restoreSource && kind == QStringLiteral("replace") &&
+        occupied(discard) && !occupied(target);
+    entry.insert(QStringLiteral("state"), ok ? QStringLiteral("undone") :
+        interruptedRestore ? QStringLiteral("undoPending") : QStringLiteral("committed"));
     entry.insert(QStringLiteral("undoTime"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
     error = writeEntry(entry);
     if (!error.isEmpty())
-        return error;
+        return ok ? IX_TEXT("Dateiänderung ausgeführt, Journalabschluss fehlgeschlagen. Bitte im Dateijournal prüfen: %1").arg(error)
+                  : error;
     return ok ? QString() : QStringLiteral("Rückgängig fehlgeschlagen; Pfade stehen im Journal.");
 }
 } // namespace ix

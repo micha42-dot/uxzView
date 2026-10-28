@@ -62,6 +62,8 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     absoluteGroup_->layout()->addWidget(absolute_);
     width_ = spin(QStringLiteral("width")); height_ = spin(QStringLiteral("height"));
     dimensions(absoluteGroup_, width_, height_);
+    width_->setKeyboardTracking(true);
+    height_->setKeyboardTracking(true);
     auto *unitRow = new QHBoxLayout;
     unitRow->setSpacing(8);
     unitRow->addWidget(new QLabel(IX_TEXT("Einheit:")));
@@ -111,40 +113,36 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     density->addRow(QStringLiteral("DPI:"), dpi_);
     left->addLayout(density);
     left->addStretch();
-    auto *standard = section(right, IX_TEXT("Einige Standard-Dimensionen: (Pixel):"));
+    auto *standard = section(right, IX_TEXT("Standarddimensionen (Pixel)"));
     custom_ = new QComboBox;
-    custom_->addItem(IX_TEXT("Neue Größe:"));
-    custom_->addItems(QSettings().value(QStringLiteral("resize/presets")).toStringList());
-    custom_->setToolTip(IX_TEXT("(verwendet 'Proportional')"));
-    standard->layout()->addWidget(custom_);
+    custom_->setObjectName(QStringLiteral("resizePresets"));
     const QList<QSize> sizes{{640, 480}, {800, 600}, {1024, 768}, {1280, 720},
                              {1920, 1080}, {3840, 2160}, {7680, 4320}};
-    const QStringList names{QStringLiteral("640 x 480"), QStringLiteral("800 x 600"),
-        QStringLiteral("1024 x 768"), QStringLiteral("1280 x 720 (HD)"), QStringLiteral("1920 x 1080 (FHD)"),
-        QStringLiteral("3840 x 2160 (4K)"), QStringLiteral("7680 x 4320 (8K)")};
-    auto *presets = new QButtonGroup(this);
-    auto *presetGrid = new QGridLayout;
-    presetGrid->setHorizontalSpacing(16); presetGrid->setVerticalSpacing(8);
-    for (int i = 0; i < sizes.size(); ++i) {
-        auto *radio = new QRadioButton(names[i]);
-        presets->addButton(radio, i);
-        presetGrid->addWidget(radio, i < 4 ? i : i - 4, i < 4 ? 0 : 1);
+    for (auto size : sizes)
+        custom_->addItem(QStringLiteral("%1 × %2").arg(size.width()).arg(size.height()), size);
+    for (const auto &text : QSettings().value(QStringLiteral("resize/presets")).toStringList()) {
+        const auto parts = text.split(QStringLiteral(" x "));
+        if (parts.size() != 2) continue;
+        const QSize size(parts[0].toInt(), parts[1].toInt());
+        if (!size.isValid() || custom_->findData(size) >= 0) continue;
+        custom_->addItem(text, size);
+        custom_->setItemData(custom_->count() - 1, true, Qt::UserRole + 1);
     }
-    static_cast<QVBoxLayout *>(standard->layout())->addLayout(presetGrid);
-    connect(presets, &QButtonGroup::idClicked, this, [this, sizes, useAbsoluteSize](int index) {
-        if (index < 0 || index >= sizes.size()) return;
-        model_.preset(sizes[index], model_.proportional); useAbsoluteSize();
+    custom_->setPlaceholderText(IX_TEXT("Standardgröße wählen"));
+    custom_->setCurrentIndex(-1);
+    standard->layout()->addWidget(custom_);
+    auto *screenSize = new QPushButton(IX_TEXT("An Bildschirm anpassen"));
+    standard->layout()->addWidget(screenSize);
+    connect(screenSize, &QPushButton::clicked, this, [this, useAbsoluteSize] {
+        model_.preset(screen()->availableGeometry().size(), model_.proportional);
+        useAbsoluteSize();
     });
-    auto preset = [&](const QString &text, bool keep) {
-        auto *radio = new QRadioButton(text);
-        presets->addButton(radio);
-        standard->layout()->addWidget(radio);
-        connect(radio, &QRadioButton::clicked, this, [this, keep, useAbsoluteSize] {
-            model_.preset(screen()->availableGeometry().size(), keep); useAbsoluteSize();
-        });
-    };
-    preset(IX_TEXT("An Bildschirm anpassen"), true);
-    preset(IX_TEXT("Bildschirmgröße (nicht proportional)"), false);
+    auto *screenExact = new QPushButton(IX_TEXT("Bildschirmgröße (nicht proportional)"));
+    standard->layout()->addWidget(screenExact);
+    connect(screenExact, &QPushButton::clicked, this, [this, useAbsoluteSize] {
+        model_.preset(screen()->availableGeometry().size(), false);
+        useAbsoluteSize();
+    });
     auto button = [&](const QString &text, QHBoxLayout *row, auto action) {
         auto *widget = new QPushButton(text);
         row->addWidget(widget, 1);
@@ -159,14 +157,15 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     button(IX_TEXT("Seiten vertauschen"), presetButtons, [this, useAbsoluteSize] { model_.swapSides(); useAbsoluteSize(); });
     button(IX_TEXT("Zu Standards hinzuf."), presetButtons, [this] {
         const auto size = QStringLiteral("%1 x %2").arg(model_.size().width()).arg(model_.size().height());
-        if (custom_->findText(size) < 0) custom_->addItem(size);
+        if (custom_->findData(model_.size()) < 0) {
+            custom_->addItem(size, model_.size());
+            custom_->setItemData(custom_->count() - 1, true, Qt::UserRole + 1);
+        }
     });
     connect(custom_, &QComboBox::activated, this, [this, useAbsoluteSize](int index) {
-        if (!index) return;
-        const auto parts = custom_->currentText().split(QStringLiteral(" x "));
-        if (parts.size() == 2) {
-            model_.preset(QSize(parts[0].toInt(), parts[1].toInt()), model_.proportional); useAbsoluteSize();
-        }
+        if (index < 0) return;
+        model_.preset(custom_->itemData(index).toSize(), model_.proportional);
+        useAbsoluteSize();
     });
     auto *method = section(right, IX_TEXT("Methode:"));
     filter_ = new QComboBox;
@@ -189,11 +188,11 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     resize(std::min(900, screen()->availableGeometry().width() - 48),
            std::min(640, screen()->availableGeometry().height() - 64));
     auto bind = [this](QDoubleSpinBox *box, auto fn) {
-        connect(box, &QDoubleSpinBox::valueChanged, this, [this, fn](double value) {
+        connect(box, &QDoubleSpinBox::valueChanged, this, [this, fn, box](double value) {
             if (syncing_)
                 return;
             (model_.*fn)(value);
-            sync();
+            sync(box);
         });
     };
     bind(width_, &ResizeModel::setWidth);
@@ -223,13 +222,13 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     width_->setFocus();
     width_->selectAll();
 }
-void ResizeDialog::sync() {
+void ResizeDialog::sync(QDoubleSpinBox *editing) {
     syncing_ = true;
     int dec = model_.unit() == ResizeModel::Unit::Pixel ? 0 : 2;
-    width_->setDecimals(dec);
-    height_->setDecimals(dec);
-    width_->setValue(model_.width());
-    height_->setValue(model_.height());
+    if (width_->decimals() != dec) width_->setDecimals(dec);
+    if (height_->decimals() != dec) height_->setDecimals(dec);
+    if (editing != width_) width_->setValue(model_.width());
+    if (editing != height_) height_->setValue(model_.height());
     percentW_->setValue(model_.percentWidth());
     percentH_->setValue(model_.percentHeight());
     if (megapixel_->isChecked())
@@ -271,8 +270,9 @@ void ResizeDialog::accept() {
         return;
     }
     QStringList presets;
-    for (int i = 1; i < custom_->count(); ++i)
-        presets << custom_->itemText(i);
+    for (int i = 0; i < custom_->count(); ++i)
+        if (custom_->itemData(i, Qt::UserRole + 1).toBool())
+            presets << custom_->itemText(i);
     QSettings().setValue(QStringLiteral("resize/presets"), presets);
     QDialog::accept();
 }
