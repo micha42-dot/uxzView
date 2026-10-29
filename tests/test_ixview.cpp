@@ -7,7 +7,7 @@
 #include "core/batch_processor.h"
 #include "core/codec_registry.h"
 #include "core/directory_index.h"
-#include "core/file_journal.h"
+#include "core/file_operations.h"
 #include "core/image_catalog.h"
 #include "core/image_loading.h"
 #include "core/jpeg_transform.h"
@@ -56,6 +56,9 @@
 #include <limits>
 #include <numbers>
 #include <tiffio.h>
+#ifdef IX_TEST_ARCHIVE
+#include <KZip>
+#endif
 #ifdef IX_TEST_EXIV2
 #include <exiv2/exiv2.hpp>
 #endif
@@ -698,7 +701,7 @@ class IxTests : public QObject {
             dialog.show();
             auto *tabs = dialog.findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
             auto *categories = dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
-            QCOMPARE(tabs->count(), 10);
+            QCOMPARE(tabs->count(), 9);
             dialog.findChild<QComboBox *>(QStringLiteral("preview/background"))->setCurrentIndex(1);
             dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip"))->setChecked(true);
             dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"))->setChecked(true);
@@ -873,7 +876,7 @@ class IxTests : public QObject {
         auto *path = dialog.findChild<QLineEdit *>(QStringLiteral("storage/dataRoot"));
         QVERIFY(path && path->isReadOnly());
         QCOMPARE(QDir::fromNativeSeparators(path->text()), ix::AppStorage::dataRoot());
-        QCOMPARE(categories->count(), 10);
+        QCOMPARE(categories->count(), 9);
         QVERIFY(dialog.findChildren<QTabWidget *>().isEmpty());
         QTest::qWait(30);
         QCOMPARE(categories->horizontalScrollBar()->maximum(), 0);
@@ -887,7 +890,7 @@ class IxTests : public QObject {
         categories->setCurrentRow(0);
         categories->setFocus();
         QTest::keyClick(categories, Qt::Key_End);
-        QCOMPARE(pages->currentIndex(), 9);
+        QCOMPARE(pages->currentIndex(), 8);
         dialog.selectPage(QStringLiteral("cropSettingsPage"));
         QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("cropSettingsPage"))->isVisible());
         QVERIFY(dialog.grab().save(QStringLiteral(IX_TEST_OUTPUT "/settings-sidebar.png")));
@@ -1410,69 +1413,7 @@ class IxTests : public QObject {
         QTest::qWait(10);
         QCOMPARE(fired.count(), 1);
     }
-    void journalCopyMoveTrashUndo() {
-        auto source = dir(QStringLiteral("journal-source.txt")),
-             target = dir(QStringLiteral("journal-target.txt"));
-        QFile file(source);
-        QVERIFY(file.open(QIODevice::WriteOnly));
-        file.write("original");
-        file.close();
-        ix::FileJournal journal(dir(QStringLiteral("journal-basic")));
-        QVERIFY(journal.perform(QStringLiteral("copy"), source, target).isEmpty());
-        QVERIFY(QFileInfo::exists(source));
-        QVERIFY(QFileInfo::exists(target));
-        QVERIFY(journal.undo().isEmpty());
-        QVERIFY(!QFileInfo::exists(target));
-        QVERIFY(journal.perform(QStringLiteral("move"), source, target).isEmpty());
-        QVERIFY(!QFileInfo::exists(source));
-        QVERIFY(journal.undo().isEmpty());
-        QVERIFY(QFileInfo::exists(source));
-        QVERIFY(journal.perform(QStringLiteral("delete"), source).isEmpty());
-        QVERIFY(!QFileInfo::exists(source));
-        auto entry = journal.entries().last().toObject();
-        QVERIFY(QFileInfo::exists(entry.value(QStringLiteral("target")).toString()));
-        QVERIFY(journal.undo().isEmpty());
-        QCOMPARE(ix::sha256File(source), entry.value(QStringLiteral("hash")).toString());
-    }
-    void journalMigratesPastOldLimitAndWritesOnlyChangedRecord() {
-        const auto source = dir(QStringLiteral("journal-v2-source.png"));
-        QVERIFY(pattern().save(source));
-        ix::FileJournal journal(dir(QStringLiteral("journal-v2")));
-        QVERIFY(QDir().mkpath(journal.root()));
-        const auto oldTarget = dir(QStringLiteral("journal-v2-old.png"));
-        QVERIFY(QFile::copy(source, oldTarget));
-        QJsonObject old{{QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
-                        {QStringLiteral("kind"), QStringLiteral("copy")},
-                        {QStringLiteral("source"), source},
-                        {QStringLiteral("target"), oldTarget},
-                        {QStringLiteral("hash"), ix::sha256File(source)},
-                        {QStringLiteral("state"), QStringLiteral("committed")},
-                        {QStringLiteral("padding"), QString(32 * 1024 * 1024, QLatin1Char('x'))}};
-        QFile legacy(journal.root() + QStringLiteral("/operations.json"));
-        QVERIFY(legacy.open(QIODevice::WriteOnly));
-        legacy.write(QJsonDocument(QJsonArray{old}).toJson(QJsonDocument::Compact));
-        legacy.close();
-        QString issue;
-        QCOMPARE(journal.entries(&issue).size(), 1);
-        QVERIFY(issue.isEmpty());
-        const auto target = dir(QStringLiteral("journal-v2-new.png"));
-        auto error = journal.perform(QStringLiteral("copy"), source, target);
-        QVERIFY2(error.isEmpty(), qPrintable(error));
-        QVERIFY(!legacy.exists());
-        QCOMPARE(journal.entries(&issue).size(), 2);
-        QVERIFY(issue.isEmpty());
-        const QDir records(journal.root() + QStringLiteral("/entries"));
-        const auto first =
-            records.filePath(records.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name).first());
-        const auto hash = ix::sha256File(first);
-        const auto stamp = QFileInfo(first).lastModified();
-        QVERIFY(journal.undo().isEmpty());
-        QVERIFY(!QFileInfo::exists(target));
-        QCOMPARE(ix::sha256File(first), hash);
-        QCOMPARE(QFileInfo(first).lastModified(), stamp);
-        QVERIFY(journal.undo().isEmpty());
-        QVERIFY(!QFileInfo::exists(oldTarget));
-    }
+
     void batchPinsWatermarkAndRejectsResourceOutputs() {
         const auto input = dir(QStringLiteral("watermark-input.png"));
         const auto mark = dir(QStringLiteral("watermark-asset.png"));
@@ -1483,7 +1424,7 @@ class IxTests : public QObject {
         ix::PipelineJob job;
         job.inputs = {input};
         job.outputDirectory = dir(QStringLiteral("watermark-results"));
-        job.journalRoot = dir(QStringLiteral("watermark-journal"));
+        job.cacheRoot = dir(QStringLiteral("watermark-journal"));
         QVERIFY(QDir().mkpath(job.outputDirectory));
         job.profile.steps = {{QStringLiteral("watermark"),
                               {{QStringLiteral("image"), mark},
@@ -1696,57 +1637,14 @@ class IxTests : public QObject {
         QTRY_COMPARE(window.document().path, second);
         QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::blue));
     }
-    void journalRefusesChangedTargetsAndCorruption() {
-        auto source = dir(QStringLiteral("guard-source.txt")),
-             target = dir(QStringLiteral("guard-target.txt"));
-        QFile file(source);
-        QVERIFY(file.open(QIODevice::WriteOnly));
-        file.write("source");
-        file.close();
-        ix::FileJournal journal(dir(QStringLiteral("journal-guard")));
-        QVERIFY(journal.perform(QStringLiteral("copy"), source, target).isEmpty());
-        QFile changed(target);
-        QVERIFY(changed.open(QIODevice::WriteOnly));
-        changed.write("changed");
-        changed.close();
-        QVERIFY(!journal.undo().isEmpty());
-        QVERIFY(QFileInfo::exists(target));
-        QFile corrupt(journal.root() + QStringLiteral("/operations.json"));
-        QVERIFY(corrupt.open(QIODevice::WriteOnly));
-        corrupt.write("broken");
-        corrupt.close();
-        QVERIFY(!journal.perform(QStringLiteral("delete"), source).isEmpty());
-        QVERIFY(QFileInfo::exists(source));
-        QVERIFY(corrupt.open(QIODevice::ReadOnly));
-        QCOMPARE(corrupt.readAll(), QByteArray("broken"));
-    }
-    void journalReplacementAndBackupGuard() {
-        auto target = dir(QStringLiteral("replace.txt")), stage = dir(QStringLiteral("stage.txt"));
-        auto write = [](const QString &path, QByteArray data) {
-            QFile file(path);
-            return file.open(QIODevice::WriteOnly) && file.write(data) == data.size();
-        };
-        QVERIFY(write(target, "old"));
-        QVERIFY(write(stage, "new"));
-        auto oldHash = ix::sha256File(target);
-        ix::FileJournal journal(dir(QStringLiteral("journal-replace")));
-        QVERIFY(journal.installOutput(stage, target, true, ix::imageFileKey(target)).isEmpty());
-        QVERIFY(journal.undo().isEmpty());
-        QCOMPARE(ix::sha256File(target), oldHash);
-        QVERIFY(write(stage, "new2"));
-        QVERIFY(journal.installOutput(stage, target, true, ix::imageFileKey(target)).isEmpty());
-        auto backup = journal.entries().last().toObject().value(QStringLiteral("backup")).toString();
-        QVERIFY(write(backup, "corrupted backup"));
-        QVERIFY(!journal.undo().isEmpty());
-        QVERIFY(!QFileInfo::exists(stage));
-    }
-    void pipelineOrderProfilesPreviewAndUndo() {
+
+    void pipelineOrderProfilesAndPreview() {
         ix::PipelineJob job;
         auto input = dir(QStringLiteral("pipeline.png"));
         QVERIFY(pattern(120, 80).save(input));
         job.inputs = {input};
         job.outputDirectory = dir(QStringLiteral("pipeline-output"));
-        job.journalRoot = dir(QStringLiteral("pipeline-journal"));
+        job.cacheRoot = dir(QStringLiteral("pipeline-journal"));
         job.allowLoss = true;
         job.profile.steps = {
             {QStringLiteral("resize"), {{QStringLiteral("width"), 60}, {QStringLiteral("height"), 60}}},
@@ -1778,15 +1676,7 @@ class IxTests : public QObject {
         QImage output(result[0].output);
         QCOMPARE(output.size(), QSize(60, 40));
         QCOMPARE(output.scaled(500, 360, Qt::KeepAspectRatio, Qt::SmoothTransformation), preview.after);
-        const auto undoError = ix::FileJournal(job.journalRoot).undo();
-        if (!undoError.isEmpty())
-            qWarning().noquote() << undoError << "target hash:" << ix::sha256File(result[0].output)
-                                 << "journal:" << QJsonDocument(ix::FileJournal(job.journalRoot).entries())
-                                                         .toJson(QJsonDocument::Compact);
-        QVERIFY2(undoError.isEmpty(), qPrintable(undoError));
-        QVERIFY(!QFileInfo::exists(result[0].output));
-        std::swap(job.profile.steps[0], job.profile.steps.last());
-        QVERIFY(!job.profile.validate().isEmpty());
+
     }
     void pipelineFreshnessCollisionAndCancellation() {
         ix::PipelineJob job;
@@ -1798,7 +1688,7 @@ class IxTests : public QObject {
         job.namePattern = QStringLiteral("{name}");
         QVERIFY(!ix::BatchPipeline::plan(job)[0].error.isEmpty());
         job.outputDirectory = dir(QStringLiteral("pipeline-guard-output"));
-        job.journalRoot = dir(QStringLiteral("pipeline-guard-journal"));
+        job.cacheRoot = dir(QStringLiteral("pipeline-guard-journal"));
         auto plan = ix::BatchPipeline::plan(job);
         QVERIFY(plan[0].error.isEmpty());
         QVERIFY(pattern(65, 49).save(source));
@@ -1818,7 +1708,7 @@ class IxTests : public QObject {
     void pipelineChangedOverwritePlanAndParallelCommit() {
         ix::PipelineJob job;
         job.outputDirectory = dir(QStringLiteral("parallel-output"));
-        job.journalRoot = dir(QStringLiteral("parallel-journal"));
+        job.cacheRoot = dir(QStringLiteral("parallel-journal"));
         job.namePattern = QStringLiteral("{name}");
         job.allowLoss = true;
         job.parallelism = 4;
@@ -1832,7 +1722,6 @@ class IxTests : public QObject {
         auto result = ix::BatchPipeline::run(job, ix::BatchPipeline::plan(job), cancel);
         for (const auto &entry : result)
             QVERIFY2(entry.error.isEmpty(), qPrintable(entry.error));
-        QCOMPARE(ix::FileJournal(job.journalRoot).entries().size(), 4);
         job.overwrite = true;
         auto plan = ix::BatchPipeline::plan(job);
         QVERIFY(plan[0].replaces);
@@ -1871,7 +1760,6 @@ class IxTests : public QObject {
         QCOMPARE(table->model()->columnCount(), 4);
         QCOMPARE(table->model()->data(table->model()->index(0, 3)).toString(), ix::localized(QStringLiteral("Fertig")));
         dialog.grab().save(QStringLiteral(IX_TEST_OUTPUT "/pipeline.png"));
-        QCOMPARE(ix::FileJournal(dir(QStringLiteral("pipeline-ui-journal"))).entries().size(), 1);
     }
     void catalogAnnotationsIndexSearchAndCorruption() {
         auto source = dir(QStringLiteral("catalog-landscape.png"));
@@ -1993,11 +1881,7 @@ class IxTests : public QObject {
         });
         ix::libraryDialog(nullptr, {source}, [](QString) {});
         QVERIFY(shown);
-        QTimer::singleShot(30, qApp, [] {
-            if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
-                dialog->reject();
-        });
-        ix::journalDialog(nullptr);
+
     }
     void duplicateResultOpensWithoutManualDialogClosing_data() {
         QTest::addColumn<bool>("useButton");
@@ -2088,7 +1972,7 @@ class IxTests : public QObject {
         window.show();
         window.openPath(path);
         QTRY_COMPARE(window.document().path, path);
-        window.findChild<ix::ImageView *>()->setFit(ix::ImageView::Fit::Original);
+        window.dispatch(QStringLiteral("original"));
         window.dispatch(QStringLiteral("fullscreen"));
         QTRY_VERIFY(window.isFullScreen());
         QVERIFY(window.close());
@@ -2244,9 +2128,14 @@ class IxTests : public QObject {
                     QWheelEvent wheel(point, view.viewport()->mapToGlobal(point.toPoint()), {},
                                       QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
                                       Qt::NoScrollPhase, false);
+                    // Native input may arrive while the geometry waits process
+                    // events. Measure only this synchronous fixture event;
+                    // duplicate delivery of it must still fail the assertion.
+                    const auto beforeWheel = navigation.size();
                     QCoreApplication::sendEvent(view.viewport(), &wheel);
-                    QCOMPARE(navigation.size(), 1);
-                    QCOMPARE(navigation.takeFirst().at(0).toInt(), 1);
+                    QCOMPARE(navigation.size(), beforeWheel + 1);
+                    QCOMPARE(navigation.last().at(0).toInt(), 1);
+                    navigation.clear();
                 }
             }
         }
@@ -2257,6 +2146,7 @@ class IxTests : public QObject {
         const auto point = QPointF(view.viewport()->rect().center());
         QWheelEvent wheel(point, view.viewport()->mapToGlobal(point.toPoint()), {}, QPoint(0, -120),
                           Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        navigation.clear();
         QCoreApplication::sendEvent(view.viewport(), &wheel);
         QVERIFY(view.verticalScrollBar()->value() > before);
         QVERIFY(navigation.isEmpty());
@@ -2798,7 +2688,7 @@ class IxTests : public QObject {
         QVERIFY(timer->isActive());
         window.dispatch(QStringLiteral("animation"));
     }
-    void activeDocumentReloadsAfterFileUndoAndPipeline() {
+    void activeDocumentReloadsAfterPipeline() {
         const auto path = dir(QStringLiteral("active-undo.png"));
         const auto staged = dir(QStringLiteral("active-stage.png"));
         const auto input = dir(QStringLiteral("active-input.png"));
@@ -2809,21 +2699,17 @@ class IxTests : public QObject {
         QVERIFY(original.save(path));
         QVERIFY(replacement.save(staged));
         QVERIFY(replacement.save(input));
-        QVERIFY(ix::FileJournal(root).installOutput(staged, path, true, ix::imageFileKey(path)).isEmpty());
         ix::MainWindow window(nullptr, root);
         window.openPath(path);
-        QTRY_COMPARE(window.document().pixels, replacement);
-        window.findChild<QAction *>(QStringLiteral("fileUndo"))->trigger();
         QTRY_COMPARE(window.document().pixels, original);
-        QVERIFY(!window.document().modified);
-        QVERIFY(!window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
+        QVERIFY(!window.findChild<QAction *>(QStringLiteral("fileUndo")));
         QVERIFY(reviewedOverwrite(window, input, path));
         QTRY_COMPARE(window.document().pixels, replacement);
         QVERIFY(!window.document().modified);
         QVERIFY(!window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
         QCOMPARE(window.document().sourceRevision, ix::imageFileKey(path));
     }
-    void dirtyDocumentSurvivesPipelineReplacementAndFileUndo() {
+    void dirtyDocumentSurvivesPipelineReplacement() {
         const auto path = dir(QStringLiteral("dirty-active.png")), input = dir(QStringLiteral("dirty-input.png"));
         const auto root = dir(QStringLiteral("dirty-journal"));
         QImage original(32, 24, QImage::Format_RGB32), replacement(16, 12, QImage::Format_RGB32);
@@ -2857,11 +2743,10 @@ class IxTests : public QObject {
         QTRY_VERIFY(!window.isBusy());
         QCOMPARE(window.document().pixels, original);
         QVERIFY(window.document().modified); // Original pixels are now a local edit over the blue file.
-        window.findChild<QAction *>(QStringLiteral("fileUndo"))->trigger();
-        QCOMPARE(QImage(path), original);
+        QCOMPARE(QImage(path), replacement);
         QCOMPARE(window.document().pixels, original);
         QVERIFY(window.document().modified);
-        QCOMPARE(warnings, 2);
+        QCOMPARE(warnings, 1);
         acknowledge.stop();
     }
     void undoRedoDisplayRunsInWorker() {
@@ -2937,6 +2822,19 @@ class IxTests : public QObject {
         }
         ix::ImageLoadCache::clear();
         QCOMPARE(ix::ApngCodec::cacheStats().retainedBytes, qint64(0));
+        const auto retainedPath = dir(QStringLiteral("retained-session.png"));
+        QFile retainedFile(retainedPath);
+        QVERIFY(retainedFile.open(QIODevice::WriteOnly));
+        retainedFile.write(ix::test::apngFixture(3)); retainedFile.close();
+        QVERIFY(registry.read(retainedPath, 0).ok());
+        const auto retainedStats = ix::ApngCodec::cacheStats();
+        ix::ImageLoadCache::invalidate({dir(QStringLiteral("unrelated-file.png"))});
+        QVERIFY(registry.read(retainedPath, 1).ok());
+        QCOMPARE(ix::ApngCodec::cacheStats().filesParsed, retainedStats.filesParsed);
+        ix::ImageLoadCache::invalidate({retainedPath});
+        QCOMPARE(ix::ApngCodec::cacheStats().retainedBytes, qint64(0));
+        QVERIFY(registry.read(retainedPath, 2).ok());
+        QCOMPARE(ix::ApngCodec::cacheStats().filesParsed, retainedStats.filesParsed + 1);
         const auto large = dir(QStringLiteral("session-over-budget.png"));
         QFile file(large);
         QVERIFY(file.open(QIODevice::WriteOnly));
@@ -2963,6 +2861,116 @@ class IxTests : public QObject {
         QCOMPARE(second.document.pixels.pixelColor(0, 0).red(), 255);
         QVERIFY(!registry.read(file.fileName(), 2).ok());
     }
+#ifdef IX_TEST_ARCHIVE
+    void imageArchivePagesAndPreview_data() {
+        QTest::addColumn<QString>("extension");
+        QTest::newRow("ZIP") << QStringLiteral("zip");
+        QTest::newRow("CBZ") << QStringLiteral("cbz");
+    }
+    void imageArchivePagesAndPreview() {
+        QFETCH(QString, extension);
+        QTemporaryDir files;
+        QVERIFY(files.isValid());
+        const auto path = files.filePath(QStringLiteral("images.") + extension);
+        auto first = pattern(60, 30), second = pattern(40, 80), third = pattern(90, 40);
+        const auto png = [](const QImage &image) {
+            QByteArray bytes; QBuffer buffer(&bytes); buffer.open(QIODevice::WriteOnly);
+            if (!image.save(&buffer, "PNG")) return QByteArray();
+            return bytes;
+        };
+        KZip archive(path);
+        QVERIFY(archive.open(QIODevice::WriteOnly));
+        QVERIFY(archive.writeFile(QStringLiteral("pages/10.png"), png(third)));
+        QVERIFY(archive.writeFile(QStringLiteral("pages/2.png"), png(second)));
+        QVERIFY(archive.writeFile(QStringLiteral("pages/1.png"), png(first)));
+        QVERIFY(archive.writeFile(QStringLiteral("__MACOSX/preview.png"), png(third)));
+        QVERIFY(archive.writeFile(QStringLiteral(".hidden.png"), png(third)));
+        QVERIFY(archive.writeFile(QStringLiteral("notes.txt"), QByteArray("not a page")));
+        QVERIFY(archive.close());
+        const auto revision = ix::sha256File(path);
+        ix::CodecRegistry registry;
+        QVERIFY(registry.extensions().contains(extension));
+        QVERIFY(registry.openFilter().contains(QStringLiteral("*.") + extension));
+        QVERIFY(!ix::CodecRegistry::canWrite(extension.toLatin1()));
+        for (int page : {0, 2, 1, 0}) {
+            const auto result = registry.read(path, page);
+            QVERIFY2(result.ok(), qPrintable(result.error));
+            QCOMPARE(result.document.pageCount, 3);
+            QCOMPARE(result.document.page, page);
+            QVERIFY(!result.document.animated);
+            QCOMPARE(result.document.format, extension.toLatin1());
+            QCOMPARE(result.document.pixels, (page == 0 ? first : page == 1 ? second : third));
+            QCOMPARE(result.document.text.value(QStringLiteral("ArchiveEntry")),
+                     QStringLiteral("pages/%1.png").arg(page == 2 ? 10 : page + 1));
+        }
+        QVERIFY(!registry.read(path, -1).ok());
+        QVERIFY(!registry.read(path, 3).ok());
+        const auto preview = ix::loadPreview(path, QSize(24, 24));
+        QCOMPARE(preview.size(), QSize(24, 12));
+        const auto output = files.filePath(QStringLiteral("page.png"));
+        const auto read = registry.read(path, 1);
+        QVERIFY(registry.save(read.document, output, "png", 95, true).isEmpty());
+        QCOMPARE(registry.read(output).document.pixels, second);
+        QCOMPARE(ix::sha256File(path), revision);
+        // Exercise the existing page controls and asynchronous viewer load.
+        ix::MainWindow window;
+        window.show(); window.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && !window.document().empty(), 15000);
+        QCOMPARE(window.document().pageCount, 3);
+        auto *next = window.findChild<QAction *>(QStringLiteral("nextPage"));
+        auto *previous = window.findChild<QAction *>(QStringLiteral("previousPage"));
+        QVERIFY(next && previous && next->isEnabled() && !previous->isEnabled());
+        next->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().page == 1, 15000);
+        QCOMPARE(window.document().pixels, second);
+        previous->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().page == 0, 15000);
+        QCOMPARE(window.document().pixels, first);
+    }
+    void imageArchiveRejectsInvalidContainers_data() {
+        QTest::addColumn<QString>("variant");
+        for (const auto &name : {"empty", "text-only", "nested", "bad-image", "truncated",
+                                 "encrypted", "oversized", "too-many", "traversal", "zip64"})
+            QTest::newRow(name) << QString::fromLatin1(name);
+    }
+    void imageArchiveRejectsInvalidContainers() {
+        QFETCH(QString, variant);
+        QTemporaryDir files;
+        QVERIFY(files.isValid());
+        const auto path = files.filePath(QStringLiteral("invalid.cbz"));
+        KZip archive(path);
+        QVERIFY(archive.open(QIODevice::WriteOnly));
+        QByteArray pixels; QBuffer buffer(&pixels); buffer.open(QIODevice::WriteOnly);
+        QVERIFY(pattern().save(&buffer, "PNG"));
+        if (variant == QStringLiteral("text-only"))
+            QVERIFY(archive.writeFile(QStringLiteral("notes.txt"), QByteArray("notes")));
+        else if (variant == QStringLiteral("nested"))
+            QVERIFY(archive.writeFile(QStringLiteral("inner.cbz"), pixels));
+        else if (variant != QStringLiteral("empty"))
+            QVERIFY(archive.writeFile(QStringLiteral("1.png"), variant == QStringLiteral("bad-image") ? QByteArray("garbage") : pixels));
+        QVERIFY(archive.close());
+        QFile file(path); QVERIFY(file.open(QIODevice::ReadWrite));
+        auto data = file.readAll();
+        const auto central = data.indexOf(QByteArray("PK\1\2", 4));
+        const auto end = data.lastIndexOf(QByteArray("PK\5\6", 4));
+        if (variant == QStringLiteral("truncated")) data.chop(10);
+        if (variant == QStringLiteral("encrypted")) data[central + 8] = char(1);
+        if (variant == QStringLiteral("oversized"))
+            qToLittleEndian<quint32>(512 * 1024 * 1024, data.data() + central + 24);
+        if (variant == QStringLiteral("too-many")) {
+            qToLittleEndian<quint16>(10001, data.data() + end + 8);
+            qToLittleEndian<quint16>(10001, data.data() + end + 10);
+        }
+        if (variant == QStringLiteral("traversal")) data.replace(central + 46, 5, "../xx");
+        if (variant == QStringLiteral("zip64")) qToLittleEndian<quint32>(0xffffffff, data.data() + end + 16);
+        QVERIFY(file.resize(0)); QCOMPARE(file.write(data), data.size()); file.close();
+        const auto result = ix::CodecRegistry().read(path);
+        QVERIFY(!result.ok());
+        QVERIFY(!result.error.isEmpty());
+        QVERIFY(ix::loadPreview(path, QSize(32, 32)).isNull());
+        QCOMPARE(QDir(files.path()).entryList(QDir::Files), QStringList{QStringLiteral("invalid.cbz")});
+    }
+#endif
     void tiffPages() {
         auto path = dir(QStringLiteral("pages.tiff"));
         auto *tiff = TIFFOpen(QFile::encodeName(path).constData(), "w");
@@ -3140,7 +3148,6 @@ class IxTests : public QObject {
         QDir().mkpath(QFileInfo(input).absolutePath());
         QVERIFY(registry.save(d, input, "png", 95, true).isEmpty());
         ix::BatchOptions o;
-        o.journalRoot = dir(QStringLiteral("legacy-journal"));
         o.inputs = {input};
         o.outputDirectory = dir(QStringLiteral("batch/output"));
         o.allowLoss = true;
@@ -3505,10 +3512,17 @@ class IxTests : public QObject {
         QVERIFY(file.seek(file.size() - 1));
         QCOMPARE(file.write("X", 1), 1);
         file.close();
-        ix::FileJournal journal(dir(QStringLiteral("hash-journal")));
+        ix::PipelineJob job;
+        job.inputs = {source}; job.outputDirectory = QFileInfo(target).absolutePath();
+        job.namePattern = QFileInfo(target).completeBaseName(); job.overwrite = true; job.allowLoss = true;
+        job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("bmp")}}}};
+        auto plan = ix::BatchPipeline::plan(job);
+        QCOMPARE(plan.size(), 1);
         // Supply the current stamp to independently exercise the content guard.
-        auto error = journal.installOutput(stage, target, true, ix::imageFileKey(target), hash);
-        QVERIFY(!error.isEmpty());
+        plan[0].targetHash = hash;
+        std::atomic_bool cancel = false;
+        const auto result = ix::BatchPipeline::run(job, plan, cancel);
+        QVERIFY(!result[0].error.isEmpty());
         QVERIFY(QFileInfo::exists(stage));
         QVERIFY(ix::sha256File(target) != hash);
     }
@@ -3765,6 +3779,7 @@ class IxTests : public QObject {
         auto *view = window.findChild<ix::ImageView *>();
         auto *menu = window.findChild<QMenu *>(QStringLiteral("cropAspectMenu"));
         QVERIFY(menu);
+        QVERIFY(!window.findChild<QAction *>(QStringLiteral("crop"))->isEnabled());
         auto find = [&](const QString &label) -> QAction * {
             for (auto *action : menu->actions())
                 if (action->text() == label)
@@ -3777,14 +3792,26 @@ class IxTests : public QObject {
         QVERIFY(find(QStringLiteral("5:4")));
         QVERIFY(find(QStringLiteral("2:3")));
         QVERIFY(!find(QStringLiteral("32:18")));
+        QVERIFY(!find(ix::localized(QStringLiteral("Freie Auswahl"))));
+        QVERIFY(!menu->actions().contains(window.findChild<QAction *>(QStringLiteral("crop"))));
         find(QStringLiteral("16:9"))->trigger();
         QCOMPARE(view->selection(), QRect(0, 37, 400, 225));
+        const auto ratioSelection = view->selection();
+        auto *sharpen = window.findChild<QAction *>(QStringLiteral("sharpenDisplay"));
+        QVERIFY(sharpen);
+        for (int toggle = 0; toggle < 2; ++toggle) {
+            sharpen->trigger();
+            QTRY_VERIFY(!window.isBusy());
+            QCOMPARE(view->selectionAspectRatio(), QSize(16, 9));
+            QCOMPARE(view->selection(), ratioSelection);
+        }
         QVERIFY(window.grab().save(QStringLiteral(IX_TEST_OUTPUT "/aspect-crop.png")));
         const auto selected = view->selection();
         window.findChild<QAction *>(QStringLiteral("crop"))->trigger();
         QTRY_VERIFY(window.document().modified);
         QCOMPARE(window.document().pixels, image.copy(selected));
         QCOMPARE(window.document().pixels.colorSpace(), image.colorSpace());
+        QCOMPARE(view->selectionAspectRatio(), QSize(16, 9));
         window.dispatch(QStringLiteral("undo"));
         QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy(), 10000);
         QCOMPARE(window.document().pixels, image);
@@ -3794,8 +3821,12 @@ class IxTests : public QObject {
         QVERIFY(QMetaObject::invokeMethod(menu, "aboutToShow"));
         QVERIFY(find(QStringLiteral("7:5")));
         QVERIFY(!find(QStringLiteral("5:4")));
-        menu->actions().first()->trigger();
+        find(QStringLiteral("7:5"))->trigger();
+        QCOMPARE(view->selectionAspectRatio(), QSize(7, 5));
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, {0, 0});
+        QVERIFY(view->selection().isEmpty());
         QVERIFY(!view->selectionAspectRatio().isValid());
+        QVERIFY(!window.findChild<QAction *>(QStringLiteral("crop"))->isEnabled());
         window.close();
     }
     void fullscreenMouseNavigationAndDrags() {
@@ -4483,9 +4514,10 @@ class IxTests : public QObject {
         QTimer::singleShot(0, this, [] {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
             QVERIFY(dialog);
-            auto *chart = dialog->findChild<QLabel *>(QStringLiteral("histogramChart"));
+            auto close = qScopeGuard([dialog] { dialog->reject(); });
+            auto *chart = dialog->findChild<QWidget *>(QStringLiteral("histogramChart"));
             QVERIFY(chart);
-            QTRY_VERIFY_WITH_TIMEOUT(!chart->pixmap().isNull(), 10000);
+            QTRY_VERIFY_WITH_TIMEOUT(!chart->accessibleDescription().isEmpty(), 10000);
             QVERIFY(dialog->grab().save(QStringLiteral(IX_TEST_OUTPUT "/histogram-dialog.png")));
             dialog->reject();
         });

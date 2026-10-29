@@ -23,6 +23,8 @@ for kind in ['platforms','styles','imageformats','printsupport','iconengines','t
             for name in ['qwindows.dll','qoffscreen.dll']:
                 shutil.copy2(source/name,dest/kind/name)
         else: shutil.copytree(source,dest/kind,dirs_exist_ok=True)
+archive_plugin=root/'build/imageformats/ixarchive.dll'
+if archive_plugin.exists():shutil.copy2(archive_plugin,dest/'imageformats'/archive_plugin.name)
 heif=sdk/'lib/libheif'
 if heif.exists():shutil.copytree(heif,dest/'libheif',dirs_exist_ok=True)
 (dest/'qt.conf').write_text('[Paths]\nPrefix=.\nPlugins=.\nTranslations=translations\n',encoding='utf-8')

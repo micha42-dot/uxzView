@@ -9,10 +9,11 @@ import zipfile
 from prepare_github import audit
 from source_archive import ROOT, create_source_archive
 from runtime_files import release_files
+from dependency_sources import OWN_DLLS
 
 
 def validate_own_runtime(runtime):
-    for name in ('uxzView.exe', 'ixrawpreview.dll', 'ixextensions.dll'):
+    for name in ('uxzView.exe', 'ixrawpreview.dll', 'ixextensions.dll', 'imageformats/ixarchive.dll'):
         built = ROOT / 'build' / name
         deployed = runtime / name
         if name == 'uxzView.exe' and not built.is_file():
@@ -32,7 +33,7 @@ def validate_runtime_inventory(runtime):
         raise RuntimeError("Unresolved runtime dependencies")
     files = dict(release_files(runtime))
     actual = {relative for relative, p in files.items()
-              if p.suffix.lower() == '.dll' and p.name.lower() not in {"ixrawpreview.dll", "ixextensions.dll"}}
+              if p.suffix.lower() == '.dll' and p.name.lower() not in OWN_DLLS}
     if actual != set(dependencies["runtime_files"]):
         raise RuntimeError("DLL set changed after source inventory")
     with (ROOT / "scripts/sdk-lock.json").open("rb") as stream:

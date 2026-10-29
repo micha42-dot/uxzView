@@ -3,7 +3,7 @@
 #include "core/directory_index_service.h"
 #include "core/batch_pipeline.h"
 #include "core/batch_report.h"
-#include "core/file_journal.h"
+#include "core/file_operations.h"
 #include "core/resize_model.h"
 #include "core/image_loading.h"
 #include "core/image_catalog.h"
@@ -53,6 +53,357 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void menuCheckmarksMatchForExclusiveAndIndependentChoices_data() {
+        QTest::addColumn<QString>("theme");
+        QTest::newRow("light") << QStringLiteral("light");
+        QTest::newRow("dark") << QStringLiteral("dark");
+    }
+    void menuCheckmarksMatchForExclusiveAndIndependentChoices() {
+        QFETCH(QString, theme);
+        const auto palette = QApplication::palette();
+        const auto previous = QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString();
+        const auto restore = qScopeGuard([&] {
+            ix::applyInterfaceTheme(previous);
+            QApplication::setPalette(palette);
+        });
+        ix::applyInterfaceTheme(theme);
+        QMenu menu;
+        for (bool enabled : {false, true}) for (bool selected : {false, true}) {
+            auto render = [&](QStyleOptionMenuItem::CheckType type) {
+                QImage image(240, 30, QImage::Format_ARGB32_Premultiplied);
+                image.fill(Qt::transparent);
+                QStyleOptionMenuItem option;
+                option.initFrom(&menu);
+                option.rect = image.rect();
+                option.text = QStringLiteral("Display option");
+                option.menuItemType = QStyleOptionMenuItem::Normal;
+                option.menuHasCheckableItems = true;
+                option.checkType = type;
+                option.checked = true;
+                option.state.setFlag(QStyle::State_Enabled, enabled);
+                option.state.setFlag(QStyle::State_Selected, selected);
+                QPainter painter(&image);
+                menu.style()->drawControl(QStyle::CE_MenuItem, &option, &painter, &menu);
+                return image;
+            };
+            QCOMPARE(render(QStyleOptionMenuItem::Exclusive), render(QStyleOptionMenuItem::NonExclusive));
+        }
+    }
+    void displayFitMenuSelectionPersists() {
+        QSettings settings;
+        QVariantMap saved;
+        for (const auto &key : settings.allKeys()) saved.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto i = saved.cbegin(); i != saved.cend(); ++i) settings.setValue(i.key(), i.value());
+        });
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::LargeOnly));
+        settings.remove(QStringLiteral("view/fitCommand"));
+        const auto path = photo(QStringLiteral("fit-menu/image.png"), Qt::green);
+        ix::MainWindow window;
+        window.resize(983, 617);
+        window.show();
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        auto *menu = window.findChild<QMenu *>(QStringLiteral("anzeige-optionen"));
+        QVERIFY(menu);
+        auto *choices = menu->findChild<QActionGroup *>(QStringLiteral("windowFitChoices"));
+        QVERIFY(choices && choices->isExclusive());
+        QCOMPARE(choices->actions().size(), 12);
+        auto selected = [&] {
+            QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection);
+            int count = 0;
+            QString command;
+            for (auto *action : choices->actions()) if (action->isChecked()) {
+                ++count;
+                command = action->data().toString();
+            }
+            return count == 1 ? command : QString();
+        };
+        QCOMPARE(selected(), QStringLiteral("fitScreenLarge"));
+        auto *view = window.findChild<ix::ImageView *>();
+        QSignalSpy zoomed(view, &ix::ImageView::zoomChanged);
+        const auto pixels = view->image().cacheKey();
+        selected();
+        QVERIFY(zoomed.isEmpty());
+        QCOMPARE(view->image().cacheKey(), pixels);
+        menu->popup(window.mapToGlobal(QPoint(24, 80)));
+        QTRY_VERIFY(menu->isVisible());
+        QVERIFY(menu->grab().save(QStringLiteral(IX_WORKFLOW_OUTPUT "/display-fit-menu.png")));
+        menu->hide();
+        const QStringList commands{QStringLiteral("fitOriginal"), QStringLiteral("fitWindow"),
+            QStringLiteral("fitLarge"), QStringLiteral("fitWidth"), QStringLiteral("fitHeight"),
+            QStringLiteral("fitShort"), QStringLiteral("fitScreen"), QStringLiteral("fitScreenLarge"),
+            QStringLiteral("fitScreenWidth"), QStringLiteral("fitScreenHeight"),
+            QStringLiteral("fitScreenShort"), QStringLiteral("noFit")};
+        for (const auto &command : commands) {
+            auto *action = window.findChild<QAction *>(command);
+            QVERIFY(action && action->isEnabled() && action->isCheckable());
+            action->trigger();
+            QCOMPARE(selected(), command);
+            action->trigger(); // a selected radio item cannot uncheck itself
+            QCOMPARE(selected(), command);
+        }
+        window.dispatch(QStringLiteral("fitScreenWidth"));
+        QCOMPARE(settings.value(QStringLiteral("view/fitCommand")).toString(), QStringLiteral("fitScreenWidth"));
+        ix::MainWindow reopened;
+        auto *reopenedChoices = reopened.findChild<QActionGroup *>(QStringLiteral("windowFitChoices"));
+        QVERIFY(reopenedChoices && reopenedChoices->checkedAction());
+        QCOMPARE(reopenedChoices->checkedAction()->data().toString(), QStringLiteral("fitScreenWidth"));
+        // A stale/unknown alias must not overrule the actual stored fit policy.
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::Height));
+        ix::MainWindow mismatched;
+        QCOMPARE(mismatched.findChild<QActionGroup *>(QStringLiteral("windowFitChoices"))->checkedAction()->data().toString(),
+                 QStringLiteral("fitHeight"));
+    }
+    void displayFitMenuTracksZoomFullscreenAndBlockedActions() {
+        QSettings settings;
+        QVariantMap saved;
+        for (const auto &key : settings.allKeys()) saved.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto i = saved.cbegin(); i != saved.cend(); ++i) settings.setValue(i.key(), i.value());
+        });
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::LargeOnly));
+        settings.setValue(QStringLiteral("view/fitCommand"), QStringLiteral("fitLarge"));
+        settings.setValue(QStringLiteral("view/lockZoom"), false);
+        settings.setValue(QStringLiteral("fullscreen/fit"), int(ix::ImageView::Fit::Width));
+        const auto first = photo(QStringLiteral("fit-menu-state/1.png"), Qt::blue);
+        const auto second = photo(QStringLiteral("fit-menu-state/2.png"), Qt::red);
+        ix::MainWindow window;
+        window.show();
+        window.openPath(first);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == first);
+        auto *view = window.findChild<ix::ImageView *>();
+        auto *menu = window.findChild<QMenu *>(QStringLiteral("anzeige-optionen"));
+        auto *choices = menu->findChild<QActionGroup *>(QStringLiteral("windowFitChoices"));
+        auto selected = [&] {
+            QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection);
+            return choices->checkedAction()->data().toString();
+        };
+        view->setZoom(2);
+        QCOMPARE(selected(), QStringLiteral("noFit"));
+        QCOMPARE(settings.value(QStringLiteral("view/fitCommand")).toString(), QStringLiteral("fitLarge"));
+        window.openPath(second);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == second);
+        QCOMPARE(selected(), QStringLiteral("fitLarge"));
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(window.isFullScreen());
+        QCOMPARE(view->fit(), ix::ImageView::Fit::Width);
+        QCOMPARE(selected(), QStringLiteral("fitLarge")); // menu describes the window policy
+        window.findChild<QAction *>(QStringLiteral("fitHeight"))->trigger();
+        QCOMPARE(selected(), QStringLiteral("fitHeight"));
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(!window.isFullScreen());
+        QCOMPARE(view->fit(), ix::ImageView::Fit::Height);
+        QCOMPARE(settings.value(QStringLiteral("fullscreen/fit")).toInt(), int(ix::ImageView::Fit::Width));
+        window.openPath(first);
+        QVERIFY(window.isBusy());
+        window.findChild<QAction *>(QStringLiteral("fitWindow"))->trigger();
+        QCOMPARE(choices->checkedAction()->data().toString(), QStringLiteral("fitHeight"));
+        QTRY_VERIFY(!window.isBusy() && window.document().path == first);
+        QCOMPARE(view->fit(), ix::ImageView::Fit::Height);
+        QDialog blocker(&window);
+        blocker.setWindowModality(Qt::ApplicationModal);
+        blocker.show();
+        QTRY_COMPARE(QApplication::activeModalWidget(), &blocker);
+        window.findChild<QAction *>(QStringLiteral("fitShort"))->trigger();
+        QCOMPARE(choices->checkedAction()->data().toString(), QStringLiteral("fitHeight"));
+        QCOMPARE(view->fit(), ix::ImageView::Fit::Height);
+        blocker.reject();
+    }
+    void windowFitChangedWhileFullscreenAppliesOnExit_data() {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("landscape-3331x2244") << QSize(3331, 2244);
+        QTest::newRow("portrait-2594x3486") << QSize(2594, 3486);
+    }
+    void windowFitChangedWhileFullscreenAppliesOnExit() {
+        QFETCH(QSize, size);
+        QSettings settings;
+        QVariantMap saved;
+        for (const auto &key : settings.allKeys()) saved.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto i = saved.cbegin(); i != saved.cend(); ++i) settings.setValue(i.key(), i.value());
+        });
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::Original));
+        settings.setValue(QStringLiteral("fullscreen/fit"), int(ix::ImageView::Fit::Window));
+        settings.setValue(QStringLiteral("view/lockZoom"), false);
+        settings.setValue(QStringLiteral("view/previewStrip"), true);
+        settings.setValue(QStringLiteral("window/rememberGeometry"), false);
+        const auto folder = temporary_.filePath(QString::fromLatin1(QTest::currentDataTag()));
+        QVERIFY(QDir().mkpath(folder));
+        const auto path = folder + QStringLiteral("/1.jpg"), next = folder + QStringLiteral("/2.jpg");
+        QImage image(size, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QVERIFY(image.save(path));
+        QVERIFY(image.save(next));
+        ix::MainWindow window;
+        window.resize(983, 617);
+        window.show();
+        window.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == path, 15000);
+        auto *view = window.findChild<ix::ImageView *>();
+        QVERIFY(view);
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(window.isFullScreen());
+        bool changed = false;
+        QTimer::singleShot(30, qApp, [&] {
+            auto *dialog = qobject_cast<ix::SettingsDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            auto *fit = dialog->findChild<QComboBox *>(QStringLiteral("view/fit"));
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            if (fit && buttons) {
+                fit->setCurrentIndex(int(ix::ImageView::Fit::LargeOnly));
+                changed = true;
+                buttons->button(QDialogButtonBox::Ok)->click();
+            } else dialog->reject();
+        });
+        window.dispatch(QStringLiteral("settings"));
+        QVERIFY(changed);
+        QCOMPARE(view->fit(), ix::ImageView::Fit::Window); // fullscreen policy retained
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(!window.isFullScreen());
+        QCOMPARE(view->fit(), ix::ImageView::Fit::LargeOnly);
+        QTRY_COMPARE(view->visibleImageRect(), image.rect());
+        QCOMPARE(view->horizontalScrollBar()->maximum(), 0);
+        QCOMPARE(view->verticalScrollBar()->maximum(), 0);
+        QTest::keyClick(view, Qt::Key_Right);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == next, 15000);
+        const auto center = QPointF(view->viewport()->rect().center());
+        QWheelEvent previous(center, view->viewport()->mapToGlobal(center.toPoint()), {},
+            QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(view->viewport(), &previous);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == path, 15000);
+    }
+    void closingOlderWindowKeepsNewestFitPreference() {
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("view/fit"));
+        const auto restore = qScopeGuard([&] {
+            if (previous.isValid()) settings.setValue(QStringLiteral("view/fit"), previous);
+            else settings.remove(QStringLiteral("view/fit"));
+        });
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::Original));
+        const auto path = photo(QStringLiteral("older-window-fit.png"), Qt::green);
+        ix::MainWindow older, newer;
+        older.openPath(path);
+        newer.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!older.isBusy() && older.document().path == path, 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(!newer.isBusy() && newer.document().path == path, 15000);
+        newer.dispatch(QStringLiteral("fitLarge"));
+        QCOMPARE(settings.value(QStringLiteral("view/fit")).toInt(), int(ix::ImageView::Fit::LargeOnly));
+        QVERIFY(older.close());
+        QCOMPARE(settings.value(QStringLiteral("view/fit")).toInt(), int(ix::ImageView::Fit::LargeOnly));
+        ix::MainWindow reopened;
+        QCOMPARE(reopened.findChild<ix::ImageView *>()->browsingFit(), ix::ImageView::Fit::LargeOnly);
+        reopened.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!reopened.isBusy() && reopened.document().path == path, 15000);
+        // Accepting the displayed preference must also update a still-open
+        // stale window without requiring a change to the combo's current index.
+        reopened.dispatch(QStringLiteral("original"));
+        newer.dispatch(QStringLiteral("fitLarge"));
+        bool accepted = false;
+        QTimer::singleShot(30, qApp, [&] {
+            auto *dialog = qobject_cast<ix::SettingsDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            accepted = dialog->findChild<QComboBox *>(QStringLiteral("view/fit"))->currentIndex() ==
+                int(ix::ImageView::Fit::LargeOnly);
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        });
+        reopened.dispatch(QStringLiteral("settings"));
+        QVERIFY(accepted);
+        QCOMPARE(reopened.findChild<ix::ImageView *>()->browsingFit(), ix::ImageView::Fit::LargeOnly);
+    }
+    void automaticFitSurvivesLockedZoomDuringFolderNavigation_data() {
+        QTest::addColumn<int>("fit");
+        QTest::addColumn<bool>("locked");
+        QTest::newRow("large-only") << int(ix::ImageView::Fit::LargeOnly) << false;
+        QTest::newRow("large-only-locked") << int(ix::ImageView::Fit::LargeOnly) << true;
+        QTest::newRow("window") << int(ix::ImageView::Fit::Window) << false;
+        QTest::newRow("window-locked") << int(ix::ImageView::Fit::Window) << true;
+    }
+    void automaticFitSurvivesLockedZoomDuringFolderNavigation() {
+        QFETCH(int, fit);
+        QFETCH(bool, locked);
+        QSettings settings;
+        const QStringList keys{QStringLiteral("view/fit"), QStringLiteral("view/lockZoom"),
+            QStringLiteral("view/lockScroll"), QStringLiteral("view/previewStrip"),
+            QStringLiteral("navigation/wrap"), QStringLiteral("navigation/sort"),
+            QStringLiteral("navigation/reverse")};
+        QVariantMap saved;
+        for (const auto &key : keys) saved.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            for (const auto &key : keys)
+                if (saved[key].isValid()) settings.setValue(key, saved[key]);
+                else settings.remove(key);
+        });
+        settings.setValue(QStringLiteral("view/fit"), fit);
+        settings.setValue(QStringLiteral("view/lockZoom"), false);
+        settings.setValue(QStringLiteral("view/lockScroll"), false);
+        settings.setValue(QStringLiteral("view/previewStrip"), false);
+        settings.setValue(QStringLiteral("navigation/wrap"), true);
+        settings.setValue(QStringLiteral("navigation/sort"), 0);
+        settings.setValue(QStringLiteral("navigation/reverse"), false);
+        const auto folder = temporary_.filePath(QStringLiteral("fit-navigation-%1-%2").arg(fit).arg(locked));
+        QVERIFY(QDir().mkpath(folder));
+        const auto first = folder + QStringLiteral("/1.png"), second = folder + QStringLiteral("/2.png");
+        QImage landscape(1601, 1001, QImage::Format_RGB32);
+        landscape.fill(Qt::green);
+        QVERIFY(landscape.save(first));
+        QImage panorama(20003, 1003, QImage::Format_RGB32);
+        panorama.fill(Qt::blue);
+        QVERIFY(panorama.save(second));
+        ix::MainWindow window;
+        window.resize(983, 617);
+        window.show();
+        window.openPath(first);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == first, 15000);
+        auto *view = window.findChild<ix::ImageView *>();
+        QVERIFY(view);
+        QTRY_COMPARE(view->visibleImageRect(), landscape.rect());
+        if (locked) window.findChild<QAction *>(QStringLiteral("lockZoom"))->trigger();
+        for (const bool previews : {false, true}) {
+            window.findChild<QAction *>(QStringLiteral("previewStripToggle"))->setChecked(previews);
+            for (const auto size : {QSize(983, 617), QSize(801, 603)}) {
+                window.resize(size);
+                view->setFocus();
+                QTest::keyClick(view, Qt::Key_Right);
+                QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == second, 15000);
+                QCOMPARE(view->fit(), ix::ImageView::Fit(fit));
+                QTRY_COMPARE(view->visibleImageRect(), panorama.rect());
+                QCOMPARE(view->horizontalScrollBar()->maximum(), 0);
+                QCOMPARE(view->verticalScrollBar()->maximum(), 0);
+                QVERIFY(panorama.width() * view->zoom() <= view->viewport()->width() + 1e-7);
+                QVERIFY(panorama.height() * view->zoom() <= view->viewport()->height() + 1e-7);
+                const auto center = QPointF(view->viewport()->rect().center());
+                QWheelEvent previous(center, view->viewport()->mapToGlobal(center.toPoint()), {},
+                    QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+                QCoreApplication::sendEvent(view->viewport(), &previous);
+                QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == first, 15000);
+            }
+        }
+        // Lock still preserves a deliberately chosen detail zoom.
+        if (!locked) window.findChild<QAction *>(QStringLiteral("lockZoom"))->trigger();
+        view->setZoom(2.0);
+        window.openPath(second);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path == second, 15000);
+        QCOMPARE(view->fit(), ix::ImageView::Fit::Original);
+        QCOMPARE(view->zoom(), 2.0);
+        QVERIFY(view->horizontalScrollBar()->maximum() > 0);
+        // A saved lock also must not force 100% on the first image after startup.
+        settings.setValue(QStringLiteral("view/fit"), fit);
+        ix::MainWindow fresh;
+        fresh.resize(801, 603);
+        fresh.show();
+        fresh.openPath(second);
+        QTRY_VERIFY_WITH_TIMEOUT(!fresh.isBusy() && fresh.document().path == second, 15000);
+        auto *freshView = fresh.findChild<ix::ImageView *>();
+        QVERIFY(freshView);
+        QCOMPARE(freshView->fit(), ix::ImageView::Fit(fit));
+        QTRY_COMPARE(freshView->visibleImageRect(), panorama.rect());
+        QCOMPARE(freshView->horizontalScrollBar()->maximum(), 0);
+        QCOMPARE(freshView->verticalScrollBar()->maximum(), 0);
+    }
     void batchProgressCoalescesBurstsWithoutLosingLastUpdate() {
         ix::BatchProgress progress(100000);
         int notifications = 0;
@@ -81,39 +432,14 @@ class WorkflowTests : public QObject {
         QCOMPARE(progress.take(), 100000);
         QVERIFY(!progress.publish(1));
     }
-    void journalDialogRepairsInterruptedOperation() {
-        const auto source = photo(QStringLiteral("repair-journal/source.png"), Qt::cyan);
-        const auto target = temporary_.filePath(QStringLiteral("repair-journal/copy.png"));
-        const auto root = temporary_.filePath(QStringLiteral("repair-journal/history"));
-        ix::FileJournal faulty(root, [](const QJsonObject &entry) {
-            return entry.value(QStringLiteral("state")).toString() == QStringLiteral("committed")
-                ? QStringLiteral("injected full disk") : QString();
-        });
-        QVERIFY(!faulty.perform(QStringLiteral("copy"), source, target).isEmpty());
-        bool repaired = false;
-        QTimer::singleShot(30, qApp, [&] {
-            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
-            if (!dialog) return;
-            auto *repair = dialog->findChild<QPushButton *>(QStringLiteral("recoverJournal"));
-            auto *table = dialog->findChild<QTableWidget *>(QStringLiteral("fileJournalTable"));
-            if (repair && table) {
-                repair->click();
-                repaired = table->rowCount() == 1 && table->item(0, 2)->text() == QStringLiteral("committed");
-            }
-            dialog->reject();
-        });
-        ix::journalDialog(nullptr, root);
-        QVERIFY(repaired);
-        QVERIFY(ix::FileJournal(root).undo().isEmpty());
-        QVERIFY(!QFileInfo::exists(target));
-        QVERIFY(QFileInfo::exists(source));
-    }
+
     void initTestCase() {
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewWorkflowTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
+        ix::applyInterfaceTheme(QStringLiteral("system"));
     }
     void interfaceThemePreservesImageAndNavigationState() {
         QSettings settings;
@@ -135,11 +461,11 @@ class WorkflowTests : public QObject {
         window.show();
         window.openPath(path);
         QTRY_VERIFY(!window.isBusy() && window.document().path == path);
-        QTest::qWait(150); // finish the initial asynchronous directory index
         auto *view = window.findChild<ix::ImageView *>();
         auto *toolbar = window.findChild<QToolBar *>(QStringLiteral("mainToolbar"));
         auto *index = window.findChild<ix::DirectoryIndexService *>();
         QVERIFY(view && toolbar && index);
+        QTRY_VERIFY_WITH_TIMEOUT(!index->isBusy(), 15000);
         view->setZoom(2.5);
         view->setSelection(QRect(3, 4, 20, 13));
         const auto pixels = window.document().pixels.cacheKey(), display = view->image().cacheKey();
@@ -270,8 +596,8 @@ class WorkflowTests : public QObject {
             QCOMPARE(window.findChild<QMenu *>(QStringLiteral("bild"))->title(), ix::localized(QStringLiteral("B&ild")));
             if (code == QStringLiteral("en"))
                 QCOMPARE(window.findChild<QMenu *>(QStringLiteral("bild"))->title(), QStringLiteral("&Image"));
-            QCOMPARE(window.findChild<QAction *>(QStringLiteral("fileJournal"))->text(),
-                     ix::localized(QStringLiteral("Dateijournal / interner Papierkorb …")));
+            QVERIFY(!window.findChild<QAction *>(QStringLiteral("fileJournal")));
+            QVERIFY(!window.findChild<QAction *>(QStringLiteral("fileUndo")));
             QCOMPARE(search->placeholderText(), ix::localized(QStringLiteral("Befehl suchen …")));
             QCOMPARE(formatted.text(), ix::localized(QStringLiteral("Hintergrundfarbe: %1 …")).arg(QStringLiteral("#000000")));
             QCOMPARE(search->text(), QStringLiteral("dpi"));
@@ -778,6 +1104,7 @@ class WorkflowTests : public QObject {
     }
     void renamedDocumentAndUndoRetainTargetFileState() {
         const auto source = photo(QStringLiteral("timestamp-rename/source.png"), Qt::blue);
+        const auto neighbor = photo(QStringLiteral("timestamp-neighbor/unchanged.png"), Qt::green);
         const auto target = temporary_.filePath(QStringLiteral("timestamp-rename/target.png"));
         QVERIFY(!source.isEmpty());
         ix::MainWindow window(nullptr, temporary_.filePath(QStringLiteral("timestamp-journal")));
@@ -785,6 +1112,9 @@ class WorkflowTests : public QObject {
         QTRY_VERIFY(!window.isBusy() && window.document().path == source);
         window.dispatch(QStringLiteral("right"));
         QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        ix::CodecRegistry registry;
+        int neighborDecodes = 0;
+        QVERIFY(ix::ImageLoadCache::read(registry, neighbor, 0, [&] { ++neighborDecodes; }).ok());
         bool handled = false;
         QString error;
         QElapsedTimer elapsed;
@@ -813,6 +1143,9 @@ class WorkflowTests : public QObject {
         const auto modified = QFileInfo(target).lastModified();
         QCOMPARE(window.document().sourceModified, modified);
         QCOMPARE(window.document().sourceRevision, ix::imageFileKey(target));
+        const auto decodedBeforeRename = neighborDecodes;
+        QVERIFY(ix::ImageLoadCache::read(registry, neighbor, 0, [&] { ++neighborDecodes; }).ok());
+        QCOMPARE(neighborDecodes, decodedBeforeRename);
         window.dispatch(QStringLiteral("undo"));
         QTRY_VERIFY(!window.isBusy() && window.document().pixels.size() == QSize(96, 64));
         QCOMPARE(window.document().path, target);
@@ -882,30 +1215,7 @@ class WorkflowTests : public QObject {
         QCOMPARE(QFileInfo::exists(path), change != 2);
         QCOMPARE(QFileInfo::exists(path) ? ix::sha256File(path) : QString(), changedHash);
     }
-    void journalRejectsUnknownUndoOperation() {
-        const auto source = photo(QStringLiteral("unknown-journal/source.png"), Qt::red);
-        const auto target = temporary_.filePath(QStringLiteral("unknown-journal/copy.png"));
-        const auto root = temporary_.filePath(QStringLiteral("unknown-journal/history"));
-        ix::FileJournal journal(root);
-        QVERIFY(journal.perform(QStringLiteral("copy"), source, target).isEmpty());
-        const auto hash = ix::sha256File(target);
-        QDir entries(root + QStringLiteral("/entries"));
-        const auto files = entries.entryList({QStringLiteral("*.json")}, QDir::Files);
-        QCOMPARE(files.size(), 1);
-        QFile file(entries.filePath(files.first()));
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        auto entry = QJsonDocument::fromJson(file.readAll()).object();
-        file.close();
-        entry.insert(QStringLiteral("kind"), QStringLiteral("unsupported-operation"));
-        const auto bytes = QJsonDocument(entry).toJson();
-        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-        QCOMPARE(file.write(bytes), bytes.size());
-        file.close();
-        QVERIFY2(!journal.undo().isEmpty(), "Unknown journal operation modified the target");
-        QCOMPARE(ix::sha256File(target), hash);
-        QCOMPARE(journal.entries().last().toObject().value(QStringLiteral("state")).toString(),
-                 QStringLiteral("committed"));
-    }
+
     void saveAcceptsMatchingTargetRevisions() {
         ix::ImageDocument output;
         output.pixels = QImage(47, 23, QImage::Format_RGBA64);
@@ -1123,7 +1433,7 @@ class WorkflowTests : public QObject {
         ix::PipelineJob job;
         job.inputs = {source};
         job.outputDirectory = temporary_.filePath(QStringLiteral("plan-cancel/output"));
-        job.journalRoot = temporary_.filePath(QStringLiteral("plan-cancel/journal"));
+        job.cacheRoot = temporary_.filePath(QStringLiteral("plan-cancel/journal"));
         job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
         const auto plan = ix::BatchPipeline::plan(job);
         QCOMPARE(plan.size(), 1);
@@ -1139,7 +1449,7 @@ class WorkflowTests : public QObject {
         QVERIFY(result.first().error.startsWith(QStringLiteral("Abgebrochen")));
         QCOMPARE(codec->reads->load(), 0);
         QVERIFY(!QFileInfo::exists(job.outputDirectory));
-        QVERIFY(!QFileInfo::exists(job.journalRoot));
+        QVERIFY(!QFileInfo::exists(job.cacheRoot));
     }
     void pipelineFiltersAndDirectRunRecoverAfterCancel() {
         const auto first = photo(QStringLiteral("filter-state/alpha.PNG"), Qt::blue);
@@ -1298,7 +1608,7 @@ class WorkflowTests : public QObject {
     void pipelineSkipsUnusedResourcesAndContainsDecoderExceptions() {
         ix::PipelineJob job;
         job.outputDirectory = temporary_.filePath(QStringLiteral("skip-resources/output"));
-        job.journalRoot = temporary_.filePath(QStringLiteral("skip-resources/journal"));
+        job.cacheRoot = temporary_.filePath(QStringLiteral("skip-resources/journal"));
         job.profile.steps = {{QStringLiteral("watermark"), {{QStringLiteral("image"), QStringLiteral("missing.png")}}},
                             {QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
         ix::PipelineFile skipped;
@@ -1307,7 +1617,7 @@ class WorkflowTests : public QObject {
         auto result = ix::BatchPipeline::run(job, {skipped}, cancel);
         QCOMPARE(result.first().error, skipped.error);
         QVERIFY(!QFileInfo::exists(job.outputDirectory));
-        QVERIFY(!QFileInfo::exists(job.journalRoot));
+        QVERIFY(!QFileInfo::exists(job.cacheRoot));
         class ThrowingCodec final : public ix::ImageCodec {
           public:
             bool accepts(const QString &) const override { return true; }
@@ -1371,7 +1681,7 @@ class WorkflowTests : public QObject {
         ix::PipelineJob job;
         job.inputs = {source};
         job.outputDirectory = temporary_.filePath(QStringLiteral("pipeline-changing/output"));
-        job.journalRoot = temporary_.filePath(QStringLiteral("pipeline-changing/journal"));
+        job.cacheRoot = temporary_.filePath(QStringLiteral("pipeline-changing/journal"));
         job.parallelism = 1;
         job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
         const auto plan = ix::BatchPipeline::plan(job);
@@ -1926,6 +2236,132 @@ class WorkflowTests : public QObject {
         for (const auto &file : files) QVERIFY(visited.contains(file));
         const auto repeated = controller.next(files, 0, true, true);
         QVERIFY(!repeated.finished && files.contains(repeated.path) && repeated.path != files.first());
+    }
+    void cancelledClassicBatchRetainsCacheAndDeferredOpen() {
+        const auto original = photo(QStringLiteral("classic-cancel/first.png"), Qt::red);
+        const auto requested = photo(QStringLiteral("classic-cancel/second.png"), Qt::blue);
+        const auto neighbor = photo(QStringLiteral("classic-cancel/neighbor.png"), Qt::green);
+        ix::MainWindow window;
+        window.show(); window.openPath(original);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == original);
+        ix::ImageLoadCache::configure(64, 8);
+        const auto resetCache = qScopeGuard([] { ix::ImageLoadCache::clear(); });
+        ix::CodecRegistry registry;
+        int decodes = 0;
+        QVERIFY(ix::ImageLoadCache::read(registry, neighbor, 0, [&] { ++decodes; }).ok());
+        const int warmed = decodes;
+        bool inspected = false;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            timer.stop(); inspected = true;
+            const auto close = qScopeGuard([&] { dialog->reject(); });
+            QVERIFY(window.isBusy());
+            window.openPath(requested);
+            QCOMPARE(window.document().path, original);
+        });
+        timer.start(10);
+        window.findChild<QAction *>(QStringLiteral("legacyBatch"))->trigger();
+        timer.stop(); QVERIFY(inspected);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == requested);
+        QVERIFY(ix::ImageLoadCache::read(registry, neighbor, 0, [&] { ++decodes; }).ok());
+        QCOMPARE(decodes, warmed);
+        QVERIFY(window.close());
+    }
+    void classicBatchFollowsFilesWhenNamesAreReused_data() {
+        QTest::addColumn<int>("active");
+        QTest::addColumn<int>("editState");
+        QTest::newRow("first-file-keeps-rating") << 2 << 0;
+        QTest::newRow("second-file-keeps-identity") << 3 << 0;
+        QTest::newRow("edited-file-keeps-undo") << 3 << 1;
+        QTest::newRow("clean-file-keeps-redo") << 2 << 2;
+    }
+    void classicBatchFollowsFilesWhenNamesAreReused() {
+        QFETCH(int, active);
+        QFETCH(int, editState);
+        QTemporaryDir folder;
+        QVERIFY(folder.isValid());
+        const auto prior = qApp->property("ixStorageData");
+        const auto restore = qScopeGuard([&] { qApp->setProperty("ixStorageData", prior); });
+        qApp->setProperty("ixStorageData", folder.filePath(QStringLiteral("data")));
+        const auto first = folder.filePath(QStringLiteral("2.png"));
+        const auto second = folder.filePath(QStringLiteral("3.png"));
+        QImage red(96, 64, QImage::Format_RGB32), blue = red;
+        red.fill(Qt::red); blue.fill(Qt::blue);
+        QVERIFY(red.save(first)); QVERIFY(blue.save(second));
+        ix::ImageCatalog catalog;
+        QVERIFY(catalog.setAnnotation(first, 1, QStringLiteral("red")).isEmpty());
+        QVERIFY(catalog.setAnnotation(second, 5, QStringLiteral("blue")).isEmpty());
+        ix::MainWindow window;
+        window.show();
+        const auto original = active == 2 ? first : second;
+        window.openPath(original);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == original);
+        if (editState) {
+            window.dispatch(QStringLiteral("grayscale"));
+            QTRY_VERIFY(!window.isBusy() && window.document().modified);
+            if (editState == 2) {
+                window.dispatch(QStringLiteral("undo"));
+                QTRY_VERIFY(!window.isBusy() && !window.document().modified);
+            }
+        }
+        const auto pixels = window.document().pixels;
+        int stage = 0;
+        bool completed = false, warned = false;
+        QElapsedTimer elapsed; elapsed.start();
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            if (qobject_cast<QMessageBox *>(dialog)) { warned = true; dialog->accept(); return; }
+            if (elapsed.elapsed() > 15000) { dialog->reject(); return; }
+            if (stage == 0) {
+                auto *files = dialog->findChild<QListWidget *>();
+                if (!files) return;
+                QVERIFY(window.isBusy());
+                QVERIFY(!window.close());
+                files->clear(); files->addItems({first, second});
+                for (auto *combo : dialog->findChildren<QComboBox *>())
+                    if (combo->itemText(0) == ix::localized(QStringLiteral("Batch-Konvertierung"))) {
+                        QCOMPARE(combo->currentIndex(), 1);
+                        combo->setCurrentIndex(1);
+                    }
+                for (auto *edit : dialog->findChildren<QLineEdit *>()) {
+                    if (edit->text() == QStringLiteral("{name}_####")) edit->setText(QStringLiteral("#"));
+                    else if (edit->parent() == dialog && edit->text().isEmpty()) edit->setText(folder.path());
+                }
+                auto *start = button(*dialog, QStringLiteral("Starten"));
+                QVERIFY(start); stage = 1; start->click();
+            } else if (button(*dialog, QStringLiteral("Starten")) &&
+                       QFileInfo::exists(folder.filePath(QStringLiteral("1.png"))) && !QFileInfo::exists(second)) {
+                completed = true; stage = 2; dialog->accept();
+            }
+        });
+        timer.start(10);
+        window.findChild<QAction *>(QStringLiteral("legacyBatch"))->trigger();
+        timer.stop();
+        QVERIFY(completed);
+        QVERIFY(!warned);
+        const auto expected = folder.filePath(active == 2 ? QStringLiteral("1.png") : QStringLiteral("2.png"));
+        QTRY_VERIFY(!window.isBusy() && window.document().path == expected);
+        QCOMPARE(window.document().pixels, pixels);
+        QCOMPARE(window.document().pixels.cacheKey(), pixels.cacheKey());
+        QCOMPARE(window.document().sourceRevision, ix::imageFileKey(expected));
+        QCOMPARE(window.document().modified, editState == 1);
+        QCOMPARE(catalog.record(folder.filePath(QStringLiteral("1.png"))).value(QStringLiteral("rating")).toInt(), 1);
+        QCOMPARE(catalog.record(first).value(QStringLiteral("rating")).toInt(), 5);
+        if (editState) {
+            const auto command = editState == 1 ? QStringLiteral("undo") : QStringLiteral("redo");
+            QVERIFY(window.findChild<QAction *>(command)->isEnabled());
+            window.dispatch(command);
+            QTRY_VERIFY(!window.isBusy());
+            QCOMPARE(window.document().path, expected);
+            QCOMPARE(window.document().sourceRevision, ix::imageFileKey(expected));
+        }
+        window.openPath(expected, 0, false);
+        QTRY_VERIFY(!window.isBusy() && !window.document().modified);
+        QVERIFY(window.close());
     }
     void renameRechecksSourceAfterDialog() {
         const auto path = photo(QStringLiteral("rename/before.png"), Qt::red);

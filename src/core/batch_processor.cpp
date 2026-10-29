@@ -1,14 +1,46 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "batch_processor.h"
-#include "file_journal.h"
+#include "file_operations.h"
+#include "file_revision.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
-#include <QScopeGuard>
 #include <QSet>
-#include <QUuid>
+#include <optional>
 namespace ix {
+void BatchFileChanges::add(const BatchEntry &entry) {
+    if (entry.output.isEmpty() || (!entry.moved && !entry.error.isEmpty())) return;
+    affected_.insert(entry.output);
+    if (!entry.moved) return;
+    affected_.insert(entry.input);
+    const auto previous = originalForCurrent_.find(entry.input);
+    QString original = entry.input;
+    if (previous != originalForCurrent_.end()) {
+        original = previous.value();
+        originalForCurrent_.erase(previous);
+    }
+    originalForCurrent_.insert(entry.output, original);
+    auto current = currentForOriginal_.find(original);
+    if (current == currentForOriginal_.end())
+        currentForOriginal_.insert(original, {entry.output, entry.sourceRevision, entry.targetRevision});
+    else {
+        // A rewrite between moves breaks the proof that loaded pixels still
+        // match, even though the original's final path must still be followed.
+        if (current->targetRevision != entry.sourceRevision) current->sourceRevision.clear();
+        current->path = entry.output;
+        current->targetRevision = entry.targetRevision;
+    }
+}
+QString BatchFileChanges::resolve(const QString &original) const {
+    const auto current = currentForOriginal_.constFind(original);
+    return current == currentForOriginal_.cend() ? original : current->path;
+}
+std::optional<BatchRelocation> BatchFileChanges::relocation(const QString &original) const {
+    const auto current = currentForOriginal_.constFind(original);
+    if (current == currentForOriginal_.cend()) return std::nullopt;
+    return current.value();
+}
 QString BatchProcessor::outputName(const QString &input, const QString &pattern, int index,
                                    const QByteArray &ext) {
     QString name = pattern;
@@ -30,8 +62,9 @@ QString BatchProcessor::outputName(const QString &input, const QString &pattern,
 }
 QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_bool &cancel,
                                       const std::function<void(int, int)> &progress) {
-    CodecRegistry registry;
-    FileJournal journal(o.journalRoot);
+    std::optional<CodecRegistry> registry;
+    if (!o.renameOnly) registry.emplace();
+    FileOperations operations;
     QList<BatchEntry> results;
     QSet<QString> reserved;
     QDir dir(o.outputDirectory);
@@ -53,9 +86,14 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
             else {
                 reserved.insert(key);
                 if (o.renameOnly) {
-                    e.error = journal.perform(QStringLiteral("move"), e.input, e.output);
+                    const auto result = operations.perform(QStringLiteral("move"), e.input, e.output);
+                    e.error = result.error;
+                    e.moved = result.applied;
+                    e.sourceRevision = result.sourceRevision;
+                    e.targetRevision = result.targetRevision;
                 } else {
-                    auto image = registry.read(e.input);
+                    const auto sourceRevision = imageFileKey(e.input);
+                    auto image = registry->read(e.input);
                     if (!image.ok())
                         e.error = image.error;
                     else {
@@ -72,18 +110,13 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
                             }
                         }
                         if (e.error.isEmpty() && !cancel.load()) {
-                            auto stage =
-                                dir.absoluteFilePath(QStringLiteral(".ixview-") +
-                                                     QUuid::createUuid().toString(QUuid::WithoutBraces) +
-                                                     QLatin1Char('.') + QString::fromLatin1(o.format));
-                            auto cleanup = qScopeGuard([stage] { QFile::remove(stage); });
-                            e.error = registry.save(image.document, stage, o.format, o.quality, o.allowLoss);
-                            if (e.error.isEmpty()) {
-                                if (cancel.load())
-                                    e.error = QStringLiteral("Abgebrochen.");
-                                else
-                                    e.error = journal.installOutput(stage, e.output, false, {});
-                            }
+                            e.error = registry->save(image.document, e.output, o.format, o.quality, o.allowLoss,
+                                QString(), [&] {
+                                    if (cancel.load()) return QStringLiteral("Abgebrochen.");
+                                    if (sourceRevision != imageFileKey(e.input))
+                                        return QStringLiteral("Quelle wurde während der Verarbeitung verändert.");
+                                    return QString();
+                                });
                         } else if (cancel.load())
                             e.error = QStringLiteral("Abgebrochen.");
                     }

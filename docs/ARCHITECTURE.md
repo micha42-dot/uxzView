@@ -40,6 +40,28 @@ parser warnings are independent of whether an export-loss warning is required.
 
 The load service reads no settings and installs no document. Its optional preview callback runs only after a full-image cache miss, outside the cache lock, on the calling worker; GUI consumers queue it and check their generation/lifetime. Color management and display sharpening affect only the returned display image.
 
+Pixel history belongs to the GUI-thread value owner `core/document_history.*`.
+MainWindow copies a target before preparing its display in a worker, then commits
+the history transition only on success. History owns both stacks, selection,
+source-state reconciliation and a combined 128 MiB/12-entry budget. It counts
+shared QImage keys and Metadata pointers once. More distant states are evicted
+first; one oversized nearest inverse remains available. Large edits can therefore
+exceed this soft history budget. File operations have no disk history.
+
+`core/image_memory.*` supplies the shared conservative estimates used by caches
+and history, including image text/ICC, document properties and native metadata.
+Small shared strings can still be overcounted; estimates are not process RAM.
+The estimates saturate above the largest supported single-entry cache budget.
+History sums component costs across its bounded entries without wrapping.
+
+MainWindow consumes its single-result future with `takeResult()` before document
+installation, so a finished future cannot retain an orphan original/display image
+after Paste/New/Delete. PipelineDialog similarly consumes its completed result.
+Never read these consumed results again. MainWindow disconnects completion and
+joins its queued/running image work before members and children are destroyed.
+Workers take values and only queue preview delivery; no worker waits on GUI work.
+Joining does not make third-party decoders or blocking OS reads cancellable.
+
 `platform_support` owns UI font selection. Startup applies `configureUiFont()` after selecting the UI language; legacy fixed-geometry dialogs use `referenceFont()` from the same policy. Korean/Japanese text has a minimum 9-point size and language-specific family preferences with system fallback. Font selection does not load downloadable assets or change image text rendering.
 
 `core/localization.*` publishes an atomic language index into immutable embedded
@@ -67,7 +89,7 @@ not reload pixels, clear history/selection, reset manual zoom or rescan a folder
 
 Workers receive captured value inputs and must not dereference widgets or implicitly use a later document. Results are installed on the GUI thread. Generation numbers reject obsolete RAW previews and thumbnail notifications; directory indexing uses pending-refresh state before installing a snapshot. Cancellation is cooperative: third-party decoders can continue until their reads return. Destruction must join active work or retain ownership until completion; a raw `this` capture is not cancellation.
 
-`SlideshowController` owns sequencing; permission to advance remains with `MainWindow` and `DocumentActivity`. `FileJournal` owns file transactions and conflict checks. Document pixel history and file-operation undo are separate concepts.
+`SlideshowController` owns sequencing; permission to advance remains with `MainWindow` and `DocumentActivity`. `FileOperations` owns direct file changes; pixel history remains in DocumentHistory.
 
 `core/file_revision.*` owns native file identity and timestamp precision independently of preview caches. `CodecRegistry::save` captures or accepts an expected destination revision, validates it before encoding and again before `QSaveFile::commit`. The UI retains that revision across its output warnings. Empty expected revisions require absence; omitted expectations capture the current target. These checks narrow external-write races but are not an atomic filesystem compare-and-swap.
 
@@ -78,7 +100,7 @@ not imply tags were written. Selection export does not replace the active
 source state. The Save-as regression checks this against a fresh target decode
 and compares the complete export-loss report before/after Undo.
 
-Batch runs check source revisions before/after reading and before installation. An optional configured codec registry is copied into workers; custom readers must support the chosen parallelism. The synchronous run joins workers before returning, so the supplied registry is never retained afterward. Journal Undo refuses unknown operation kinds before touching target files.
+Batch runs check source revisions before/after reading and before atomic commit. An optional configured codec registry is copied into workers; custom readers must support the chosen parallelism. The synchronous run joins workers before returning, so the supplied registry is never retained afterward.
 
 `core/batch_plan.cpp` owns read-only destination planning separately from image
 transformation and execution in `batch_pipeline.cpp`. `plan(job, cancel)` returns
@@ -88,7 +110,7 @@ destination/resource hashing. File identity, input/output collisions and overwri
 policy are resolved before hashing a destination; only eligible regular-file
 replacements receive a content hash. Repeated watermark paths share one hash.
 Existing target revisions are rechecked after hashing. Execution still verifies
-reviewed revisions/content and journals replacements; skipping an ineligible
+reviewed revisions/content before atomic output; skipping an ineligible
 target's hash must not weaken those commit guards.
 
 PipelineDialog clears previous results when inputs/options change and captures a
@@ -181,7 +203,6 @@ Prioritize the remaining boundaries in this order:
 | --- | --- | --- |
 | Loading/navigation controller | Worker, request generation, deferred opens and queued steps | Latest explicit choice wins; file/save phases remain exclusive; stale previews cannot install. |
 | Save transaction | Immutable source snapshot, destination revision and nested-dialog lifetime | External target changes survive; failure retains edits; selection export keeps the active document. |
-| Document history | Undo/Redo ownership, selection and memory accounting | Original precision/metadata and source state survive; budgets distinguish shared buffers from total RAM. |
 | Catalog storage | Large snapshot/search/index persistence | Ratings and marks survive concurrent index updates; backups/migration and corruption rejection precede a format change. |
 
 Take one ownership boundary per change, define its value inputs/results first,
@@ -191,6 +212,14 @@ separate. A new dependency or storage format needs a demonstrated benefit and
 compatibility/migration coverage.
 
 Open risks include native Windows 10/Linux/macOS coverage, total-memory coordination, uncommon RAW/color variants and very large catalogs. [The latest review](REVIEW_2026-10-28.md) records the current scope and remaining boundaries; this document does not claim they are solved.
+
+The [architecture/resource audit](ARCHITECTURE_REVIEW_2026-10-28.md) records the
+history extraction, result lifetime measurements and remaining coordination work.
+Lossless JPEG transformation now accepts source/destination revisions spanning
+chooser/worker scheduling, and checks them before transformation and publication.
+Page extraction passes an explicit empty target revision, requiring absence even
+if another process creates a file after its initial existence check. These checks
+narrow races; QSaveFile publication is still not a filesystem compare-and-swap.
 
 ### Direct batch execution and reporting
 
@@ -202,11 +231,11 @@ path. Keep the lower-level preview API for non-dialog consumers and its codec
 quality tests. New dialogs do not install default processing steps.
 
 `PipelineFile::inputBytes/outputBytes` record actual source and staged output sizes;
-output bytes are set only after journal commit succeeds. `core/batch_report.*`
+output bytes are set only after atomic save succeeds. `core/batch_report.*`
 aggregates successful entries and writes an optional uniquely named UTF-8 CSV
 without replacing existing files. Text fields are quoted and spreadsheet formula
 prefixes escaped. Logging failure is separate from conversion success. Statistics
-measure image bytes, not journal backup/storage overhead. A decoder/encoder is
+measure image bytes rather than auxiliary report overhead. A decoder/encoder is
 never run just to guess savings. Monitor selection and fullscreen sizing reuse
 Qt screen APIs and the existing ImageView modes; default monitor selection does
 not relocate the native window or alter the presentation-cover path.
@@ -226,40 +255,119 @@ worker, with approximately 64 KiB CSV chunks plus the current row and partial-fi
 results even when logging fails. The core skips watermark resources and threads
 when no entries are eligible, limits threads to useful work, and catches unknown
 C++ exceptions inside each file operation. Existing source revision, target hash,
-resource hash and journal commit guards remain in force.
+resource hash and atomic save guards remain in force.
 
 The batch Processing page uses a single vertical order (inputs, shallow chain,
 output/options) instead of side-by-side large lists. Results and their status/
 progress occupy another page, so running/reporting does not raise the minimum
 configuration-window height. Configuration feedback has a separate label.
 
-### Journal recovery boundary
+### Fit policy versus retained numeric zoom
 
-`core/file_journal.cpp` owns journal locking, atomic per-entry persistence and
-normal file operations. `file_journal_recovery.cpp` owns the reconciliation state
-machine; `file_journal_io.h` shares the non-overwriting file-move primitives.
-Forward intent records contain output/backup hashes. Undo intent also persists
-its exact discard path before any move. Do not infer discard paths by scanning
-trash, and do not repair at application startup or in image/navigation hot paths.
+`ImageView::fit()` describes the active policy; `browsingFit()` survives a manual
+zoom so navigation/fullscreen exit can return to the selected browsing policy.
+During `MainWindow::installDocument`, retain a numeric zoom only when the active
+fit is Original and either zoom locking or an in-place document update requests
+it. An active Window/LargeOnly/axis fit is recalculated for each new image. Never
+convert an automatic fit to Original merely because lockZoom is set: the old
+factor can leave scroll ranges on a wider/taller successor and consume folder
+navigation keys/wheel input. A saved lock must not force 100% on initial opening.
+Fullscreen's own fit policy retains precedence on ordinary image changes.
 
-`FileJournal::recover()` is explicit and holds the same mutex/QLockFile as other
-mutations. It accepts only verifiable pending/undoPending states (plus a stranded
-backup from a failed replacement). Matching regular files allow completion or
-restoration of an absent target; occupied/changed/ambiguous paths remain untouched.
-Only the relevant interrupted entry is reconciled before `undo(id)`. The default
-Undo fixes the entry it originally selected rather than selecting an older entry
-after discovering that an interrupted Undo already moved the file successfully.
-Journal persistence can reject a write through the narrow WriteGuard test seam;
-it cannot bypass the actual writer, locking or integrity checks.
+Window fitting is persisted by explicit fit commands and accepted Settings, never
+by closing a window. Close-time persistence would let an older window overwrite
+a newer global preference. `applySettings(true)` updates `windowBrowsingFit_`
+during fullscreen and the actual view in windowed mode. Settings acceptance also
+compares the requested fit with that window's browsing policy, so confirming an
+unchanged global value updates a stale window without cancelling a deliberate
+manual zoom when the browsing policy already agrees. Fullscreen's own display
+policy remains separate from the window policy applied on exit.
 
-Recovery uses SHA-256 on a worker only when requested. Native revision checks
-around hashing detect ordinary concurrent changes, but no portable filesystem
-transaction excludes unrelated writers or guarantees durability after power loss.
-The journal dialog still loads its full entry index. Keep those limits explicit.
+### Display-fit menu selection
 
-`ui/batch_progress.h` is a per-run atomic mailbox, independent of widgets and
-Qt's event queue. Workers advance a maximum completion count and request a GUI
-delivery only when none is queued. The consumer clears the flag before reading
-the counter, so a concurrent update is either included or schedules another
-notification. Completion/new-run boundaries invalidate the dialog's mailbox;
-late plan/progress events check identity and never replace a newer run's state.
+`ui/view_fit_options.h` is the shared command/fit/one-shot window-resize mapping.
+The window display submenu owns one exclusive QActionGroup. `view/fit` remains
+the authoritative browsing policy; optional `view/fitCommand` retains the exact
+window/screen variant for an unambiguous checkmark after restart. Reject a hint
+which disagrees with the actual policy and use a canonical entry for old profiles.
+Do not infer an active screen variant merely from the current window size.
+
+Menu opening synchronizes from the actual view (manual zoom selects noFit), or
+from `windowBrowsingFit_` while fullscreen. Explicit commands/accepted settings
+and fullscreen transitions also synchronize; no menu work is added to per-frame
+zoom/paint callbacks. A blocked exclusive action restores the checked action from
+actual state, rather than simply inverting the newly checked item's boolean.
+Window-fit commands invoked while fullscreen update its return policy as well as
+the immediate view; the separate fullscreen preference remains unchanged.
+
+The once-installed Fusion proxy in `appearance.cpp` paints exclusive menu items
+with the same checkmark control as independent menu toggles. QActionGroup still
+owns exclusivity and accessibility semantics; only CE_MenuItem painting changes.
+The base style owns palette/DPI geometry. Theme changes update palettes rather
+than recreate the style. Pixel comparisons exercise both kinds in light/dark,
+selected/unselected and enabled/disabled states; image rendering is unchanged.
+
+## ZIP/CBZ image archives
+
+`src/modules/archive_image.cpp` implements a read-only QImageIOPlugin using
+KArchive. Its metadata exposes ZIP/CBZ to the existing format registry, file
+filters, preview reader, page controls and format manager. No archive code or
+KArchive import is linked into the viewer executable. Build when KF6Archive is
+available; omit cleanly otherwise. CMake installs the plugin beside the app on
+Windows/Linux and under bundle PlugIns on macOS; native dependency deployment
+also scans this module. The portable deployment and source/byte audit include it.
+
+Each handler owns a bounded ZIP directory, naturally sorted page list and one
+embedded decoder. No extraction or global archive cache; inner animations and
+multi-page files contribute their first image. A non-owning device adapter keeps
+Qt's input open when KArchive closes or rejects a container. Header validation
+bounds directory allocations before KZip parses; entry data and decoded geometry
+have separate limits. Hidden/Apple metadata entries and nested archives are
+excluded. See FORMAT_COMPATIBILITY.md for the supported ZIP subset. PDF, RAR/CBR
+and JPEG XR require separate backends and are not advertised by this plugin.
+
+### File operations without a journal
+
+`core/file_operations.*` performs direct copy/move and native system-trash
+operations. It creates no operation records, backup repository or disk-Undo
+history. Its result carries applied state and copy/move revision snapshots;
+catalog-relocation warnings do not imply that the file move failed. A
+process-local mutex serializes these operations. No image payload hashing is
+needed for a normal rename. Source revisions are rechecked after worker-side
+preflight, including native trash. The confirmation's source revision can be
+carried into the worker; an observed replacement then prevents the operation.
+Native trash failures never fall back to permanent deletion. Restoration uses
+the operating system. Pixel Undo/Redo remains owned by DocumentHistory.
+
+Classic batch uses the transient `BatchFileChanges` summary. Two hash maps track
+original file identity and current path, so reusing a freed path does not join
+unrelated files into a rename chain. Each applied entry updates this summary in
+constant expected time. MainWindow follows the original's final path once;
+FileOperations alone relocates catalog annotations. Files without an annotation
+do not trigger a catalog rewrite. The summary lives through the dialog and its
+immediate owner reconciliation; no mapping is persisted to disk or another run.
+Initial-source and final-target revisions prove when only the path changed;
+that case updates document/history source metadata without redecoding or clearing
+pixel Undo/Redo. A source rewrite between moves invalidates the proof.
+The dialog holds DocumentActivity's file phase, stops slideshows and defers
+external opens. Affected paths invalidate caches after conversion/rename; unchanged
+neighbors survive cancellation and completion. Revision checks reconcile actual
+changes; uncommitted edits remain protected.
+
+Batch exports write directly through CodecRegistry::save and QSaveFile. The
+reviewed target revision and content hash are checked, while a beforeCommit
+callback rejects cancellation or a changed input after encoding. Encoder,
+metadata, guard or commit failure discards the staged output. Successful
+replacements have no later file-Undo or persistent backup. Reject directories
+and symbolic links as export targets. This provides atomic output replacement,
+not a transaction excluding non-cooperating external writers.
+
+### Selective cache invalidation
+
+Direct file operations invalidate affected paths through ImageLoadCache.
+Keys retain lexical absolute paths separately from opaque revision/page/bounds
+suffixes; delimiter characters in Unix filenames stay unambiguous. Eviction
+iterates keys without changing unrelated LRU order and charges key storage.
+One bounded epoch rejects older in-flight insertions while retaining cached
+neighbors. Unrelated APNG sessions also survive. Conservative global clears
+remain for global preferences and some external-source/batch reconciliation.

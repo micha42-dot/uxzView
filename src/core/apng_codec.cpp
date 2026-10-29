@@ -218,6 +218,7 @@ struct Session {
 QMutex sessionMutex;
 std::shared_ptr<Session> session;
 QString sessionRevision;
+QString sessionPath;
 std::atomic<quint64> filesParsed = 0, framesComposited = 0;
 } // namespace
 bool ApngCodec::accepts(const QString &path) const {
@@ -255,6 +256,7 @@ ImageResult ApngCodec::read(const QString &path, int page) const {
         if (!session || sessionRevision != revision) {
             session = std::make_shared<Session>();
             sessionRevision = revision;
+            sessionPath = QFileInfo(path).absoluteFilePath();
         }
         active = session;
     }
@@ -301,5 +303,19 @@ void ApngCodec::clearSession() {
     QMutexLocker lock(&sessionMutex);
     session.reset();
     sessionRevision.clear();
+    sessionPath.clear();
+}
+void ApngCodec::invalidateSession(const QStringList &absolutePaths) {
+    QMutexLocker lock(&sessionMutex);
+#ifdef Q_OS_WIN
+    constexpr auto sensitivity = Qt::CaseInsensitive;
+#else
+    constexpr auto sensitivity = Qt::CaseSensitive;
+#endif
+    if (absolutePaths.contains(sessionPath, sensitivity)) {
+        session.reset();
+        sessionRevision.clear();
+        sessionPath.clear();
+    }
 }
 } // namespace ix

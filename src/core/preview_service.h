@@ -4,6 +4,7 @@
 #include "file_revision.h"
 #include <QObject>
 #include <QQueue>
+#include <QStringList>
 #include <QThreadPool>
 #include <atomic>
 #include <functional>
@@ -34,6 +35,9 @@ class ImageLoadCache {
     static ImageResult read(const CodecRegistry &registry, const QString &path, int page = 0,
                             const std::function<void()> &beforeDecode = {});
     static void clear();
+    // Evict only these lexical paths, across all revisions/pages and previews.
+    // Retain unrelated neighbors; older in-flight reads cannot reinsert evicted entries.
+    static void invalidate(const QStringList &paths);
     static void configure(int imageMiB, int previewMiB, bool rawPreviews = true);
 };
 } // namespace ix

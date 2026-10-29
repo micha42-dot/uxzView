@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "batch_pipeline.h"
 #include "batch_processor.h"
-#include "file_journal.h"
+#include "file_operations.h"
 #include "file_revision.h"
 #include <QDir>
 #include <QFileInfo>

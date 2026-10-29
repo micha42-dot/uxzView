@@ -24,7 +24,7 @@ struct PipelineJob {
     PipelineProfile profile;
     bool overwrite = false, allowLoss = false;
     int parallelism = 2;
-    QString journalRoot;
+    QString cacheRoot;
 };
 struct PipelineFile {
     QString input, output, error, inputStamp, targetStamp;

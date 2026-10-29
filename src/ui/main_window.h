@@ -2,6 +2,8 @@
 // Copyright (C) 2026 IxView contributors
 #pragma once
 #include "core/codec_registry.h"
+#include "core/batch_processor.h"
+#include "core/document_history.h"
 #include "document_activity.h"
 #include "image_view.h"
 #include "fullscreen_info.h"
@@ -18,6 +20,7 @@ class QToolBar;
 class QComboBox;
 class QLabel;
 class QAction;
+class QActionGroup;
 class QMenu;
 namespace ix {
 class PreviewStrip;
@@ -32,7 +35,8 @@ struct WorkResult {
 class MainWindow : public QMainWindow {
     Q_OBJECT
   public:
-    explicit MainWindow(QWidget *parent = nullptr, QString journalRoot = {});
+    explicit MainWindow(QWidget *parent = nullptr, QString cacheRoot = {});
+    ~MainWindow() override;
     void openPath(const QString &path, int page = 0, bool checkChanges = true);
     const ImageDocument &document() const {
         return document_;
@@ -44,6 +48,7 @@ class MainWindow : public QMainWindow {
     void dispatch(const QString &command);
 
   protected:
+    bool event(QEvent *) override;
     bool eventFilter(QObject *, QEvent *) override;
     void changeEvent(QEvent *) override;
     void closeEvent(QCloseEvent *) override;
@@ -52,7 +57,7 @@ class MainWindow : public QMainWindow {
     void keyPressEvent(QKeyEvent *) override;
 
   private:
-    QString journalRoot_;
+    QString cacheRoot_;
     CodecRegistry registry_;
     ImageDocument document_;
     ImageView *view_;
@@ -70,19 +75,16 @@ class MainWindow : public QMainWindow {
     bool indexedReverse_ = false, indexReady_ = false;
     void buildExtraFeatures();
     void updatePreviews();
-    void reconcileFilePath();
+    void reconcileFilePath(const BatchFileChanges &changes = {});
     QComboBox *zoom_;
     QList<QLabel *> status_;
     QMap<QString, QAction *> actions_;
+    QActionGroup *viewFitActions_ = nullptr;
+    QString windowFitCommand_;
     QJsonObject menuData_;
     QStringList files_;
     int fileIndex_ = -1;
-    struct HistoryEntry : ImageDocument {
-        QRect selection;
-        HistoryEntry(ImageDocument document, QRect selected)
-            : ImageDocument(std::move(document)), selection(selected) {}
-    };
-    QVector<HistoryEntry> undo_, redo_;
+    DocumentHistory history_;
     QRect lastSelection_;
     bool invertedSelection_ = false;
     QFutureWatcher<WorkResult> worker_;
@@ -121,6 +123,7 @@ class MainWindow : public QMainWindow {
     void buildToolbar();
     void showKeyboardHelp();
     void refreshState();
+    void syncFitActions();
     void updateStatus();
     void refreshFiles(bool force = false);
     void navigate(int direction);
@@ -132,7 +135,6 @@ class MainWindow : public QMainWindow {
     void effect(std::function<QImage(const QImage &)> fn);
     void installDocument(ImageDocument document, QImage display = {}, bool clearHistory = true);
     void beginWork(std::function<WorkResult()> fn, WorkMode mode);
-    void pushUndo();
     void restoreHistory(bool redo);
     void applySettings(bool applyFit = false);
     void applyWindowAppearance(bool fullscreen);

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 IxView contributors
 #pragma once
 #include "codec_registry.h"
+#include <QStringList>
 namespace ix {
 struct ApngCacheStats {
     quint64 filesParsed = 0, framesComposited = 0;
@@ -12,6 +13,7 @@ class ApngCodec final : public ImageCodec {
   public:
     static ApngCacheStats cacheStats();
     static void clearSession();
+    static void invalidateSession(const QStringList &absolutePaths);
     bool accepts(const QString &path) const override;
     ImageResult read(const QString &path, int page) const override;
     QList<FormatCapability> capabilities() const override;

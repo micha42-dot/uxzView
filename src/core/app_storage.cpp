@@ -130,11 +130,7 @@ QString relocate(const QString &data, const QString &before, const QString &afte
     QStringList files;
     if (QFileInfo::exists(data + QStringLiteral("/catalog.json")))
         files.append(data + QStringLiteral("/catalog.json"));
-    if (QFileInfo::exists(data + QStringLiteral("/file-journal/operations.json")))
-        files.append(data + QStringLiteral("/file-journal/operations.json"));
-    // Trash contains original user files, including arbitrary JSON. Rewriting
-    // any of those bytes would invalidate undo hashes and corrupt the backup.
-    for (const auto &folder : {QStringLiteral("file-journal/entries"), QStringLiteral("profiles")}) {
+    for (const auto &folder : {QStringLiteral("profiles")}) {
         QDirIterator entries(data + QLatin1Char('/') + folder, {QStringLiteral("*.json")},
                              QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
         while (entries.hasNext())
@@ -363,10 +359,10 @@ QString AppStorage::preparePortable(const QString &requestedHome, const QVariant
         // settings from a different normal-mode session.
         return write(marker(home), QByteArray("IxView portable mode\n"));
     }
-    // Use the same locks as the catalog, journal and extension manager so another
-    // IxView process cannot change records/backups halfway through the snapshot.
+    // Lock active storage so another process cannot change records halfway
+    // through the snapshot.
     std::vector<std::unique_ptr<QLockFile>> sourceLocks;
-    for (const auto &name : {QStringLiteral("catalog.json.lock"), QStringLiteral("file-journal/journal.lock"),
+    for (const auto &name : {QStringLiteral("catalog.json.lock"),
                              QStringLiteral("extensions/install.lock")}) {
         const auto path = QDir(sourceData).filePath(name);
         if (!QFileInfo(path).dir().exists())
@@ -384,7 +380,9 @@ QString AppStorage::preparePortable(const QString &requestedHome, const QVariant
     const auto defaultExtensions = QDir(sourceData).filePath(QStringLiteral("extensions"));
     const bool customRoot = !customExtensions.isEmpty() &&
         !(within(configured, defaultExtensions) && within(defaultExtensions, configured));
-    QStringList excluded;
+    // Retired application history must not travel into a new portable profile.
+    // Do not destroy old backup originals in the source profile.
+    QStringList excluded{QStringLiteral("file-journal")};
     if (customRoot) {
         const auto extensionInfo = QFileInfo(customExtensions);
         const auto extensionPath = QDir::cleanPath(extensionInfo.absoluteFilePath());

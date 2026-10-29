@@ -23,7 +23,7 @@ struct PipelineRunResult {
 class PipelineDialog : public QDialog {
     Q_OBJECT
   public:
-    explicit PipelineDialog(const QStringList &files, QWidget *parent = nullptr, QString journalRoot = {});
+    explicit PipelineDialog(const QStringList &files, QWidget *parent = nullptr, QString cacheRoot = {});
     ~PipelineDialog() override;
 
   protected:
@@ -45,7 +45,7 @@ class PipelineDialog : public QDialog {
     QFutureWatcher<PipelineRunResult> runWorker_;
     std::shared_ptr<std::atomic_bool> cancel_;
     std::shared_ptr<BatchProgress> progressMailbox_;
-    QString journalRoot_;
+    QString cacheRoot_;
     bool working_ = false, closing_ = false;
     PipelineJob job() const;
     PipelineProfile profile() const;

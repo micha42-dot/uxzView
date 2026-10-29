@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_storage.h"
 #include "batch_pipeline.h"
-#include "file_journal.h"
+#include "file_operations.h"
 #include "preview_service.h"
 #include "processing.h"
 #include <QBuffer>
@@ -227,12 +227,12 @@ PipelinePreview BatchPipeline::preview(const PipelineJob &job, const QString &pa
                                        reviewedPlan.isEmpty() ? QHash<QString, QString>()
                                                               : reviewedPlan.first().resourceHashes,
                                        cancel, !reviewedPlan.isEmpty());
-        auto image = transform(read.document, job.profile, cancel, job.allowLoss, &resources);
+        auto image = transform(std::move(read.document), job.profile, cancel, job.allowLoss, &resources);
         out.resultSize = image.pixels.size();
-        const auto previewRoot = job.journalRoot.isEmpty()
+        const auto previewRoot = job.cacheRoot.isEmpty()
                                      ? AppStorage::cacheRoot() +
                                            QStringLiteral("/previews")
-                                     : job.journalRoot + QStringLiteral("/previews");
+                                     : job.cacheRoot + QStringLiteral("/previews");
         if (!QDir().mkpath(previewRoot))
             throw std::runtime_error("Vorschauordner konnte nicht angelegt werden.");
         QTemporaryDir temporary(previewRoot + QStringLiteral("/review-XXXXXX"));
@@ -245,6 +245,7 @@ PipelinePreview BatchPipeline::preview(const PipelineJob &job, const QString &pa
             registry.save(image, file, format, p.value(QStringLiteral("quality")).toInt(95), job.allowLoss);
         if (!out.error.isEmpty())
             return out;
+        image = {}; // The encoded preview can now be decoded without retaining full output pixels.
         auto encoded = registry.read(file);
         if (!encoded.ok()) {
             out.error = encoded.error;
@@ -276,7 +277,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
         return entry.error.isEmpty();
     });
     // Nothing will be converted: preserve each skip/error and avoid decoding
-    // resources or constructing codecs/journals/threads for an empty workload.
+    // resources or constructing codecs/threads for an empty workload.
     if (!eligible) return plan;
     std::vector<PipelineFile> results(plan.begin(), plan.end());
     QHash<QString, QImage> resources;
@@ -304,7 +305,6 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
     for (int t = 0; t < threads; ++t)
         workers.emplace_back([&] {
             auto registry = codecs ? *codecs : CodecRegistry();
-            FileJournal journal(job.journalRoot);
             while (!cancel.load()) {
                 int i = next.fetch_add(1);
                 if (i >= int(results.size()))
@@ -321,32 +321,24 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                             throw std::runtime_error(read.error.toStdString());
                         if (imageFileKey(entry.input) != entry.inputStamp)
                             throw std::runtime_error("Quelle wurde während des Lesens verändert.");
-                        auto image = transform(read.document, job.profile, cancel, job.allowLoss, &resources);
+                        auto image = transform(std::move(read.document), job.profile, cancel, job.allowLoss, &resources);
                         auto p = job.profile.steps.last().parameters;
                         auto format = p.value(QStringLiteral("format")).toString().toLatin1();
                         if (!QDir().mkpath(QFileInfo(entry.output).absolutePath()))
                             throw std::runtime_error("Zielordner konnte nicht angelegt werden.");
-                        auto stage = QFileInfo(entry.output)
-                                         .dir()
-                                         .filePath(QStringLiteral(".ixview-") +
-                                                   QUuid::createUuid().toString(QUuid::WithoutBraces) +
-                                                   QLatin1Char('.') + QString::fromLatin1(format));
-                        auto cleanup = qScopeGuard([stage] { QFile::remove(stage); });
-                        entry.error =
-                            registry.save(image, stage, format, p.value(QStringLiteral("quality")).toInt(95),
-                                          job.allowLoss);
-                        if (entry.error.isEmpty()) {
-                            const auto outputBytes = QFileInfo(stage).size();
+                        const auto beforeCommit = [&] {
+                            if (cancel.load()) return QStringLiteral("Abgebrochen.");
                             if (imageFileKey(entry.input) != entry.inputStamp)
-                                entry.error = QStringLiteral("Quelle wurde während der Verarbeitung verändert.");
-                            else if (cancel.load())
-                                entry.error = QStringLiteral("Abgebrochen.");
-                            else
-                                entry.error = journal.installOutput(stage, entry.output, job.overwrite,
-                                                                    entry.targetStamp, entry.targetHash);
-                            if (entry.error.isEmpty()) entry.outputBytes = outputBytes;
-                        }
-                        QFile::remove(stage);
+                                return QStringLiteral("Quelle wurde während der Verarbeitung verändert.");
+                            return QString();
+                        };
+                        if (!entry.targetHash.isEmpty() && sha256File(entry.output) != entry.targetHash)
+                            entry.error = QStringLiteral("Zielinhalt wurde seit der Vorschau verändert. Bitte den Plan neu prüfen.");
+                        else if (const auto error = beforeCommit(); !error.isEmpty()) entry.error = error;
+                        else entry.error = registry.save(image, entry.output, format,
+                            p.value(QStringLiteral("quality")).toInt(95), job.allowLoss,
+                            entry.targetStamp, beforeCommit);
+                        if (entry.error.isEmpty()) entry.outputBytes = QFileInfo(entry.output).size();
                     } catch (const std::exception &e) {
                         entry.error = QString::fromUtf8(e.what());
                     } catch (...) {

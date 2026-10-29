@@ -2,6 +2,7 @@
 // Copyright (C) 2026 IxView contributors
 #pragma once
 #include "core/codec_registry.h"
+#include "core/batch_processor.h"
 #include "core/image_document.h"
 #include "core/processing.h"
 #include <QDialog>
@@ -34,7 +35,7 @@ bool canvasDialog(QWidget *parent, int &left, int &right, int &top, int &bottom,
 void imageInformation(QWidget *parent, const ImageDocument &document);
 void histogramDialog(QWidget *parent, const QImage &image);
 void formatDialog(QWidget *parent, const CodecRegistry &registry);
-void batchDialog(QWidget *parent, const QStringList &initial, const QString &journalRoot = {});
+BatchFileChanges batchDialog(QWidget *parent, const QStringList &initial);
 bool settingsDialog(QWidget *parent);
 void thumbnailsDialog(QWidget *parent, const QStringList &files, const std::function<void(QString)> &open);
 } // namespace ix

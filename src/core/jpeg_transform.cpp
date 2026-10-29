@@ -2,12 +2,27 @@
 // Copyright (C) 2026 IxView contributors
 #include "jpeg_transform.h"
 #include "image_document.h"
+#include "file_revision.h"
+#include "localization.h"
+#include <QFileInfo>
 #include <QFile>
 #include <QSaveFile>
 #include <memory>
 #include <turbojpeg.h>
 namespace ix {
-QString transformJpeg(const QString &source, const QString &target, JpegTransform op, QRect crop) {
+QString transformJpeg(const QString &source, const QString &target, JpegTransform op, QRect crop,
+                      const std::optional<QString> &expectedTarget, const std::optional<QString> &expectedSource) {
+    const auto targetRevision = [&] { return QFileInfo::exists(target) ? imageFileKey(target) : QString(); };
+    const auto authorizedTarget = expectedTarget.value_or(targetRevision());
+    const auto sourceRevision = expectedSource.value_or(imageFileKey(source));
+    const auto conflict = [&]() -> QString {
+        if (imageFileKey(source) != sourceRevision)
+            return IX_TEXT("Die Datei wurde während des Lesens verändert. Bitte erneut öffnen.");
+        if (targetRevision() != authorizedTarget)
+            return IX_TEXT("Die Zieldatei wurde inzwischen verändert. Bitte vor dem Speichern erneut prüfen.");
+        return {};
+    };
+    if (const auto error = conflict(); !error.isEmpty()) return error;
     QFile input(source);
     if (!input.open(QIODevice::ReadOnly))
         return input.errorString();
@@ -85,6 +100,10 @@ QString transformJpeg(const QString &source, const QString &target, JpegTransfor
     if (file.write(encoded) != encoded.size()) {
         file.cancelWriting();
         return file.errorString();
+    }
+    if (const auto error = conflict(); !error.isEmpty()) {
+        file.cancelWriting();
+        return error;
     }
     if (!file.commit())
         return file.errorString();

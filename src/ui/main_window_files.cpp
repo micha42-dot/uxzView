@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "core/file_journal.h"
+#include "core/file_operations.h"
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "main_window.h"
@@ -132,7 +132,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         document_.format = format;
         document_.sourceHasExif = writtenMetadata;
         applySource(document_, result.source);
-        for (auto &d : undo_) {
+        history_.updateSources([&](ImageDocument &d) {
             d.modified = true;
             d.path = document_.path;
             d.format = document_.format;
@@ -143,8 +143,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             d.loopCount = 0;
             applySource(d, result.source);
             d.sourceHasExif = writtenMetadata;
-        }
-        redo_.clear();
+        }, true);
         refreshFiles();
         refreshState();
         updateStatus();
@@ -163,33 +162,35 @@ void MainWindow::fileOperation(const QString &op) {
         refreshState();
     });
     QString source = document_.path;
-    const auto journalRoot = journalRoot_;
     if (op == QStringLiteral("delete")) {
+        const auto revision = imageFileKey(source);
         if (QMessageBox::question(
                 this, IX_TEXT("Löschen"),
-                IX_TEXT("Datei in den internen üxzView-Papierkorb verschieben?\n%1").arg(source)) !=
+                IX_TEXT("Datei in den Papierkorb des Betriebssystems verschieben?\n%1").arg(source)) !=
             QMessageBox::Yes)
             return;
         QString next;
         if (files_.size() > 1)
             next = files_.at((fileIndex_ + 1) % files_.size());
-        QProgressDialog progress(IX_TEXT("Datei wird in den internen Papierkorb verschoben …"), {}, 0, 0,
+        QProgressDialog progress(IX_TEXT("Datei wird in den Systempapierkorb verschoben …"), {}, 0, 0,
                                  this);
         progress.setCancelButton(nullptr);
         progress.setWindowModality(Qt::WindowModal);
-        QFutureWatcher<QString> watcher;
+        QFutureWatcher<FileOperations::OperationResult> watcher;
         connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
         watcher.setFuture(
-            QtConcurrent::run([source, journalRoot] { return FileJournal(journalRoot).perform(QStringLiteral("delete"), source); }));
+            QtConcurrent::run([source, revision] {
+                return FileOperations().perform(QStringLiteral("delete"), source, {}, revision);
+            }));
         progress.exec();
-        if (!watcher.result().isEmpty()) {
-            showError(watcher.result());
-            return;
+        const auto result = watcher.future().takeResult();
+        if (result.applied) {
+            ImageLoadCache::invalidate({source});
+            installDocument({});
+            if (!next.isEmpty() && !deferredOpen_)
+                openPath(next, 0, false);
         }
-        ImageLoadCache::clear();
-        installDocument({});
-        if (!next.isEmpty() && !deferredOpen_)
-            openPath(next, 0, false);
+        if (!result.error.isEmpty()) showError(result.error);
         return;
     }
     QString target;
@@ -219,45 +220,41 @@ void MainWindow::fileOperation(const QString &op) {
     QProgressDialog progress(IX_TEXT("Datei wird verarbeitet …"), QString(), 0, 0, this);
     progress.setCancelButton(nullptr);
     progress.setWindowModality(Qt::ApplicationModal);
-    struct FileResult { QString error; bool sourceUnchanged; SourceFileState target; };
+    struct FileResult { FileOperations::OperationResult operation; bool sourceUnchanged; SourceFileState target; };
     QFutureWatcher<FileResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
     const auto revision = document_.sourceRevision;
     watcher.setFuture(QtConcurrent::run([=] {
         // Check after the chooser/name dialog and after worker scheduling.
         // Another editor may have changed the source while the dialog was open.
-        const bool unchanged = revision == imageFileKey(source);
-        auto error = FileJournal(journalRoot).perform(op == QStringLiteral("fileCopy") ? QStringLiteral("copy")
-                                                                                    : QStringLiteral("move"),
-                                                    source, target);
-        FileResult result{error, unchanged, {}};
-        if (error.isEmpty() && unchanged && op != QStringLiteral("fileCopy"))
+        auto operation = FileOperations().perform(
+            op == QStringLiteral("fileCopy") ? QStringLiteral("copy") : QStringLiteral("move"), source, target);
+        FileResult result{operation, false, {}};
+        if (operation.applied && op != QStringLiteral("fileCopy")) {
             result.target = observeSource(target);
+            result.sourceUnchanged = operation.sourceRevision == revision &&
+                                     operation.targetRevision == result.target.revision;
+        }
         return result;
     }));
     progress.exec();
-    const auto result = watcher.result();
-    if (!result.error.isEmpty()) {
-        showError(result.error);
+    const auto result = watcher.future().takeResult();
+    if (!result.operation.applied) {
+        if (!result.operation.error.isEmpty()) showError(result.operation.error);
         return;
     }
-    ImageLoadCache::clear();
-    refreshFiles(true);
+    ImageLoadCache::invalidate(op == QStringLiteral("fileCopy") ? QStringList{target} : QStringList{source, target});
     if (op != QStringLiteral("fileCopy")) {
-        for (auto &d : undo_)
-            d.path = target;
-        for (auto &d : redo_)
-            d.path = target;
+        history_.updateSources([&](ImageDocument &d) { d.path = target; });
         document_.path = target;
         if (result.sourceUnchanged) {
             applySource(document_, result.target);
-            for (auto *history : {&undo_, &redo_})
-                for (auto &entry : *history)
-                    applySource(entry, result.target);
+            history_.updateSources([&](ImageDocument &entry) { applySource(entry, result.target); });
         } else
             reconcileFilePath();
-        refreshFiles();
         updateStatus();
     }
+    refreshFiles(true);
+    if (!result.operation.error.isEmpty()) showError(result.operation.error);
 }
 } // namespace ix

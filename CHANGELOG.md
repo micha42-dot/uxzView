@@ -2,9 +2,78 @@
 
 ## Unreleased
 
-- Reconcile interrupted file-journal operations using verified file states and
-  hashes. Persist Undo discard paths before moving files; retry the same interrupted
-  Undo safely and offer a worker-based repair action in the journal dialog.
+## 0.5.0
+
+- Keep the image canvas frameless in window and fullscreen modes, including
+  fullscreen return. Retain the separator above image information.
+- Compact Settings into nine stable categories, place previews in a frameless Display section,
+  size small fields to content and wrap long translated checkbox captions.
+  Reduce colour/rotation dialog defaults; shorten six menu captions in five
+  languages. Start classic batch renaming in rename mode with relevant controls.
+- Transfer decoded batch documents into processing so resized originals can be
+  freed before output publication. Release transformed preview pixels before
+  decoding the saved preview. Use hashed affected-path lookup for cache eviction.
+- Keep the active file and ratings attached to the correct original through
+  classic batch renames that reuse earlier source names. Relocate annotations
+  once; skip rewriting the catalog for files without an entry.
+- Preserve active image pixels and pixel Undo/Redo across batch renames when
+  source/target revisions match; reject pixel reuse after intervening rewrites.
+- Hold the file-transaction phase during classic batch dialogs, defer external
+  opens and preserve unrelated image caches on completion or cancellation.
+- Check source revisions before sending a file to native trash, including
+  changes while its confirmation dialog is open.
+- Limit the crop-aspect submenu to built-in/custom ratios and custom settings.
+  Normal Crop still requires a selection. Clear a frame's ratio constraint when
+  clicking to deselect it; preserve the chosen ratio through display refreshes.
+
+- Remove the file journal, its dialog/menu actions and file-operation Undo.
+  Preserve image-edit Undo and use the operating system trash for Delete.
+- Write batch exports directly through the atomic Save path with revision,
+  content, cancellation and source guards. Remove persistent replacement backups
+  and redundant staged-file hashing/installation. CSV reports remain optional.
+- Direct rename no longer hashes the full input or writes operation history.
+
+
+- Retain unaffected decoded images, previews and APNG sessions after direct
+  file operations. Invalidate only the source/target paths, preserving LRU order
+  and preventing older in-flight reads from repopulating evicted entries.
+- Verify copy/move source revisions around preparation and use source/target
+  snapshots when checking whether displayed pixels still match the file.
+
+- Keep image information visible while hovering commands; retain control tooltips.
+- Send deleted images to the operating system trash, with no permanent-delete
+  fallback. Restore through the OS.
+- Make the histogram responsive and theme/DPI aware with selectable channels.
+  Group extension actions for smaller windows, improve disabled-text contrast,
+  keyboard-copyable literal information values, accessible names and label buddies.
+  Add a dedicated UI quality suite and shared spacing constants.
+
+
+- Release consumed asynchronous image/batch results instead of retaining them
+  until the next job. Join a window's queued image work before destroying it.
+- Move pixel Undo/Redo ownership and transitions into DocumentHistory. Apply a
+  combined 128 MiB estimate including image properties/native metadata, count
+  shared pixels/metadata once, and retain one oversized inverse operation.
+- Protect lossless JPEG source/destination revisions before processing and commit;
+  require absent destinations for page extraction saves. Bound implicit archive
+  directories before KArchive constructs its tree. Add isolated maintenance tests.
+- Read ZIP/CBZ image collections through an optional KArchive image plugin.
+  Reuse page navigation, natural sorting, thumbnails and single-page export;
+  read one image at a time without extracting files. Bound directory/entry
+  sizes and reject unsupported or malformed ZIP variants. The Windows package
+  reuses its existing KArchive runtime; PDF, CBR and JPEG XR remain unsupported.
+- Use consistent menu checkmarks for exclusive choices and independent toggles.
+- Mark window display-fit choices as an exclusive checkmarked selection. Remember the
+  selected window/screen variant, reflect manual zoom and fullscreen return policy,
+  and restore the actual selection when an action is blocked during loading.
+
+- Apply window-fit changes made during fullscreen when returning to windowed mode.
+  Prevent stale windows from overwriting a newer fit preference on close, and apply
+  an accepted fit preference to a window whose local policy has fallen behind.
+- Keep automatic window fitting active across image changes even when zoom locking
+  is enabled. Recompute the scale for each image; preserve locked manual zooms.
+  Cover wide-image navigation, preview/layout changes and startup at four DPI scales.
+
 - Coalesce batch progress into a monotonic per-run mailbox with bounded GUI events;
   reject stale plan/progress deliveries after completion or a new run.
 
@@ -29,7 +98,7 @@
   dropdown with built-in and user dimensions.
 - Start batch processing directly with an initially empty chain. Remove the
   preview/review prerequisite and before/after panels; retain automatic planning,
-  freshness checks, cancellation, replacement backups and file Undo.
+  freshness checks, cancellation and atomic output replacement.
 - Add batch filename search, format filters (also in the file picker), balanced
   result columns, actual success/failure and size totals, and optional UTF-8 CSV logs.
 - Add fullscreen scaling modes and a target-monitor selector, retaining the
@@ -48,8 +117,8 @@
 - Separate read-only batch file planning from transformation/execution. Make
   planning and its SHA-256 reads cancellable; hash only eligible replacements,
   reuse watermark hashes and reject non-file destinations before decoding.
-- Clear stale batch review images/plans after changes or cancellation, contain
-  worker failures and require a fresh successful review before starting.
+- Reject stale batch plans after changes or cancellation, contain worker failures
+  and validate the current inputs and destinations automatically when starting.
 
 - Add persistent System/Light/Dark appearance under Settings → Interface,
   applied on confirmation without restarting. Match menu and toolbar colors,

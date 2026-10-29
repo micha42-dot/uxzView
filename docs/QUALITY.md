@@ -1,6 +1,48 @@
 # Quality checks
 
-üxzView 0.4.8 has six Qt test suites. On Windows 11, the current development build and portable runtime each pass **356 Qt cases: 159 functional, 101 workflow, 43 quality, 12 storage, 24 journal and 17 extension cases, with no skips**. All 43 Python tests and all 24 local validator blocks pass. These counts include Qt's setup/cleanup checks and data-driven cases; they are not a count of independent features.
+üxzView 0.5.0 has eight Qt test suites. On Windows 11, the development build and portable runtime each pass **428 Qt cases: 167 functional, 115 workflow, 43 quality, 12 storage, 21 file-operation, 17 extension, 15 maintenance and 38 UI quality cases, with no skips**. All 45 Python tests and 33 validator blocks pass, including native Windows widgets at 100/125/150/200 percent scaling. Ten added cases traverse the compact Settings pages in five languages and two themes. These counts include Qt setup/cleanup checks and data-driven cases; they are not a count of independent features. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md) for layout decisions and final frameless verification. The [0.5.0 review](REVIEW_0.5.0.md) records removal of disk history, the follow-up rename/annotation/Undo corrections, retained atomic Save guards and the isolated rename measurement. It also records the initial native wheel-fixture failure and its event-scoped assertion. The earlier [UI/UX review](UI_UX_REVIEW_2026-10-29.md) and [architecture/resource audit](ARCHITECTURE_REVIEW_2026-10-28.md) retain their historical measurements and platform limits.
+
+Current evidence: `build/menu-settings-build.log`, `menu-settings-validation.log`, `menu-settings-frameless-validation.log`, `menu-settings-frameless-scale-*.txt` and `menu-settings-portable.log`. The full validator report is `build/menu-settings-validation-summary.json`; the final frameless adjustment reruns the core checks and native UI suite at all four scales. See the [memory review](MEMORY_REVIEW_2026-10-29.md) for the preceding failing-before ownership regression and cache lookup tradeoff. The compiler reports no warnings. Portable verification
+also runs QR recognition, all five OCR languages and relocated-profile startup
+without SDK paths. Deployment resolves all imports across 136 PE modules;
+packaging separately verifies source selection, runtime/source consistency and
+SHA-256 asset manifests. Native Windows 10, Linux and macOS execution remains open.
+`build/0.5.0-followup-installed-modules.json` also verifies both native modules'
+exports inside the deployed executable without SDK paths. Native fullscreen
+geometry/cover checks pass, but unavailable desktop pixel readback leaves cover
+colour unverified in this session; these tests do not establish a visually
+flicker-free transition on every system.
+
+The subsequent image-canvas frame removal is recorded separately in
+`build/window-border-build.log`, `window-border-ctest.log`,
+`window-border-native-*.txt` and `window-border-portable.log`. All eight suites
+are rerun, along with fit/wheel navigation, fullscreen cover lifetime and full
+image fitting at four native Windows scales. The restored-window capture
+`tests/output/fullscreen-restored-fit.png` shows the frameless sides and retained
+status divider. The 45 Python tests and full 33-block matrix above belong to the
+preceding menu/settings audit; this small canvas adjustment does not rerun them.
+
+The maintenance suite isolates consumed-result pixel ownership, destruction while
+image work is queued, history precision/selection/source reconciliation, combined
+Undo/Redo budgets, metadata sharing, oversized inverse retention, JPEG source and
+destination conflicts, and ZIP implicit-parent limits. Two lifetime regressions
+failed against unchanged product code; the parent-directory case also failed
+against the preceding archive plugin. See `build/architect-audit-repro-before.txt`
+and `architect-audit-archive-repro-before.txt`; corrected targeted/native cases
+pass. The compiler's GCC analyzer reports no diagnostics for document_history,
+image_memory and jpeg_transform; this limited analysis is not a sanitizer run.
+
+ZIP/CBZ checks cover natural ordering across three pages, hidden/non-image entries,
+preview sizing, page export, preservation of archive bytes and actual main-window
+page controls for both extensions. Ten rejected-container cases cover empty,
+text-only, nested, corrupt-image, truncated, encrypted, oversized-entry,
+excessive-entry, traversal and ZIP64 inputs. This is a bounded ZIP implementation,
+not a claim of conformance for every ZIP variant. KRA/ORA and ordinary images keep
+their existing handlers. The Windows runtime adds one approximately 105 KB plugin
+and reuses its existing KArchive DLL; import inspection confirms the viewer itself
+does not directly import KArchive. A separate disabled configuration verifies that
+turning off the archive target also removes its stale generated plugin. Native
+Linux/macOS and Windows 10 execution remain open.
 
 `tests/workflow_ixview.cpp` covers superseded modal opens, queued folder navigation, EXIF-rotated preview detail, random rounds after directory changes, external rewrites during Rename, and exact export pixels/profile/DPI with failed-save preservation. The first, rotated-preview and rename cases were reproduced against the previous implementation. See [the follow-up review](REVIEW_2026-10-24.md).
 
@@ -18,7 +60,7 @@ The 0.4.8 pass covers live command state/removal, stable search rows while typin
 
 `tests/extensions_ixview.cpp` verifies streamed package integrity, rejected paths/platforms/catalog mismatches, cancellation, activation, custom-folder migration and portable import. Actual standalone QR/Code 39 and English OCR processes run from installed packs, including a selected image area, five installed language models, manager installation/deactivation/removal and temporary-file cleanup. Removal checks cover retained versions, cancelled operations, corrupt state, multiple simultaneous leases, selected OCR languages and reinstallation; profile copies omit transient tool locks. A real QR fixture is selected with the mouse and read through its right-click menu, and right-drag keeps moving the frame. The tools also run without SDK paths in PATH. The deployed folder includes both engines and five models under app-local tools; clean-room checks launch the QR engine and each OCR language, then move the app and check its default tool path without a duplicated portable copy. Release tests preserve installed activation/removal state and publish a separate verified snapshot rather than personal tools. Invoking QR recognition without its engine opens the manager on the correct function pack, then resumes into recognition after installation; result-action availability and cancellation are checked. These establish integration rather than broad recognition accuracy. Native Linux/macOS tool runs and Japanese/Korean OCR accuracy remain open.
 
-`tests/storage_ixview.cpp` adds isolated portable-profile import, cancellation, typed INI settings, backend locations, relocation with ratings/file undo, external-path boundaries and corrupt/unwritable input checks. The real deployed executable is also started in a separate portable folder, moved and restarted; its local extension preferences must be honored. Release tests preserve user profiles during deployment and exclude them from binary/source archives.
+`tests/storage_ixview.cpp` adds isolated portable-profile import, cancellation, typed INI settings, backend locations, relocation with ratings, external-path boundaries and corrupt/unwritable input checks. Retired history data is excluded from new portable imports. The real deployed executable is also started in a separate portable folder, moved and restarted; its local extension preferences must be honored. Release tests preserve user profiles during deployment and exclude them from binary/source archives.
 
 Fullscreen information tests cover menu placement, Cancel/OK and Settings persistence, selected image/file/EXIF fields, missing metadata, all four corners, small viewports, current-image refresh and removal on returning to window mode. The image pixels and modified state remain unchanged. Branding checks cover the üxzView window title, UTF-8 version output, ASCII package/executable names and generated per-user Windows registration; legacy storage identifiers remain in use.
 
@@ -26,7 +68,7 @@ Fullscreen exit keeps a temporary snapshot window above the owner through queued
 
 Settings checks exercise numeric aspect-ratio rows, the 32-row limit, row removal/focus, normalized duplicate ratios and unchanged Cancel/save behavior. Existing profile strings remain compatible.
 
-`tests/test_ixview.cpp` covers processing, document state, UI commands, file undo, batch plans and codec round trips. It uses generated RGB/RGBA, GIF/APNG, PSD, SVG and multipage TIFF fixtures. PNG has exact 16-bit pixel, alpha, ICC, DPI and text checks; JPEG has EXIF-orientation and lossless coefficient-transform checks. The runtime matrix has 94 format keys and 32 synthetic encoder round trips. Recognition and a small round trip do not establish support for every variant of a format.
+`tests/test_ixview.cpp` covers processing, document state, UI commands, image-edit Undo, batch plans and codec round trips. It uses generated RGB/RGBA, GIF/APNG, PSD, SVG and multipage TIFF fixtures. PNG has exact 16-bit pixel, alpha, ICC, DPI and text checks; JPEG has EXIF-orientation and lossless coefficient-transform checks. The runtime matrix has 94 format keys and 32 synthetic encoder round trips. Recognition and a small round trip do not establish support for every variant of a format.
 
 Selection repaint checks compare complete before/after pixels with actual damaged regions at fractional zoom, including clipped/tiny frames, removal and 8-/16-bit sources. Metadata range reads cover read-only Unicode JPEGs with trailing data and PNGs across the 64-KiB buffer boundary; EXIF, IPTC and XMP remain readable. The Exiv2 0.27 compatibility path and other desktop operating systems have not been newly tested here.
 
@@ -73,7 +115,7 @@ The viewer currently converts tagged images to sRGB for display. Calibrated moni
 
 - A complete 65,536-value Grayscale16 ramp retains its samples through PNG, identity color adjustment/resampling, normal/inverted selection composition, zero-margin canvas, transparent watermark and quarter-turn rotation. The test also checks unchanged samples outside an edited selection and extended float values in identity selection/canvas. This does not establish HDR preservation in every processing filter.
 - Animation resume tests cover Cancel, Discard and Save, paused display refresh and restarting a completed one-shot animation.
-- Real file-undo and direct-start pipeline dialogs replace the active file: clean documents reload and clear history; dirty documents retain pixels/history with an explicit disk-change warning.
+- Direct-start pipeline dialogs replace the active file: clean documents reload and clear pixel history; dirty documents retain pixels/history with an explicit disk-change warning.
 - Undo/Redo display work commits history only after the worker succeeds; the GUI event loop continues during display sharpening.
 - APNG sequences of 20/40/80 frames parse once and compose exactly that many frames at document-cache budgets of 0/16/192 MiB. Returned frames stay immutable; backward seek, same-size/same-mtime replacement, cache clearing and over-budget eviction are checked. Existing blend/disposal/CRC checks remain.
 
@@ -82,7 +124,7 @@ The viewer currently converts tagged images to sRGB for display. Calibrated moni
 - A changed watermark invalidates a reviewed batch plan; output cannot overwrite the watermark resource.
 - Thumbnail loading reaches beyond the first 200 entries and responds to viewport changes.
 - Decoded documents retain their detected format even when the Qt handler clears it at the end of reading. The installed PNG probe checks the identifier as well as dimensions.
-- Journal migration accepts a legacy history larger than the old 32 MiB read limit. Updating one operation leaves other entry files unchanged. Corrupt storage is rejected before changing a user file.
+- File operations check applied moves separately from catalog-update warnings, so the active document can follow its actual renamed path. They create no disk history.
 
 Whole-image fitting is exercised across multiple canvas sizes, aspect ratios and dimensions that expose floating-point rounding. Tests zoom in, fit back to the viewport, require zero automatic scroll ranges and full image bounds, then send real wheel events. A separate check confirms that a genuinely zoomed image still scrolls rather than changing files.
 
@@ -90,7 +132,9 @@ Navigation tests crop and convert to grayscale before moving by keyboard and whe
 
 The additional review covers opening a duplicate without leaving blocking dialogs, retaining ordinary window geometry/fit after fullscreen, offering PNG Save as for decode-only sources, and retaining JPEG commands after saving an uppercase `.JPG`. Tagged image watermarks are converted into the destination image's profile before composition; the source watermark remains unchanged. Release packaging rejects missing or stale üxzView executables/modules relative to the current build. This last check does not replace rebuilding after source changes; `prepare_release.ps1` performs that build.
 
-The journal offers explicit reconciliation of interrupted operations, checking content hashes on a worker; Undo also reconciles its selected interrupted entry. Changed or ambiguous files and old Undo records without discard paths still need manual inspection. Startup never scans image contents for recovery; power-loss durability is not established. Its history UI still reads the full entry index, and the metadata catalog remains a bounded JSON snapshot rather than a database.
+Version 0.5.0 removes disk history and file-operation Undo. Atomic Save guards
+retain original targets on rejected writes; pixel Undo remains independent.
+The metadata catalog is still a bounded JSON snapshot rather than a database.
 
 ## Reproduce
 
@@ -103,7 +147,7 @@ python scripts/deploy.py
 python scripts/verify_portable.py
 ```
 
-`build/test-results.*` and `build/quality-test-results.*` contain the development results. `verify_portable.py` runs all six suites with only Windows system paths in `PATH`, checks the installed application's version and actual PNG decoding, then removes the temporary test executables and Qt Test DLL. Reports are `build/portable-test-results.*`, `build/portable-{quality,storage,extension,workflow,journal}-test-results.*` and `build/portable-image-probe.json`.
+`build/test-results.*` and `build/quality-test-results.*` contain the development results. `verify_portable.py` runs all eight suites with only Windows system paths in `PATH`, checks the installed application's version and actual PNG decoding, then removes the temporary test executables and Qt Test DLL. Reports are `build/portable-test-results.*`, `build/portable-{quality,storage,extension,workflow,file-operation,maintenance,ui-quality}-test-results.*` and `build/portable-image-probe.json`.
 
 Thirty-four targeted behaviors also passed with the native Windows platform plugin on Windows 11: fullscreen fit and closing, saving during slideshow, animation export, file opening during save, keyboard folder navigation, duplicate-result opening, saving decode-only formats, uppercase JPEG extensions, tagged watermark composition, fitted-image wheel navigation, default edit disposal, optional save confirmation, aspect-ratio crop/undo and fullscreen mouse navigation. The run also includes the grayscale, animation, file-replacement, worker-history and APNG regressions above, plus stable toolbar states, keyboard-accessible settings categories, preference Cancel/OK/persistence and preview background rendering without thumbnail replacement. This automated run does not replace manual DPI, printing, multi-monitor and drag-and-drop checks. The restricted session initially denied clipboard access; the successful run used a normal desktop context outside that restriction.
 
@@ -149,10 +193,31 @@ per-file exception containment pass. The Linux CI fixture additionally builds
 and relocates a real isolated module/dependency pair; its native run and the Qt
 Linux package check remain pending on this Windows host.
 
-The dedicated `tests/journal_ixview.cpp` suite injects journal persistence failures
-and verifies both forward operations and Undo, missing-target backup restoration,
-changed-file retention, ambiguous states, lock exclusion and safe retries. The
-workflow suite exercises its actual journal-dialog repair action. Batch progress
-checks merge sequential and concurrent bursts of 100,000 completions, retain the
-last count and reject regressions from late notifications. Details and limitations
-are in [the 28 October review](REVIEW_2026-10-28.md).
+The file-operation suite now checks direct copy/move/trash, rejection of peer
+source changes and existing targets, and atomic export cancellation. No disk
+journal, recovery or file-operation Undo is part of 0.5.0. Historical reports
+describe the earlier implementation. Batch progress coalescing tests remain.
+
+The latest fit-policy pass covers generated JPEGs at 3331 × 2244 and 2594 × 3486,
+plus 20,003-pixel-wide PNGs. It exercises settings changed during fullscreen,
+older-window preference retention, confirmed settings in a stale window, locked
+manual zoom and automatic fit, previews/resizing and keyboard/wheel navigation.
+The native Windows group passes at 100/125/150/200 percent scaling. The appearance
+test now observes actual index completion instead of assuming a 150 ms delay.
+See [the fit-policy review](REVIEW_2026-10-28.md#panorama-navigation-automatic-fit-with-locked-zoom).
+
+Display-fit menus have one exclusive selection with uniform checkmark rendering.
+Checks cover all twelve commands, repeated selection, persisted window/screen
+variants, stale hints, manual zoom, fullscreen return and load/modal rejection.
+Rendered exclusive/independent checked items match in light/dark themes for
+normal, selected and disabled states. The native four-DPI group includes these
+checks and captures the actual menu; details are in the latest review.
+
+
+The dedicated UI quality suite covers nominal palette text contrast, literal
+keyboard-copyable information values, named edit controls, stable status text
+under command hover, mixed-directory filtering and compact histogram/extension
+layouts in five languages and two themes. CTest and portable verification run
+the suite; Windows validation repeats it at 100/125/150/200 percent scaling.
+Native-trash tests inject OS rejection without permanent-delete fallbacks.
+Portable profiles no longer import retired journal data; pixel Undo remains covered.

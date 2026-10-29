@@ -3,7 +3,12 @@
 #pragma once
 #include <QRect>
 #include <QString>
+#include <optional>
 namespace ix {
 enum class JpegTransform { Left, Right, Rotate180, Horizontal, Vertical, Crop };
-QString transformJpeg(const QString &source, const QString &target, JpegTransform operation, QRect crop = {});
+// Omitted revisions capture state at entry. An empty expected target requires
+// absence. Explicit revisions span chooser/worker scheduling boundaries.
+QString transformJpeg(const QString &source, const QString &target, JpegTransform operation, QRect crop = {},
+                      const std::optional<QString> &expectedTarget = std::nullopt,
+                      const std::optional<QString> &expectedSource = std::nullopt);
 } // namespace ix

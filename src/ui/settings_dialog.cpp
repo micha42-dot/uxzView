@@ -9,16 +9,34 @@
 #include "fullscreen_info.h"
 #include <QtWidgets>
 #include <QtConcurrent>
+#include <QTextLayout>
 namespace ix {
+namespace {
+QString wrappedOption(const QString &text, const QFont &font, int width) {
+    QTextLayout layout(text, font);
+    QTextOption option; option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(option);
+    QStringList lines;
+    layout.beginLayout();
+    for (;;) {
+        auto line=layout.createLine(); if (!line.isValid()) break;
+        line.setLineWidth(width);
+        lines.append(text.mid(line.textStart(),line.textLength()).trimmed());
+    }
+    layout.endLayout();
+    return lines.join(QLatin1Char('\n'));
+}
+}
 SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(parent) {
     storageHome_ = storageHome.isEmpty() ? AppStorage::applicationHome() : storageHome;
     setObjectName(QStringLiteral("settingsDialog"));
     setWindowTitle(IX_TEXT("Einstellungen"));
-    resize(860, 580);
+    const auto available = screen()->availableGeometry().size();
+    resize(QSize(800, 480).boundedTo(available - QSize(32, 48)));
     QSettings settings;
     auto *layout = dialogLayout(this);
     auto *body = new QHBoxLayout;
-    body->setSpacing(16);
+    body->setSpacing(spacing::column);
     categories_ = new QListWidget;
     categories_->setObjectName(QStringLiteral("settingsCategories"));
     categories_->setAccessibleName(IX_TEXT("Einstellungsbereiche"));
@@ -34,7 +52,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         auto *widget = new QWidget;
         auto *outer = new QVBoxLayout(widget);
         outer->setContentsMargins(0, 0, 0, 0);
-        outer->setSpacing(12);
+        outer->setSpacing(spacing::section);
         auto *form = dialogFormLayout();
         form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);
@@ -49,7 +67,9 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         return form;
     };
     auto check = [&](QFormLayout *form, const QString &key, const QString &label, bool fallback) {
-        auto *box = new QCheckBox(label);
+        auto *box = new QCheckBox;
+        box->setText(wrappedOption(label, box->font(), std::max(220, std::min(520, width()-210))));
+        box->setAccessibleName(label);
         box->setObjectName(key);
         box->setChecked(settings.value(key, fallback).toBool());
         checks_.insert(key, box);
@@ -59,6 +79,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     auto number = [&](QFormLayout *form, const QString &key, const QString &label, int fallback, int minimum,
                       int maximum) {
         auto *box = new QSpinBox;
+        box->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
         box->setObjectName(key);
         box->setRange(minimum, maximum);
         box->setValue(settings.value(key, fallback).toInt());
@@ -85,6 +106,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     check(display, QStringLiteral("view/sharpenDisplay"), IX_TEXT("Anzeige nachschärfen"), false);
     background_ = settings.value(QStringLiteral("view/background"), QColor(Qt::black)).value<QColor>();
     auto *background = new QPushButton;
+    background->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     background->setObjectName(QStringLiteral("view/background"));
     auto updateColor = [this, background] {
         background->setText(IX_TEXT("Hintergrundfarbe: %1 …").arg(background_.name().toUpper()));
@@ -100,6 +122,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     });
     auto *surface = page(IX_TEXT("Oberfläche"));
     theme_ = new QComboBox;
+    theme_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     theme_->setObjectName(QStringLiteral("ui/theme"));
     theme_->addItem(IX_TEXT("Systemdesign"), QStringLiteral("system"));
     theme_->addItem(IX_TEXT("Hell"), QStringLiteral("light"));
@@ -108,6 +131,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         settings.value(QStringLiteral("ui/theme"), QStringLiteral("system")))));
     surface->addRow(IX_TEXT("Farbschema:"), theme_);
     language_ = new QComboBox;
+    language_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     language_->setObjectName(QStringLiteral("ui/language"));
     for (const auto &entry :
          QList<QPair<QString, QString>>{{QStringLiteral("Deutsch"), QStringLiteral("de")},
@@ -124,6 +148,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     check(surface, QStringLiteral("view/actionSearch"),
           IX_TEXT("Befehlssuche anzeigen"), false);
     iconSize_ = new QComboBox;
+    iconSize_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     iconSize_->setObjectName(QStringLiteral("toolbar/iconSize"));
     for (int size : {20, 24, 28, 32})
         iconSize_->addItem(QStringLiteral("%1 px").arg(size), size);
@@ -134,7 +159,18 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
           false);
     check(surface, QStringLiteral("window/rememberGeometry"), IX_TEXT("Fenstergröße und Position merken"),
           true);
-    auto *previews = page(IX_TEXT("Vorschauen"));
+    auto *previewSection = new QWidget;
+    auto *previewLayout = new QVBoxLayout(previewSection);
+    previewLayout->setContentsMargins(0, spacing::section, 0, 0);
+    previewLayout->setSpacing(spacing::row);
+    auto *previewTitle = new QLabel(IX_TEXT("Vorschauen"));
+    auto previewFont = previewTitle->font();
+    previewFont.setBold(true);
+    previewTitle->setFont(previewFont);
+    previewLayout->addWidget(previewTitle);
+    auto *previews = dialogFormLayout();
+    previewLayout->addLayout(previews);
+    display->addRow(previewSection);
     auto *enabled = check(previews, QStringLiteral("view/previewStrip"),
                           IX_TEXT("Nachbarbilder unter dem aktuellen Bild anzeigen"), false);
     auto *previous =
@@ -195,6 +231,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     fullscreenBackground_ =
         settings.value(QStringLiteral("fullscreen/background"), QColor(Qt::black)).value<QColor>();
     auto *fullColor = new QPushButton;
+    fullColor->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     fullColor->setObjectName(QStringLiteral("fullscreen/background"));
     auto updateFullColor = [this, fullColor] {
         fullColor->setText(IX_TEXT("Hintergrundfarbe: %1 …").arg(fullscreenBackground_.name().toUpper()));
@@ -212,6 +249,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     });
     auto *slideshow = page(IX_TEXT("Diashow"));
     seconds_ = new QDoubleSpinBox;
+    seconds_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     seconds_->setObjectName(QStringLiteral("slideshow/seconds"));
     seconds_->setRange(.1, 3600);
     seconds_->setDecimals(1);
@@ -226,6 +264,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         settings.value(QStringLiteral("capture/shortcut"), QStringLiteral("Ctrl+Shift+F12")).toString(),
         QKeySequence::PortableText));
     captureShortcut_->setObjectName(QStringLiteral("capture/shortcut"));
+    captureShortcut_->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    captureShortcut_->setMaximumWidth(220);
     captureShortcut_->setMaximumSequenceLength(1);
     capture->addRow(IX_TEXT("Tastenkombination:"), captureShortcut_);
 #ifdef Q_OS_WIN
@@ -250,6 +290,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     number(performance, QStringLiteral("batch/parallelism"),
            IX_TEXT("Parallele Dateien beim Start einer neuen Batchkette:"), 2, 1, 4);
     auto *clear = new QPushButton(IX_TEXT("Bild- und Miniaturcaches jetzt leeren"));
+    clear->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     clear->setObjectName(QStringLiteral("clearImageCaches"));
     performance->addRow(clear);
     auto *cleared = new QLabel;

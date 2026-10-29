@@ -24,6 +24,8 @@ bool isRawFormat(const QByteArray &format) {
 }
 namespace {
 QString backend(const QByteArray &f) {
+    if (f == "cbz" || f == "zip")
+        return QStringLiteral("üxzView / KArchive");
     if (f == "jpeg" || f == "jfif")
         return QStringLiteral("Qt / libjpeg-turbo");
     if (f == "png")
@@ -245,7 +247,8 @@ QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray
     return losses;
 }
 QString CodecRegistry::save(const ImageDocument &d, const QString &path, const QByteArray &requested,
-                            int quality, bool allowLoss, const std::optional<QString> &expectedTarget) const {
+                            int quality, bool allowLoss, const std::optional<QString> &expectedTarget,
+                            const std::function<QString()> &beforeCommit) const {
     QByteArray format = normalized(requested.isEmpty() ? QFileInfo(path).suffix().toLatin1() : requested);
     if (d.empty())
         return IX_TEXT("Kein Bild geladen.");
@@ -261,6 +264,11 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
     const auto changedTarget = [] {
         return IX_TEXT("Die Zieldatei wurde inzwischen verändert. Bitte vor dem Speichern erneut prüfen.");
     };
+    const auto regularTarget = [&] {
+        const QFileInfo info(path);
+        return !info.isSymLink() && !info.isJunction() && (!info.exists() || info.isFile());
+    };
+    if (!regularTarget()) return changedTarget();
     if (current != authorized)
         return changedTarget();
     QSaveFile file(path);
@@ -305,9 +313,13 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
         file.cancelWriting();
         return file.errorString();
     }
+    if (beforeCommit) {
+        const auto error = beforeCommit();
+        if (!error.isEmpty()) { file.cancelWriting(); return error; }
+    }
     // Encoding/metadata work can take time. Never publish over an intervening
     // rewrite, creation or deletion. QSaveFile discards the staged output.
-    if (targetRevision() != authorized) {
+    if (!regularTarget() || targetRevision() != authorized) {
         file.cancelWriting();
         return changedTarget();
     }

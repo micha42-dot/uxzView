@@ -6,10 +6,30 @@
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QStyle>
+#include <QProxyStyle>
+#include <QStyleOptionMenuItem>
 #include <utility>
 
 namespace ix {
 namespace {
+class MenuCheckmarkStyle final : public QProxyStyle {
+  public:
+    explicit MenuCheckmarkStyle(QStyle *base) : QProxyStyle(base) {
+        setObjectName(QStringLiteral("fusion"));
+    }
+    void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter,
+                     const QWidget *widget = nullptr) const override {
+        if (element == CE_MenuItem)
+            if (const auto *item = qstyleoption_cast<const QStyleOptionMenuItem *>(option);
+                item && item->checkType == QStyleOptionMenuItem::Exclusive) {
+                auto checked = *item;
+                checked.checkType = QStyleOptionMenuItem::NonExclusive;
+                QProxyStyle::drawControl(element, &checked, painter, widget);
+                return;
+            }
+        QProxyStyle::drawControl(element, option, painter, widget);
+    }
+};
 QColor color(const char *value) { return QColor(QString::fromLatin1(value)); }
 QPalette colors(bool dark) {
     QPalette p;
@@ -37,12 +57,12 @@ QPalette colors(bool dark) {
     p.setColor(QPalette::Shadow, color(dark ? "#090b0f" : "#6d7580"));
     p.setColor(QPalette::ToolTipBase, color(dark ? "#303641" : "#252a32"));
     p.setColor(QPalette::ToolTipText, color("#f2f4f8"));
-    const auto disabled = color(dark ? "#858e9d" : "#858c96");
+    const auto disabled = color(dark ? "#929ba9" : "#636b77");
     for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText,
                             QPalette::PlaceholderText})
         p.setColor(QPalette::Disabled, role, disabled);
     p.setColor(QPalette::Disabled, QPalette::Highlight, color(dark ? "#3a4352" : "#d9dde3"));
-    p.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
+    p.setColor(QPalette::Disabled, QPalette::HighlightedText, text);
     return p;
 }
 class Appearance final : public QObject {
@@ -51,9 +71,8 @@ class Appearance final : public QObject {
         fallbackDark_ = QApplication::palette().color(QPalette::Window).lightnessF() < .5;
         // Fusion honors every palette role and keeps control geometry stable
         // across modes. No style reload occurs during image loading/painting.
-        if (QApplication::style()->objectName().compare(QStringLiteral("fusion"), Qt::CaseInsensitive))
-            if (auto *style = QStyleFactory::create(QStringLiteral("Fusion")))
-                QApplication::setStyle(style);
+        if (auto *style = QStyleFactory::create(QStringLiteral("Fusion")))
+            QApplication::setStyle(new MenuCheckmarkStyle(style));
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
                 [this](Qt::ColorScheme) { if (mode_ == QStringLiteral("system")) update(); });
     }

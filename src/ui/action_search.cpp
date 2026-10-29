@@ -27,6 +27,7 @@ ActionSearch::ActionSearch(QList<QAction *> actions, QWidget *parent)
     : QLineEdit(parent) {
     setObjectName(QStringLiteral("actionSearch"));
     bindUiText(this, "placeholderText", QStringLiteral("Befehl suchen …"));
+    bindUiText(this, "accessibleName", QStringLiteral("Befehl suchen …"));
     setClearButtonEnabled(true);
     setMinimumWidth(130);
     setMaximumWidth(230);

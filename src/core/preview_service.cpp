@@ -3,6 +3,7 @@
 #include "apng_codec.h"
 #include "plugin_store.h"
 #include "localization.h"
+#include "image_memory.h"
 #include <QCache>
 #include <QColorSpace>
 #include <QCoreApplication>
@@ -12,13 +13,17 @@
 #include <QLibrary>
 #include <QMutex>
 #include <QPointer>
+#include <QSet>
 #include <QtConcurrent>
 #include <algorithm>
 namespace ix {
 namespace {
 QMutex cacheMutex;
-QCache<QString, QImage> previews(16 * 1024 * 1024);
-QCache<QString, ImageDocument> documents(192 * 1024 * 1024);
+// Keep the path separate from the opaque revision. Filenames may contain '|',
+// and eviction must not touch object() and reorder unrelated LRU entries.
+using CacheKey = QPair<QString, QString>;
+QCache<CacheKey, QImage> previews(16 * 1024 * 1024);
+QCache<CacheKey, ImageDocument> documents(192 * 1024 * 1024);
 quint64 cacheEpoch = 0; // Protected by cacheMutex, like both caches.
 std::atomic_bool rawPreviewsEnabled = true;
 constexpr qint64 CacheCostLimit = ImageMemoryLimit + 1; // Reject beyond the largest 512 MiB budget.
@@ -27,38 +32,6 @@ qint64 addCost(qint64 first, qint64 second) {
 }
 qint64 stringCost(const QString &text) {
     return std::min<qint64>(std::max(text.size(), text.capacity()), ImageMemoryLimit / 2) * 2;
-}
-qint64 textCost(const QString &key, const QString &value) {
-    return addCost(128, addCost(stringCost(key), stringCost(value)));
-}
-qint64 mapCost(const QMap<QString, QString> &text) {
-    qint64 bytes = 0;
-    for (auto it = text.cbegin(); it != text.cend(); ++it)
-        bytes = addCost(bytes, textCost(it.key(), it.value()));
-    return bytes;
-}
-qint64 imageCost(const QImage &image) {
-    qint64 bytes = std::min<qint64>(image.sizeInBytes(), ImageMemoryLimit);
-    for (const auto &key : image.textKeys())
-        bytes = addCost(bytes, textCost(key, image.text(key)));
-    // Unsupported profiles can retain their original bytes too. Imported
-    // profiles are implicitly shared; named spaces serialize to a small profile.
-    const auto icc = image.colorSpace().iccProfile();
-    return addCost(bytes, std::min<qint64>(icc.size(), ImageMemoryLimit / 2) * 2);
-}
-qint64 documentCost(const ImageDocument &document) {
-    auto bytes = addCost(imageCost(document.pixels), sizeof(ImageDocument));
-    bytes = addCost(bytes, stringCost(document.path));
-    bytes = addCost(bytes, stringCost(document.sourceRevision) * 2); // Field and cache key.
-    bytes = addCost(bytes, stringCost(document.metadataWarning));
-    bytes = addCost(bytes, mapCost(document.text));
-    if (document.metadata) {
-        // Native EXIF data areas include embedded thumbnails/binary values.
-        // Sharing can make this conservative; it is not a process-RAM limit.
-        bytes = addCost(bytes, mapCost(document.metadata->tags));
-        bytes = addCost(bytes, std::clamp<qint64>(document.metadata->nativeBytes, 0, ImageMemoryLimit));
-    }
-    return bytes;
 }
 } // namespace
 bool isRawImage(const QString &path) {
@@ -74,7 +47,8 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
     if (!bounds.isValid() || bounds.width() > 2048 || bounds.height() > 2048 || (cancel && cancel->load()))
         return {};
     const auto revision = imageFileKey(path);
-    const auto key = revision + QStringLiteral("/%1x%2").arg(bounds.width()).arg(bounds.height());
+    const auto absolute = QFileInfo(path).absoluteFilePath();
+    const CacheKey key{absolute, revision + QStringLiteral("/%1x%2").arg(bounds.width()).arg(bounds.height())};
     QImage image;
     QByteArray cachedFormat;
     quint64 epoch = 0;
@@ -85,7 +59,7 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
         cacheEnabled = previews.maxCost() > 0;
         if (auto *image = previews.object(key))
             return *image;
-        if (auto *document = documents.object(revision + QStringLiteral("/0"));
+        if (auto *document = documents.object({absolute, revision + QStringLiteral("/0")});
             document && document->sourceRevision == revision && !document->modified &&
             !document->animated && document->page == 0 && document->pageCount == 1) {
             const auto format = document->format.toLower();
@@ -143,7 +117,7 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
     if (image.isNull() || (cancel && cancel->load()) || revision != imageFileKey(path))
         return {};
     if (cacheEnabled) {
-        const auto cost = addCost(imageCost(image), addCost(stringCost(key), 64));
+        const auto cost = addCost(imageMemoryCost(image), addCost(stringCost(key.second), addCost(stringCost(absolute), 64)));
         QMutexLocker lock(&cacheMutex);
         if (epoch == cacheEpoch)
             previews.insert(key, new QImage(image), int(cost));
@@ -202,7 +176,8 @@ void PreviewService::startNext() {
 ImageResult ImageLoadCache::read(const CodecRegistry &registry, const QString &path, int page,
                                  const std::function<void()> &beforeDecode) {
     const auto revision = imageFileKey(path);
-    const auto key = revision + QLatin1Char('/') + QString::number(page);
+    const auto absolute = QFileInfo(path).absoluteFilePath();
+    const CacheKey key{absolute, revision + QLatin1Char('/') + QString::number(page)};
     quint64 epoch = 0;
     bool cacheEnabled = false;
     {
@@ -220,7 +195,7 @@ ImageResult ImageLoadCache::read(const CodecRegistry &registry, const QString &p
     if (result.ok())
         result.document.sourceRevision = revision;
     if (result.ok() && cacheEnabled && result.document.pixels.sizeInBytes() <= 96 * 1024 * 1024) {
-        const auto cost = documentCost(result.document);
+        const auto cost = addCost(documentMemoryCost(result.document), addCost(stringCost(key.second), addCost(stringCost(absolute), 64)));
         QMutexLocker lock(&cacheMutex);
         if (epoch == cacheEpoch)
             documents.insert(key, new ImageDocument(result.document), int(cost));
@@ -239,5 +214,30 @@ void ImageLoadCache::clear() {
     ++cacheEpoch;
     documents.clear();
     previews.clear();
+}
+void ImageLoadCache::invalidate(const QStringList &paths) {
+    QStringList absolute;
+    for (const auto &path : paths)
+        if (!path.isEmpty()) absolute.append(QFileInfo(path).absoluteFilePath());
+    if (absolute.isEmpty()) return;
+    const auto lookupPath = [](const QString &path) {
+#ifdef Q_OS_WIN
+        return path.toCaseFolded();
+#else
+        return path;
+#endif
+    };
+    QSet<QString> affected;
+    affected.reserve(absolute.size());
+    for (const auto &path : absolute) affected.insert(lookupPath(path));
+    ApngCodec::invalidateSession(absolute);
+    QMutexLocker lock(&cacheMutex);
+    // One bounded epoch avoids an unbounded per-path generation map. Retained
+    // unrelated entries stay usable, but earlier misses must not insert later.
+    ++cacheEpoch;
+    for (const auto &key : documents.keys())
+        if (affected.contains(lookupPath(key.first))) documents.remove(key);
+    for (const auto &key : previews.keys())
+        if (affected.contains(lookupPath(key.first))) previews.remove(key);
 }
 } // namespace ix

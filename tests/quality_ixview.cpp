@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
-#include "core/file_journal.h"
+#include "core/file_operations.h"
 #include "core/preview_service.h"
 #include "convolution_reference.h"
 #include "ui/main_window.h"

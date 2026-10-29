@@ -26,8 +26,8 @@ NATIVE_GROUPS = {
         neighborPreviewsReuseWidgetsAndRefreshChangedFiles'''.split(),
     'native-toolbar-test-results': '''optionalWidgetsAndNeighborNavigation outlineIconsAndZoomSemantics
         selectionDamageCoversEveryChangedPixel metadataStreamsUnicodeReadOnlyFiles grayscale16RetainsEverySampleAcrossEditing
-        editedAnimationResumeHonorsSavePolicy activeDocumentReloadsAfterFileUndoAndPipeline
-        dirtyDocumentSurvivesPipelineReplacementAndFileUndo undoRedoDisplayRunsInWorker apngSessionsAdvanceLinearlyAndInvalidate
+        editedAnimationResumeHonorsSavePolicy activeDocumentReloadsAfterPipeline
+        dirtyDocumentSurvivesPipelineReplacement undoRedoDisplayRunsInWorker apngSessionsAdvanceLinearlyAndInvalidate
         toolbarStatesStayStableWhileBrowsing settingsCategoriesRemainVisible previewBackgroundModesPreserveThumbnails
         settingsRoundTripAndCancel portableModeSettingsPreserveCancelAndImport fullscreenTransitionsRetainVisibleWindow
         fullscreenInformationOptionsAndMenu fullscreenInformationTracksImagesWithoutChangingPixels'''.split(),
@@ -101,7 +101,17 @@ def main():
             for name, cases in NATIVE_GROUPS.items(): native(name, cases)
             native('native-workflow-test-results', [], engine='ixview_workflow_tests')
             native('native-extension-test-results', [], engine='ixview_extension_tests')
+            native('native-maintenance-test-results', [], engine='ixview_maintenance_tests')
             for scale in ('1', '1.25', '1.5', '2'):
+                native(f'native-ui-quality-scale-{scale}', [], scale, engine='ixview_ui_quality_tests')
+                native(f'native-fit-navigation-scale-{scale}',
+                    ['automaticFitSurvivesLockedZoomDuringFolderNavigation',
+                     'windowFitChangedWhileFullscreenAppliesOnExit',
+                     'closingOlderWindowKeepsNewestFitPreference',
+                     'menuCheckmarksMatchForExclusiveAndIndependentChoices',
+                     'displayFitMenuSelectionPersists',
+                     'displayFitMenuTracksZoomFullscreenAndBlockedActions'],
+                    scale, engine='ixview_workflow_tests')
                 native(f'native-review-display-scale-{scale}', ['displayCachePreservesPixelsAndInvalidates'], scale)
                 native(f'native-fullscreen-scale-{scale}', ['fittedImageHasNoPhantomScrollbarsAndWheelNavigates',
                                                            'fullscreenTransitionsRetainVisibleWindow'], scale)

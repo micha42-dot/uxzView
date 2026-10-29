@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #pragma once
+#include <functional>
 #include "image_document.h"
 #include <memory>
 #include <optional>
@@ -36,7 +37,8 @@ class CodecRegistry {
     // requires absence; a supplied revision spans an earlier UI confirmation.
     QString save(const ImageDocument &document, const QString &path, const QByteArray &format = {},
                  int quality = 95, bool allowLoss = false,
-                 const std::optional<QString> &expectedTarget = std::nullopt) const;
+                 const std::optional<QString> &expectedTarget = std::nullopt,
+                 const std::function<QString()> &beforeCommit = {}) const;
     QList<FormatCapability> capabilities() const;
     QStringList extensions() const;
     QString openFilter() const;

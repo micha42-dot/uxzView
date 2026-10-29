@@ -12,9 +12,9 @@
 #include <QtWidgets>
 #include <algorithm>
 namespace ix {
-PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QString journalRoot)
+PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QString cacheRoot)
     : QDialog(parent), cancel_(std::make_shared<std::atomic_bool>(false)) {
-    journalRoot_ = std::move(journalRoot);
+    cacheRoot_ = std::move(cacheRoot);
     setObjectName(QStringLiteral("pipelineDialog"));
     setWindowTitle(IX_TEXT("üxzView – Stapelverarbeitung"));
     resize(std::min(1080, screen()->availableGeometry().width() - 48),
@@ -36,9 +36,11 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     search_ = new QLineEdit;
     search_->setObjectName(QStringLiteral("pipelineSearch"));
     search_->setPlaceholderText(IX_TEXT("Dateien suchen"));
+    search_->setAccessibleName(IX_TEXT("Dateien suchen"));
     search_->setClearButtonEnabled(true);
     format_ = new QComboBox;
     format_->setObjectName(QStringLiteral("pipelineFormat"));
+    format_->setAccessibleName(IX_TEXT("Format"));
     format_->addItem(IX_TEXT("Alle Formate"), QStringList());
     for (const auto &cap : CodecRegistry().capabilities())
         if (cap.read) format_->addItem(cap.name, cap.extensions);
@@ -46,6 +48,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     grid->addWidget(format_, 0, 3);
     inputs_ = new QListWidget;
     inputs_->setObjectName(QStringLiteral("pipelineInputs"));
+    inputs_->setAccessibleName(IX_TEXT("Eingabedateien"));
     inputs_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     inputs_->setMinimumHeight(42);
     inputs_->addItems(files);
@@ -62,6 +65,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     grid->addWidget(new QLabel(IX_TEXT("Verarbeitungskette")), 4, 0, 1, 4);
     chain_ = new QListWidget;
     chain_->setObjectName(QStringLiteral("pipelineChain"));
+    chain_->setAccessibleName(IX_TEXT("Verarbeitungskette"));
     chain_->setDragDropMode(QAbstractItemView::InternalMove);
     chain_->setMinimumHeight(42);
     chain_->setMaximumHeight(76);
@@ -78,6 +82,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     output_ = new QLineEdit(files.isEmpty() ? QString()
         : QFileInfo(files.first()).dir().filePath(QStringLiteral("üxzView-Export")));
     output_->setObjectName(QStringLiteral("pipelineOutput"));
+    output_->setAccessibleName(IX_TEXT("Zielordner..."));
     auto *choose = new QPushButton(IX_TEXT("Zielordner..."));
     choose->setObjectName(QStringLiteral("pipelineChooseOutput"));
     grid->addWidget(choose, 8, 0);
@@ -87,9 +92,9 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     threads_ = new QSpinBox;
     threads_->setRange(1, 4);
     threads_->setValue(std::clamp(QSettings().value(QStringLiteral("batch/parallelism"), 2).toInt(), 1, 4));
-    grid->addWidget(new QLabel(IX_TEXT("Name ({name}, ####):")), 9, 0);
+    grid->addWidget(dialogFieldLabel(IX_TEXT("Name ({name}, ####):"), pattern_), 9, 0);
     grid->addWidget(pattern_, 9, 1);
-    grid->addWidget(new QLabel(IX_TEXT("Parallele Dateien:")), 9, 2);
+    grid->addWidget(dialogFieldLabel(IX_TEXT("Parallele Dateien:"), threads_), 9, 2);
     grid->addWidget(threads_, 9, 3);
     overwrite_ = new QCheckBox(IX_TEXT("Vorhandene Dateien ersetzen (mit Sicherung)"));
     overwrite_->setObjectName(QStringLiteral("pipelineOverwrite"));
@@ -102,6 +107,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     grid->addWidget(log_, 11, 0, 1, 4);
     validation_ = new QLabel;
     validation_->setObjectName(QStringLiteral("pipelineValidation"));
+    validation_->setTextFormat(Qt::PlainText);
     validation_->setWordWrap(true);
     validation_->hide();
     grid->addWidget(validation_, 12, 0, 1, 4);
@@ -275,7 +281,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     connect(&runWorker_, &QFutureWatcherBase::finished, this, [this] {
         PipelineRunResult result;
         QString error;
-        try { result = runWorker_.result(); }
+        try { result = runWorker_.future().takeResult(); }
         catch (const std::exception &exception) { error = QString::fromUtf8(exception.what()); }
         catch (...) { error = IX_TEXT("Vorgang fehlgeschlagen."); }
         setWorking(false);
@@ -330,7 +336,7 @@ PipelineProfile PipelineDialog::profile() const {
 }
 PipelineJob PipelineDialog::job() const {
     PipelineJob j;
-    j.journalRoot = journalRoot_;
+    j.cacheRoot = cacheRoot_;
     for (int i = 0; i < inputs_->count(); ++i)
         if (!inputs_->item(i)->isHidden()) j.inputs.append(inputs_->item(i)->text());
     j.profile = profile();

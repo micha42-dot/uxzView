@@ -166,7 +166,7 @@ RotationDialog::RotationDialog(const QImage &image, QWidget *parent) : QDialog(p
     outer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    resize(620, std::min(640, screen()->availableGeometry().height() - 64));
+    resize(620, std::min(540, screen()->availableGeometry().height() - 64));
     original_->angleChanged = [this](double angle) { angle_->setValue(angle); };
     original_->rightClick = [this] { accept(); };
     result_->rightClick = [this] {

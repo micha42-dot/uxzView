@@ -1,22 +1,124 @@
 # Projektstatus – üxzView
 
-**Version 0.4.8 · Stand: 28.10.2026**
+**Version 0.5.0 · Stand: 29.10.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
 ## Aktueller Funktionsumfang
 
 - Bild-/Ordnernavigation, Auswahlzoom, Vollbild, Diashow, Animationen und mehrseitige Bilder; optionale Nachbarvorschauen und rechts angeordnete Befehlssuche.
-- Größenänderung einschließlich exakter Pixelverdopplung, Freistellen mit eigenen Seitenverhältnissen, Drehen, Farbkorrektur und Bild-/Datei-Undo.
+- Größenänderung einschließlich exakter Pixelverdopplung, Freistellen mit eigenen Seitenverhältnissen, Drehen, Farbkorrektur und Bild-Undo.
 - Visuelle Stapelverarbeitung mit Profilen, Wasserzeichen, direktem Start, automatischer Zielprüfung, Such-/Formatfiltern und optionalem CSV-Protokoll; klassische Batch-Konvertierung und Umbenennung.
-- Bildverwaltung mit Bewertungen, Farbmarkierungen, Metadatensuche, identischen Dateien und Ähnlichkeitskandidaten; internes Dateijournal und Papierkorb.
+- Bildverwaltung mit Bewertungen, Farbmarkierungen, Metadatensuche, identischen Dateien und Ähnlichkeitskandidaten; Systempapierkorb.
 - Offline-Texterkennung und QR-/Barcode-Lesen für ganze Bilder oder eine Auswahl. Beide Engines und fünf OCR-Sprachen sind unter `tools` mitgeliefert, einzeln entfernbar und nur bei Bedarf aktiv. Speicherorte sind konfigurierbar.
-- Getrennte Bildformat- und Funktionserweiterungen; Portabelmodus für Einstellungen, Profile, Bewertungen, Erweiterungen und Dateihistorie.
+- Getrennte Bildformat- und Funktionserweiterungen; Portabelmodus für Einstellungen, Profile, Bewertungen und Erweiterungen.
 - Deutsche, englische, französische, japanische und koreanische Oberfläche; Windows-Dateizuordnung und native Build-Anleitungen für alle Zielplattformen.
 
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Die Bildfläche bleibt im Fenster und nach Vollbildwechseln rahmenlos;
+  der Trennstrich über den Bildinformationen bleibt erhalten.
+
+- Menü-/Einstellungsprüfung: kompakteres, beim Kategorienwechsel stabiles Fenster;
+  neun Bereiche, Vorschauoptionen rahmenlos unter Anzeige, passende Feldbreiten.
+  Farbkorrektur und Drehen öffnen kleiner. Sechs Menütexte sind in fünf Sprachen
+  gekürzt; klassische Stapelumbenennung startet im passenden Modus.
+  428 Qt-Fälle und 45 Python-Tests bestehen; native Oberflächenprüfungen umfassen
+  vier Skalierungen. [Menü-/Einstellungsbericht](docs/MENU_SETTINGS_REVIEW_2026-10-29.md).
+
+## Frühere Entwicklungsstände
+
+- Speicherprüfung: Batch-Aufträge geben verkleinerte Originalpuffer früher frei;
+  Vorschauen halten das volle Ergebnis nicht beim erneuten Decodieren fest.
+  Cache-Invalidierung nutzt eine temporäre Hash-Menge statt wiederholter
+  Listensuchen. 418 Qt-Fälle im Build und portablen Paket sowie 45 Python-Tests
+  bestehen. [Speicherbericht](docs/MEMORY_REVIEW_2026-10-29.md).
+
+- 0.5.0 entfernt das Dateijournal und Dateioperationen-Undo vollständig.
+  Löschen nutzt den Systempapierkorb; Bildbearbeitungs-Undo bleibt erhalten.
+  Umbenennen benötigt keinen vollständigen Dateihash und schreibt keine
+  Verlaufsdateien. Batch-Ersetzungen verwenden direkt atomare QSaveFile-Ausgabe
+  mit Ziel-/Quellprüfung und Abbruch vor Commit. CSV-Konvertierungsberichte
+  bleiben optional verfügbar. Build und portable Ausgabe bestehen jeweils
+  417 Qt-Fälle ohne Auslassungen; 45 Python-Tests und alle 33 lokalen Prüfschritte
+  bestehen. Native Windows-Oberflächentests laufen bei 100/125/150/200 Prozent.
+  QR, alle fünf OCR-Sprachen und der verschobene Portabelmodus bestehen ohne
+  SDK-Pfade. [Prüfbericht 0.5.0](docs/REVIEW_0.5.0.md).
+  Ältere Einträge unten dokumentieren frühere Stände.
+
+- Die 0.5.0-Nachprüfung korrigiert Bild- und Bewertungszuordnung bei wiederverwendeten
+  Namen in Stapelumbenennungen. Unveränderte Pixel sowie Bild-Undo/Redo bleiben
+  erhalten; Dateirevisionen verhindern diese Übernahme nach externen Änderungen.
+  Unbeteiligte Caches bleiben bestehen, Kataloge ohne betroffenen Eintrag werden
+  nicht neu geschrieben. Native Papierkorbaktionen prüfen auch Änderungen während
+  der Bestätigung. Das Seitenverhältnis-Menü enthält nur Vorgaben/eigene Formate;
+  normales Freistellen bleibt an eine Auswahl gebunden. Reine Anzeigeauffrischungen
+  behalten Rahmen und Verhältnis. Details und Grenzen im
+  [Prüfbericht](docs/REVIEW_0.5.0.md#follow-up-after-removing-the-journal).
+
+
+
+- Noch unveröffentlicht: Direkte Dateioperationen behalten unveränderte
+  Nachbarbilder, Vorschaubilder und APNG-Sitzungen im Cache. Bereits ausgeführte
+  Dateiänderungen werden trotz nachträglicher Journalfehler korrekt angezeigt;
+  zusätzliche Quell-/Zielrevisionen erkennen Änderungen durch andere Programme.
+  438 Qt-Fälle im Build und in der portablen Ausgabe, 45 Python-Tests und alle
+  33 lokalen Prüfschritte bestehen. Der Umbenennungs-Regressionsfall vermeidet
+  einen zusätzlichen Decode des unveränderten Nachbarbilds.
+  [Datei-/Cache-Nachprüfung](docs/UI_UX_REVIEW_2026-10-29.md#file-operation-follow-up).
+
+- Noch unveröffentlicht: Löschen nutzt den Papierkorb des Betriebssystems;
+  Wiederherstellen erfolgt dort. Die untere Bildinfo bleibt bei Befehls-Hover
+  sichtbar. Das Histogramm skaliert mit Fenster, DPI und Theme; die
+  Erweiterungsaktionen sind für kleinere Fenster neu gruppiert. Lesbarere
+  deaktivierte Texte, zugängliche Feldnamen, Label-Verknüpfungen und gemeinsame
+  Dialogabstände. 423 Qt-Fälle im Build und in der portablen Ausgabe,
+  45 Python-Tests und 33 lokale Prüfschritte bestehen, einschließlich nativer
+  Windows-Fenstertests bei vier Skalierungen. [UI/UX-Bericht](docs/UI_UX_REVIEW_2026-10-29.md).
+
+
+- Noch unveröffentlicht: Abgeschlossene Bildaufträge halten nach Paste/New/Delete
+  keine verwaisten Original-/Anzeigepixel mehr. Im kontrollierten 24-MP-Test sinkt
+  der private Speicher nach Ersetzen von 131,06 auf 39,49 MiB; 30 weitere Zyklen
+  bleiben bei 39–40 MiB. Fensterzerstörung wartet auf eigene Bildarbeit.
+  `DocumentHistory` besitzt Undo/Redo einschließlich gemeinsamer Speicherrechnung;
+  verlustfreies JPEG prüft Quelle/Ziel, ZIP begrenzt implizite Verzeichnisse.
+  45 Python- und 391 Qt-Fälle, alle 29 lokalen Prüfschritte und die portable
+  Ausgabe bestehen. Reduzierter Windows-Build und gezielte GCC-Analyse bestehen;
+  native Windows-10-/Linux-/macOS-Prüfung und globale RAM-Koordination bleiben offen.
+  [Architektur-/Ressourcenbericht mit Befunden, Messungen und offenen Risiken](docs/ARCHITECTURE_REVIEW_2026-10-28.md).
+
+- Noch unveröffentlicht: ZIP-/CBZ-Bildsammlungen über ein separates KArchive-
+  Bildformat-Plugin lesen, natürlich sortieren, durchblättern, als Vorschau
+  anzeigen und einzelne Seiten exportieren, ohne Dateien zu entpacken.
+  Das Windows-Paket nutzt das vorhandene KArchive; neue Decoder-DLL ca. 105 KB.
+  PDF, CBR/RAR und JPEG XR bleiben offen. Archivvarianten und Grenzen stehen in
+  `docs/FORMAT_COMPATIBILITY.md`; Linux/macOS bauen ohne KArchive weiterhin
+  ohne diese optionale Funktion. 45 Python- und 379 Qt-Fälle bestehen lokal;
+  die 14 gezielten Archivfälle bestehen auch mit nativen Windows-Fenstern.
+  Die portable Ausgabe besteht dieselben 379 Qt-Fälle ohne SDK-Pfade.
+
+- Noch unveröffentlicht: Anzeigeoptionen zeigen genau eine Auswahlmarkierung;
+  Fenster-/Bildschirmvariante bleibt beim Neustart erhalten. Alle Menüs nutzen
+  einheitliche Häkchen auch für die exklusive Auswahl. Die Markierung folgt
+  manuellem Zoom und der Fensterrückkehr aus Vollbild, auch bei blockierten Aktionen.
+  Alle 28 lokalen Prüfschritte mit 43 Python- und 367 Qt-Fällen bestehen;
+  die portable Ausgabe besteht dieselben 367 Qt-Fälle ohne SDK-Pfade.
+
+- Noch unveröffentlicht: Änderungen der Fenstereinpassung während Vollbild gelten
+  beim Zurückwechseln. Ältere Fenster überschreiben beim Schließen keine neuere
+  Einpassung; OK synchronisiert einen veralteten lokalen Fenstermodus. Quer- und
+  Hochformatfälle mit 3331 × 2244 und 2594 × 3486 Pixeln sind als Regression erfasst.
+  Alle 28 lokalen Prüfschritte bestehen mit 43 Python- und 363 Qt-Fällen,
+  einschließlich der Einpassungsprüfung bei vier nativen Windows-DPI-Skalierungen.
+  Auch die portable Fassung besteht alle 363 Qt-Fälle ohne SDK-Pfade.
+
+- Noch unveröffentlicht: Automatische Fenstereinpassung bleibt beim Bildwechsel
+  auch mit aktivierter Zoomsperre erhalten. Ein alter Zahlenwert schaltet Panoramen
+  nicht mehr auf manuellen Zoom mit Scrollbereichen um. Bewusst gesetzter manueller
+  Zoom bleibt weiterhin sperrbar; Tests decken auch den ersten Bildaufruf ab.
 
 - Noch unveröffentlicht: Unterbrochene Dateivorgänge lassen sich im Dateijournal
   anhand von Prüfsummen abgleichen; fehlende Ziele aus geprüften Sicherungen
@@ -126,6 +228,6 @@ Eine große Effektgalerie, 8BF, Audio/Video und KI-Dienste gehören nicht zum ak
 
 ## Entwicklung und Auslieferung
 
-[Architektur](docs/ARCHITECTURE.md) beschreibt Zuständigkeiten, Threads und Speicherverträge; [Entwicklung](docs/DEVELOPMENT.md) die reproduzierbaren Prüfabläufe. `CMakeLists.txt` ist die maßgebliche Versionsquelle. Der geprüfte Wartungsstand trägt 0.4.8; bestehende Profile und Werkzeugpakete bleiben kompatibel.
+[Architektur](docs/ARCHITECTURE.md) beschreibt Zuständigkeiten, Threads und Speicherverträge; [Entwicklung](docs/DEVELOPMENT.md) die reproduzierbaren Prüfabläufe. `CMakeLists.txt` ist die maßgebliche Versionsquelle. Der geprüfte Wartungsstand trägt 0.5.0; bestehende Profile und Werkzeugpakete bleiben kompatibel.
 
 Die gemeinsamen Ausgaben liegen unter `dist/uxzView`, `dist/uxzView-win64.zip` und `dist/uxzView-source.zip`; Quellhinweise und Prüfsummen liegen ebenfalls direkt unter `dist`. Die Release-Paketierung prüft eigene Binärdateien und Drittanbieter-Quellen und schließt private Profile aus. Werkzeugpakete unter `dist/tools` sind eigenständige optionale Downloads. Kein zusätzliches Release- oder GitHub-Quellverzeichnis. [Release-Anleitung](docs/RELEASING.md), [GitHub-Vorbereitung](docs/GITHUB.md).

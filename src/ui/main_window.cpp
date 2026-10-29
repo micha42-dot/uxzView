@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "main_window.h"
+#include "view_fit_options.h"
 #include "extension_dialog.h"
 #include "action_search.h"
 #include "appearance.h"
 #include "interface_language.h"
 #include "crop_ratios.h"
-#include "core/file_journal.h"
+#include "core/file_operations.h"
 #include "core/directory_index_service.h"
 #include "core/image_catalog.h"
 #include "core/image_loading.h"
@@ -103,8 +104,8 @@ const QSet<QString> checks{
     QStringLiteral("smoothFit"), QStringLiteral("center"),         QStringLiteral("sharpenDisplay"),
     QStringLiteral("hotfolder"), QStringLiteral("invertSelection")};
 } // namespace
-MainWindow::MainWindow(QWidget *p, QString journalRoot)
-    : QMainWindow(p), journalRoot_(std::move(journalRoot)),
+MainWindow::MainWindow(QWidget *p, QString cacheRoot)
+    : QMainWindow(p), cacheRoot_(std::move(cacheRoot)),
       directoryIndex_(new DirectoryIndexService(this)), zoom_(nullptr) {
     setObjectName(QStringLiteral("mainWindow"));
     setLocale(uiLocale());
@@ -163,7 +164,7 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
     connect(&worker_, &QFutureWatcherBase::finished, this, [this] {
         activity_.finish();
         setCursor(Qt::ArrowCursor);
-        auto r = worker_.result();
+        auto r = worker_.future().takeResult();
         if (rawPreviewShown_ && !r.error.isEmpty())
             view_->setImage(document_.pixels);
         rawPreviewShown_ = false;
@@ -181,15 +182,12 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
             return;
         }
         if (workMode_ == WorkMode::Edit) {
-            pushUndo();
-            redo_.clear();
+            history_.recordEdit(document_, view_->selection());
         }
         if (workMode_ == WorkMode::Undo) {
-            redo_.append({document_, view_->selection()});
-            undo_.removeLast();
+            history_.commit(DocumentHistory::Direction::Undo, document_, view_->selection());
         } else if (workMode_ == WorkMode::Redo) {
-            pushUndo();
-            redo_.removeLast();
+            history_.commit(DocumentHistory::Direction::Redo, document_, view_->selection());
         }
         auto selection = view_->selection();
         bool preserveSelection = (workMode_ == WorkMode::Edit || workMode_ == WorkMode::Display) &&
@@ -284,6 +282,12 @@ MainWindow::MainWindow(QWidget *p, QString journalRoot)
     refreshState();
     updateStatus();
 }
+MainWindow::~MainWindow() {
+    // Workers capture value inputs and only queue GUI delivery. Join before
+    // member/child destruction so no preview callback can outlive this owner.
+    disconnect(&worker_, nullptr, this, nullptr);
+    worker_.waitForFinished();
+}
 QStringList MainWindow::implementedCommands() const {
     QStringList result;
     for (auto it = actions_.begin(); it != actions_.end(); ++it)
@@ -352,6 +356,18 @@ void MainWindow::buildMenus() {
                 action->setShortcuts(keys);
             }
         }
+    }
+    if (auto *menu = findChild<QMenu *>(QStringLiteral("anzeige-optionen"))) {
+        viewFitActions_ = new QActionGroup(menu);
+        viewFitActions_->setObjectName(QStringLiteral("windowFitChoices"));
+        viewFitActions_->setExclusive(true);
+        for (auto *action : menu->actions())
+            if (viewFitOption(action->data().toString())) {
+                action->setCheckable(true);
+                viewFitActions_->addAction(action);
+            }
+        connect(menu, &QMenu::aboutToShow, this, &MainWindow::syncFitActions);
+        syncFitActions();
     }
 }
 void MainWindow::showKeyboardHelp() {
@@ -460,7 +476,9 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
                 if (activity_.busy() || QApplication::activeModalWidget()) {
                     // QAction toggles before emitting triggered. A command that
                     // is blocked during loading must retain its prior checkmark.
-                    if (action->isCheckable())
+                    if (viewFitActions_ && action->actionGroup() == viewFitActions_)
+                        syncFitActions();
+                    else if (action->isCheckable())
                         action->setChecked(!action->isChecked());
                     return;
                 }
@@ -495,8 +513,6 @@ void MainWindow::populateCropMenu(QMenu *menu) {
         action->setEnabled(!activity_.busy() && !document_.empty());
         connect(action, &QAction::triggered, this, [choose, ratio] { choose(ratio); });
     };
-    add(IX_TEXT("Freie Auswahl"), {});
-    menu->addSeparator();
     auto ratios = standardCropRatios();
     QStringList custom;
     if (parseCropRatios(QSettings().value(QStringLiteral("crop/customRatios")).toStringList().join(QLatin1Char('\n')), custom))
@@ -511,7 +527,6 @@ void MainWindow::populateCropMenu(QMenu *menu) {
     for (const auto &ratio : ratios)
         add(cropRatioLabel(ratio), ratio);
     menu->addSeparator();
-    menu->addAction(actions_.value(QStringLiteral("crop")));
     auto *settings = menu->addAction(IX_TEXT("Eigene Seitenverhältnisse …"));
     connect(settings, &QAction::triggered, this, [this] { dispatch(QStringLiteral("cropSettings")); });
 }
@@ -536,7 +551,7 @@ void MainWindow::buildToolbar() {
     add(QStringLiteral("saveAs"), QStringLiteral("save"), QStringLiteral("Bild unter neuem Namen speichern"));
     add(QStringLiteral("print"), QStringLiteral("print"), QStringLiteral("Bild drucken"));
     add(QStringLiteral("delete"), QStringLiteral("trash"),
-        QStringLiteral("Datei in den internen Papierkorb verschieben"));
+        QStringLiteral("Datei in den Systempapierkorb verschieben"));
     toolbar_->addSeparator();
     add(QStringLiteral("cut"), QStringLiteral("cut"), QStringLiteral("Markierten Bereich ausschneiden"));
     add(QStringLiteral("copy"), QStringLiteral("copy"), QStringLiteral("Bild oder Markierung kopieren"));
@@ -548,7 +563,9 @@ void MainWindow::buildToolbar() {
     add(QStringLiteral("zoomOut"), QStringLiteral("zoom-out"), QStringLiteral("Verkleinern (herauszoomen)"));
     zoom_ = new ZoomComboBox;
     zoom_->setObjectName(QStringLiteral("zoom"));
+    bindUiText(zoom_, "accessibleName", QStringLiteral("Zoom"));
     zoom_->setEditable(true);
+    bindUiText(zoom_->lineEdit(), "accessibleName", QStringLiteral("Zoom"));
     zoom_->lineEdit()->installEventFilter(this);
     zoom_->setFixedWidth(66);
     zoom_->addItems({QStringLiteral("10"), QStringLiteral("25"), QStringLiteral("50"), QStringLiteral("75"),
@@ -585,49 +602,45 @@ void MainWindow::buildToolbar() {
     toolbar_->addSeparator();
     add(QStringLiteral("settings"), QStringLiteral("settings"), QStringLiteral("Einstellungen öffnen"));
 }
-void MainWindow::reconcileFilePath() {
+void MainWindow::reconcileFilePath(const BatchFileChanges &changes) {
     if (document_.path.isEmpty())
         return;
-    QString resolved = document_.path;
-    if (!QFileInfo::exists(resolved)) {
-        // Follow committed batch renames and undone moves without assuming that
-        // an existing pathname still names the document we have in memory.
-        for (const auto &value : FileJournal(journalRoot_).entries()) {
-            const auto entry = value.toObject();
-            const auto source = entry.value(QStringLiteral("source")).toString();
-            const auto target = entry.value(QStringLiteral("target")).toString();
-            if (entry.value(QStringLiteral("kind")).toString() == QStringLiteral("move") &&
-                entry.value(QStringLiteral("state")).toString() == QStringLiteral("committed") &&
-                source == resolved)
-                resolved = target;
-            else if (entry.value(QStringLiteral("state")).toString() == QStringLiteral("undone") &&
-                     target == resolved)
-                resolved = source;
-        }
-        if (!QFileInfo::exists(resolved))
-            resolved.clear();
-    }
+    QString resolved = changes.resolve(document_.path);
+    if (!QFileInfo::exists(resolved)) resolved.clear();
     const auto revision = resolved.isEmpty() ? QString() : imageFileKey(resolved);
+    const auto relocation = changes.relocation(document_.path);
+    if (!resolved.isEmpty() && relocation && !relocation->sourceRevision.isEmpty() &&
+        relocation->sourceRevision == document_.sourceRevision && relocation->targetRevision == revision) {
+        const QFileInfo file(resolved);
+        const auto updateSource = [&](ImageDocument &entry) {
+            entry.path = resolved;
+            entry.sourceRevision = revision;
+            entry.sourceModified = file.lastModified();
+            entry.fileBytes = file.size();
+        };
+        updateSource(document_);
+        history_.updateSources(updateSource);
+        updateStatus();
+        refreshState();
+        return;
+    }
     if (resolved == document_.path && revision == document_.sourceRevision)
         return;
     const auto before = document_.path;
     document_.path = resolved;
-    for (auto *history : {&undo_, &redo_})
-        for (auto &entry : *history) {
-            entry.path = resolved;
-            entry.modified = true;
-        }
+    history_.updateSources([&](ImageDocument &entry) {
+        entry.path = resolved;
+        entry.modified = true;
+    });
     if (resolved.isEmpty()) {
         document_.modified = true;
         document_.sourceRevision.clear();
     } else {
-        if (resolved != before)
-            ImageCatalog().relocate(before, resolved);
         if (!document_.modified) {
             // A failed reload must leave the older pixels explicitly dirty.
             document_.modified = true;
             updateStatus();
-            ImageLoadCache::clear();
+            ImageLoadCache::invalidate({before, resolved});
             openPath(resolved, 0, false);
             return;
         }
@@ -719,36 +732,7 @@ void MainWindow::buildExtraFeatures() {
             searchWidgetAction_->setVisible(enabled);
         }
     });
-    auto *journal = new QAction(fileMenu);
-    bindUiText(journal, "text", QStringLiteral("Dateijournal / interner Papierkorb …"));
-    journal->setObjectName(QStringLiteral("fileJournal"));
-    connect(journal, &QAction::triggered, this, [this] {
-        if (activity_.busy())
-            return;
-        journalDialog(this, journalRoot_);
-        reconcileFilePath();
-        ImageLoadCache::clear();
-        refreshFiles(true);
-    });
-    auto *undo = new QAction(fileMenu);
-    bindUiText(undo, "text", QStringLiteral("Letzte Dateioperation rückgängig"));
-    undo->setObjectName(QStringLiteral("fileUndo"));
-    connect(undo, &QAction::triggered, this, [this] {
-        if (activity_.busy())
-            return;
-        auto error = undoFileOperation(this, {}, journalRoot_);
-        if (error.isEmpty())
-            reconcileFilePath();
-        if (!error.isEmpty())
-            showError(error);
-        ImageLoadCache::clear();
-        refreshFiles(true);
-    });
     const auto fileActions = fileMenu->actions();
-    auto *afterDelete = fileActions.value(fileActions.indexOf(actions_.value(QStringLiteral("delete"))) + 1);
-    fileMenu->insertSeparator(afterDelete);
-    fileMenu->insertAction(afterDelete, undo);
-    fileMenu->insertAction(afterDelete, journal);
     auto *legacy = new QAction(fileMenu);
     bindUiText(legacy, "text", QStringLiteral("Klassische Stapel-Umbenennung …"));
     legacy->setObjectName(QStringLiteral("legacyBatch"));
@@ -757,9 +741,17 @@ void MainWindow::buildExtraFeatures() {
     connect(legacy, &QAction::triggered, this, [this] {
         if (activity_.busy())
             return;
-        batchDialog(this, document_.path.isEmpty() ? QStringList() : QStringList{document_.path}, journalRoot_);
-        reconcileFilePath();
-        ImageLoadCache::clear();
+        BatchFileChanges changes;
+        {
+            activity_.begin(DocumentActivity::Phase::Files);
+            auto release = qScopeGuard([this] { activity_.finish(); refreshState(); });
+            refreshState();
+            slideshow_.stop();
+            stopAnimation();
+            changes = batchDialog(this, document_.path.isEmpty() ? QStringList() : QStringList{document_.path});
+        }
+        ImageLoadCache::invalidate(changes.affectedPaths());
+        if (!deferredOpen_) reconcileFilePath(changes);
         refreshFiles(true);
     });
     auto *plugins = options->addAction(IX_TEXT("Erweiterungen verwalten …"));
@@ -888,8 +880,7 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
         previousStage = now;
     };
     if (clearHistory) {
-        undo_.clear();
-        redo_.clear();
+        history_.clear();
         lastSelection_ = {};
     }
     document_ = std::move(d);
@@ -900,7 +891,9 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
     view_->setImage(display.isNull() ? document_.pixels : display);
     if (isFullScreen() && clearHistory)
         view_->setFit(ImageView::fullscreenFit());
-    else if (lockZoom_ || (!clearHistory && fit == ImageView::Fit::Original))
+    // Automatic fit is a policy, not a fixed numeric zoom. Retaining its last
+    // factor would turn a fitted view into a manual zoom on the next image.
+    else if (fit == ImageView::Fit::Original && (lockZoom_ || !clearHistory))
         view_->setZoom(z);
     else
         view_->setFit(browsingFit);
@@ -1000,22 +993,12 @@ void MainWindow::page(int direction) {
     if (index >= 0 && index < document_.pageCount)
         openPath(document_.path, index, false);
 }
-void MainWindow::pushUndo() {
-    undo_.append({document_, view_->selection()});
-    qint64 bytes = 0;
-    for (const auto &d : undo_)
-        bytes += d.pixels.sizeInBytes();
-    while (undo_.size() > 1 && (bytes > 128LL * 1024 * 1024 || undo_.size() > 12)) {
-        bytes -= undo_.front().pixels.sizeInBytes();
-        undo_.removeFirst();
-    }
-}
 void MainWindow::restoreHistory(bool redo) {
-    const auto &history = redo ? redo_ : undo_;
-    if (history.isEmpty())
+    const auto *target = history_.target(redo ? DocumentHistory::Direction::Redo : DocumentHistory::Direction::Undo);
+    if (!target)
         return;
     stopAnimation();
-    const auto entry = history.constLast();
+    const auto entry = *target;
     const bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool();
     const bool sharp = displaySharpen_;
     beginWork([entry, manage, sharp] {
@@ -1053,6 +1036,19 @@ void MainWindow::effect(std::function<QImage(const QImage &)> fn) {
         return applySelectionEffect(source, selected, inverted, fn);
     });
 }
+void MainWindow::syncFitActions() {
+    if (!viewFitActions_) return;
+    const auto fit = isFullScreen() ? windowBrowsingFit_ : view_->fit();
+    auto hint = windowFitCommand_;
+    if (!isFullScreen() && fit == ImageView::Fit::Original && std::abs(view_->zoom() - 1.0) > 1e-7)
+        hint = QStringLiteral("noFit");
+    const auto selected = selectedViewFitCommand(fit, hint);
+    for (auto *action : viewFitActions_->actions())
+        if (action->data().toString() == selected) {
+            action->setChecked(true);
+            break;
+        }
+}
 void MainWindow::refreshState() {
     // The current document remains usable as a visual reference during a load.
     // Command entry points guard concurrent mutations; avoid flashing every
@@ -1069,9 +1065,9 @@ void MainWindow::refreshState() {
         if (selectionCommands.contains(key))
             enabled = enabled && !view_->selection().isEmpty();
         if (key == QStringLiteral("undo"))
-            enabled = !undo_.isEmpty();
+            enabled = history_.canUndo();
         if (key == QStringLiteral("redo"))
-            enabled = !redo_.isEmpty();
+            enabled = history_.canRedo();
         if (key == QStringLiteral("paste"))
             enabled =
                 QApplication::clipboard()->mimeData() && (QApplication::clipboard()->mimeData()->hasImage() ||
@@ -1231,9 +1227,13 @@ void MainWindow::applySettings(bool applyFit) {
     lockZoom_ = s.value(QStringLiteral("view/lockZoom"), false).toBool();
     lockScroll_ = s.value(QStringLiteral("view/lockScroll"), false).toBool();
     displaySharpen_ = s.value(QStringLiteral("view/sharpenDisplay"), false).toBool();
-    if (applyFit && !isFullScreen())
-        view_->setFit(ImageView::Fit(
-            std::clamp(s.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt(), 0, 5)));
+    windowFitCommand_ = s.value(QStringLiteral("view/fitCommand")).toString();
+    if (applyFit) {
+        const auto fit = ImageView::Fit(
+            std::clamp(s.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt(), 0, 5));
+        if (isFullScreen()) windowBrowsingFit_ = fit;
+        else view_->setFit(fit);
+    }
     view_->setSmooth(s.value(QStringLiteral("view/smooth"), true).toBool());
     auto check = [&](QString cmd, bool value) {
         if (auto *a = actions_.value(cmd))
@@ -1252,6 +1252,7 @@ void MainWindow::applySettings(bool applyFit) {
     slideshow_.setInterval(int(s.value(QStringLiteral("slideshow/seconds"), 5).toDouble() * 1000));
     configureCaptureShortcut();
     applyWindowAppearance(isFullScreen());
+    syncFitActions();
 }
 void MainWindow::applyWindowAppearance(bool fullscreen) {
     const QSettings settings;
@@ -1297,7 +1298,6 @@ void MainWindow::fullscreen() {
         view_->setFocus();
     WindowTransition transition(this);
     if (isFullScreen()) {
-        view_->setFrameStyle(QFrame::StyledPanel | QFrame::Sunken);
         view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         view_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         view_->viewport()->unsetCursor();
@@ -1322,7 +1322,6 @@ void MainWindow::fullscreen() {
         windowGeometry_ = saveGeometry();
         windowWasMaximized_ = isMaximized();
         applyWindowAppearance(true);
-        view_->setFrameStyle(QFrame::NoFrame);
         view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         view_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         view_->setSelection({});
@@ -1343,6 +1342,7 @@ void MainWindow::fullscreen() {
         view_->setFit(ImageView::fullscreenFit());
     }
     updateStatus();
+    syncFitActions();
 }
 void MainWindow::configureCaptureShortcut() {
     if (auto *action = actions_.value(QStringLiteral("capture"))) {
@@ -1455,7 +1455,9 @@ void MainWindow::dispatch(const QString &cmd) {
             const auto language = after.value(QStringLiteral("ui/language"), uiLanguage()).toString();
             if (language != uiLanguage()) applyInterfaceLanguage(language);
             if (isFullScreen() && fullscreenFitBefore != ImageView::fullscreenFit()) view_->setFit(ImageView::fullscreenFit());
-            applySettings(fit != after.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt());
+            const auto requestedFit = after.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt();
+            const auto currentWindowFit = isFullScreen() ? windowBrowsingFit_ : view_->browsingFit();
+            applySettings(fit != requestedFit || int(currentWindowFit) != requestedFit);
             if (sort != after.value(QStringLiteral("navigation/sort"), 0).toInt() ||
                 reverse != after.value(QStringLiteral("navigation/reverse"), false).toBool())
                 refreshFiles(true);
@@ -1497,7 +1499,7 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("batch")) {
-        PipelineDialog dialog(document_.path.isEmpty() ? QStringList() : QStringList{document_.path}, this, journalRoot_);
+        PipelineDialog dialog(document_.path.isEmpty() ? QStringList() : QStringList{document_.path}, this, cacheRoot_);
         dialog.exec();
         ImageLoadCache::clear();
         reconcileFilePath();
@@ -1515,7 +1517,7 @@ void MainWindow::dispatch(const QString &cmd) {
         QStringList matches;
         for (auto &file : folder.entryList(patterns, QDir::Files))
             matches << folder.filePath(file);
-        libraryDialog(this, matches, [this](const QString &path) { openPath(path); }, journalRoot_);
+        libraryDialog(this, matches, [this](const QString &path) { openPath(path); });
         reconcileFilePath();
         return;
     }
@@ -1524,7 +1526,7 @@ void MainWindow::dispatch(const QString &cmd) {
             dispatch(QStringLiteral("find"));
             return;
         }
-        libraryDialog(this, files_, [this](const QString &path) { openPath(path); }, journalRoot_);
+        libraryDialog(this, files_, [this](const QString &path) { openPath(path); });
         reconcileFilePath();
         return;
     }
@@ -1659,11 +1661,13 @@ void MainWindow::dispatch(const QString &cmd) {
         if (target.isEmpty())
             return;
         auto source = document_.path;
+        const auto expectedSource = document_.sourceRevision.isEmpty() ? imageFileKey(source) : document_.sourceRevision;
+        const auto expectedTarget = QFileInfo::exists(target) ? imageFileKey(target) : QString();
         auto registry = registry_;
         bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool();
         beginWork(
             [=] {
-                auto error = transformJpeg(source, target, transform, crop);
+                auto error = transformJpeg(source, target, transform, crop, expectedTarget, expectedSource);
                 if (!error.isEmpty())
                     return WorkResult{{}, {}, error};
                 auto r = registry.read(target);
@@ -2008,31 +2012,19 @@ void MainWindow::dispatch(const QString &cmd) {
         QSettings().setValue(QStringLiteral("view/lockScroll"), lockScroll_);
         return;
     }
-    if (cmd == QStringLiteral("original") || cmd == QStringLiteral("fitOriginal") ||
-        cmd == QStringLiteral("noFit")) {
-        view_->setFit(ImageView::Fit::Original);
-        QSettings().setValue(QStringLiteral("view/fit"), int(ImageView::Fit::Original));
-        if (cmd == QStringLiteral("fitOriginal")) {
-            auto target = document_.pixels.size() + QSize(20, 110);
-            target = target.boundedTo(screen()->availableGeometry().size());
-            resize(target);
-        }
-        return;
-    }
-    if (cmd.startsWith(QStringLiteral("fit"))) {
-        auto fit = cmd == QStringLiteral("fitWindow") || cmd == QStringLiteral("fitScreen")
-                       ? ImageView::Fit::Window
-                   : cmd == QStringLiteral("fitWidth") || cmd == QStringLiteral("fitScreenWidth")
-                       ? ImageView::Fit::Width
-                   : cmd == QStringLiteral("fitHeight") || cmd == QStringLiteral("fitScreenHeight")
-                       ? ImageView::Fit::Height
-                   : cmd == QStringLiteral("fitShort") || cmd == QStringLiteral("fitScreenShort")
-                       ? ImageView::Fit::ShortSide
-                       : ImageView::Fit::LargeOnly;
-        if (cmd.startsWith(QStringLiteral("fitScreen")))
+    const auto *fitOption = viewFitOption(cmd == QStringLiteral("original") ? QStringLiteral("noFit") : cmd);
+    if (fitOption) {
+        if (fitOption->resize == FitWindowResize::Screen)
             resize(screen()->availableGeometry().size().boundedTo(document_.pixels.size() + QSize(20, 110)));
-        view_->setFit(fit);
-        QSettings().setValue(QStringLiteral("view/fit"), int(fit));
+        if (isFullScreen()) windowBrowsingFit_ = fitOption->fit;
+        view_->setFit(fitOption->fit);
+        if (fitOption->resize == FitWindowResize::Image)
+            resize((document_.pixels.size() + QSize(20, 110)).boundedTo(screen()->availableGeometry().size()));
+        windowFitCommand_ = QString::fromLatin1(fitOption->command);
+        QSettings settings;
+        settings.setValue(QStringLiteral("view/fit"), int(fitOption->fit));
+        settings.setValue(QStringLiteral("view/fitCommand"), windowFitCommand_);
+        syncFitActions();
         return;
     }
     if (cmd == QStringLiteral("smooth") || cmd == QStringLiteral("smoothFit") ||
@@ -2104,7 +2096,7 @@ void MainWindow::dispatch(const QString &cmd) {
                                                          .arg(i + 1, 5, 10, QLatin1Char('0')));
                 if (QFileInfo::exists(name))
                     return IX_TEXT("Zieldatei existiert bereits: ") + name;
-                auto error = registry.save(image.document, name, QByteArray("png"), 95, true);
+                auto error = registry.save(image.document, name, QByteArray("png"), 95, true, QString());
                 if (!error.isEmpty())
                     return error;
             }
@@ -2211,8 +2203,8 @@ void MainWindow::closeEvent(QCloseEvent *e) {
     if (s.value(QStringLiteral("window/rememberGeometry"), true).toBool())
         s.setValue(QStringLiteral("window/geometry"),
                    isFullScreen() && !windowGeometry_.isEmpty() ? windowGeometry_ : saveGeometry());
-    s.setValue(QStringLiteral("view/fit"),
-               int(isFullScreen() ? windowBrowsingFit_ : view_->browsingFit()));
+    // Explicit commands and accepted settings persist fit immediately. An older
+    // window must not overwrite a newer preference when it happens to close last.
     slideshow_.stop();
     stopAnimation();
     deferredOpenTimer_.stop();
@@ -2227,6 +2219,15 @@ void MainWindow::dropEvent(QDropEvent *e) {
     auto urls = e->mimeData()->urls();
     if (!urls.isEmpty())
         openPath(urls.first().toLocalFile());
+}
+bool MainWindow::event(QEvent *event) {
+    // QAction hover tips otherwise hide the image information in QStatusBar.
+    // Keep tooltips available at the control without disturbing the status row.
+    if (event->type() == QEvent::StatusTip) {
+        event->accept();
+        return true;
+    }
+    return QMainWindow::event(event);
 }
 bool MainWindow::eventFilter(QObject *object, QEvent *event) {
     if (zoom_ && object == zoom_->lineEdit() && event->type() == QEvent::FocusOut)

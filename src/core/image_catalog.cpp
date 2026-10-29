@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_storage.h"
 #include "image_catalog.h"
-#include "file_journal.h"
+#include "file_operations.h"
 #include "json_storage.h"
 #include "metadata.h"
 #include "preview_service.h"
@@ -98,8 +98,8 @@ QString ImageCatalog::relocate(const QString &from, const QString &to) {
         return storageError;
     auto object = read();
     auto value = object.take(key(from));
-    if (!value.isUndefined())
-        object.insert(key(to), value);
+    if (value.isUndefined()) return {};
+    object.insert(key(to), value);
     return write(object);
 }
 QStringList ImageCatalog::search(const QStringList &files, const QString &text, int minimum,

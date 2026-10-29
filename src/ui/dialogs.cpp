@@ -8,11 +8,77 @@
 #include "settings_dialog.h"
 #include <QColorSpace>
 #include <QImageReader>
+#include <QPainterPath>
 #include <QtConcurrent>
 #include <QtWidgets>
 #include <atomic>
+#include <array>
+#include <algorithm>
+#include <numeric>
 namespace ix {
 namespace {
+using HistogramData = std::array<std::array<quint64, 256>, 3>;
+class HistogramChart final : public QWidget {
+    HistogramData counts_{};
+    bool ready_ = false;
+    int channel_ = 0;
+  public:
+    HistogramChart() {
+        setObjectName(QStringLiteral("histogramChart"));
+        setAccessibleName(IX_TEXT("Histogramm"));
+        setMinimumSize(280, 160);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    }
+    QSize sizeHint() const override { return {640, 280}; }
+    void setHistogram(HistogramData counts) {
+        counts_ = std::move(counts);
+        ready_ = true;
+        const auto pixels = std::accumulate(counts_[0].cbegin(), counts_[0].cend(), quint64(0));
+        setAccessibleDescription(IX_TEXT("Histogramm für %1 Pixel").arg(uiLocale().toString(pixels)));
+        update();
+    }
+    void setChannel(int channel) { channel_ = std::clamp(channel, 0, 3); update(); }
+  protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.fillRect(rect(), palette().brush(QPalette::Base));
+        painter.setPen(palette().color(QPalette::Text));
+        if (!ready_) {
+            painter.drawText(rect(), Qt::AlignCenter, IX_TEXT("Histogramm wird berechnet …"));
+            return;
+        }
+        quint64 maximum = 1;
+        for (int c = 0; c < 3; ++c) if (!channel_ || channel_ == c + 1)
+            for (auto value : counts_[c]) maximum = std::max(maximum, value);
+        const auto peak = uiLocale().toString(maximum);
+        const auto metrics = fontMetrics();
+        const int left = metrics.horizontalAdvance(peak) + 12;
+        const QRectF plot(left, metrics.height() + 6, std::max(1, width() - left - 12),
+                          std::max(1, height() - metrics.height() * 2 - 18));
+        painter.drawText(QRectF(0, 0, width(), metrics.height()), Qt::AlignLeft, peak);
+        painter.drawText(QRectF(plot.left(), plot.bottom() + 6, plot.width(), metrics.height()), Qt::AlignLeft, QStringLiteral("0"));
+        painter.drawText(QRectF(plot.left(), plot.bottom() + 6, plot.width(), metrics.height()), Qt::AlignRight, QStringLiteral("255"));
+        painter.setPen(palette().color(QPalette::Mid));
+        painter.drawLine(plot.bottomLeft(), plot.bottomRight());
+        const bool dark = palette().color(QPalette::Base).lightnessF() < .5;
+        const std::array<QColor, 3> colors = dark
+            ? std::array<QColor, 3>{QColor(QStringLiteral("#ff8b83")), QColor(QStringLiteral("#66d99e")), QColor(QStringLiteral("#80adfa"))}
+            : std::array<QColor, 3>{QColor(QStringLiteral("#bc3038")), QColor(QStringLiteral("#167548")), QColor(QStringLiteral("#285fce"))};
+        const std::array<Qt::PenStyle, 3> styles{Qt::SolidLine, Qt::DashLine, Qt::DotLine};
+        painter.setRenderHint(QPainter::Antialiasing);
+        for (int c = 0; c < 3; ++c) {
+            if (channel_ && channel_ != c + 1) continue;
+            QPainterPath path;
+            for (int i = 0; i < 256; ++i) {
+                const QPointF point(plot.left() + plot.width() * i / 255.0,
+                    plot.bottom() - plot.height() * (double(counts_[c][i]) / maximum));
+                if (i) path.lineTo(point); else path.moveTo(point);
+            }
+            painter.setPen(QPen(colors[c], 1.25, styles[c]));
+            painter.drawPath(path);
+        }
+    }
+};
 void buttons(QDialog &d, QVBoxLayout *layout) {
     auto *b = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &d);
     b->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));
@@ -180,7 +246,7 @@ ColorDialog::ColorDialog(const QImage &image, QWidget *parent) : QDialog(parent)
         const auto list = settings.value(QStringLiteral("color/values")).toList();
         if (list.size() == 7) for (int i = 0; i < 7; ++i) inputs_[i]->setValue(list[i].toDouble());
     }
-    resize(740, std::min(640, screen()->availableGeometry().height() - 64));
+    resize(700, std::min(540, screen()->availableGeometry().height() - 64));
     updatePreview();
 }
 void ColorDialog::setImage(const QImage &image) {
@@ -313,7 +379,8 @@ void imageInformation(QWidget *p, const ImageDocument &d) {
     v->addLayout(f);
     auto row = [&](QString a, QString b) {
         auto *l = new QLabel(b);
-        l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        l->setTextFormat(Qt::PlainText);
+        l->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         l->setWordWrap(true);
         f->addRow(a, l);
     };
@@ -331,6 +398,7 @@ void imageInformation(QWidget *p, const ImageDocument &d) {
                                                                 : IX_TEXT("Kein eingebettetes ICC-Profil"));
     row(IX_TEXT("Alphakanal:"), d.pixels.hasAlphaChannel() ? IX_TEXT("Ja") : IX_TEXT("Nein"));
     auto *text = new QPlainTextEdit;
+    text->setAccessibleName(IX_TEXT("Metadaten"));
     text->setReadOnly(true);
     QString report;
     for (auto it = d.text.begin(); it != d.text.end(); ++it)
@@ -349,56 +417,44 @@ void imageInformation(QWidget *p, const ImageDocument &d) {
 }
 void histogramDialog(QWidget *parent, const QImage &image) {
     QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("histogramDialog"));
     dialog.setWindowTitle(IX_TEXT("Histogramm"));
+    dialog.resize(680, 390);
     auto *layout = dialogLayout(&dialog);
-    auto *chart = new QLabel(IX_TEXT("Histogramm wird berechnet …"));
-    chart->setObjectName(QStringLiteral("histogramChart"));
-    chart->setFixedSize(768, 280);
-    chart->setAlignment(Qt::AlignCenter);
-    layout->addWidget(chart);
-    layout->addWidget(new QLabel(QStringLiteral(
-        "0                                      RGB · Häufigkeit                                      255")));
+    auto *channels = new QComboBox;
+    channels->setObjectName(QStringLiteral("histogramChannel"));
+    channels->setAccessibleName(IX_TEXT("Farbkanal anzeigen"));
+    channels->addItems({QStringLiteral("RGB"), IX_TEXT("Rot"), IX_TEXT("Grün"), IX_TEXT("Blau")});
+    layout->addWidget(channels, 0, Qt::AlignLeft);
+    auto *chart = new HistogramChart;
+    layout->addWidget(chart, 1);
+    QObject::connect(channels, qOverload<int>(&QComboBox::currentIndexChanged), chart,
+                     [chart](int channel) { chart->setChannel(channel); });
     auto *close = new QDialogButtonBox(QDialogButtonBox::Close);
     layout->addWidget(close);
     QObject::connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     auto cancelled = std::make_shared<std::atomic_bool>(false);
-    QFutureWatcher<QImage> watcher;
+    QFutureWatcher<HistogramData> watcher;
     QObject::connect(&watcher, &QFutureWatcherBase::finished, &dialog, [&] {
-        auto result = watcher.result();
-        if (!result.isNull())
-            chart->setPixmap(QPixmap::fromImage(result));
+        if (!cancelled->load()) chart->setHistogram(watcher.future().takeResult());
     });
     watcher.setFuture(QtConcurrent::run([image, cancelled] {
-        QVector<quint64> r(256), g(256), b(256);
+        HistogramData data{};
         // Convert a row at a time so the histogram does not duplicate a large source.
         for (int y = 0; y < image.height(); ++y) {
             if (cancelled->load())
-                return QImage();
+                return HistogramData{};
             auto line = image.copy(0, y, image.width(), 1).convertToFormat(QImage::Format_ARGB32);
             if (line.isNull())
-                return QImage();
+                return HistogramData{};
             auto *pixels = reinterpret_cast<const QRgb *>(line.constScanLine(0));
             for (int x = 0; x < image.width(); ++x) {
-                ++r[qRed(pixels[x])];
-                ++g[qGreen(pixels[x])];
-                ++b[qBlue(pixels[x])];
+                ++data[0][qRed(pixels[x])];
+                ++data[1][qGreen(pixels[x])];
+                ++data[2][qBlue(pixels[x])];
             }
         }
-        quint64 maximum = 1;
-        for (int i = 0; i < 256; ++i)
-            maximum = std::max({maximum, r[i], g[i], b[i]});
-        QImage plot(768, 280, QImage::Format_RGB32);
-        plot.fill(Qt::black);
-        QPainter painter(&plot);
-        for (int c = 0; c < 3; ++c) {
-            painter.setPen(QPen(c == 0 ? Qt::red : c == 1 ? Qt::green : Qt::blue, 1));
-            auto &data = c == 0 ? r : c == 1 ? g : b;
-            for (int i = 0; i < 255; ++i)
-                painter.drawLine(i * 3, 279 - int(data[i] * 270 / maximum), (i + 1) * 3,
-                                 279 - int(data[i + 1] * 270 / maximum));
-        }
-        painter.end();
-        return plot;
+        return data;
     }));
     dialog.exec();
     cancelled->store(true);
@@ -429,7 +485,8 @@ void formatDialog(QWidget *p, const CodecRegistry &registry) {
     QObject::connect(close, &QDialogButtonBox::rejected, &d, &QDialog::reject);
     d.exec();
 }
-void batchDialog(QWidget *p, const QStringList &initial, const QString &journalRoot) {
+BatchFileChanges batchDialog(QWidget *p, const QStringList &initial) {
+    BatchFileChanges changes;
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("Batch(Stapel)-Konvertierung/Umbenennung"));
     d.resize(720, 570);
@@ -454,6 +511,7 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
     v->addLayout(f);
     auto *mode = new QComboBox;
     mode->addItems({IX_TEXT("Batch-Konvertierung"), IX_TEXT("Batch-Umbenennung (Dateien verschieben)")});
+    mode->setCurrentIndex(1);
     f->addRow(IX_TEXT("Arbeite als:"), mode);
     auto *format = new QComboBox;
     for (const auto &c : CodecRegistry().capabilities())
@@ -476,6 +534,12 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
     auto *loss =
         new QCheckBox(IX_TEXT("Verlust von EXIF/Animation/Farbtiefe/Transparenz beim Export zulassen"));
     v->addWidget(loss);
+    const auto updateMode = [=] {
+        const bool converting = mode->currentIndex() == 0;
+        for (auto *control : QList<QWidget *>{format, width, height, loss}) control->setEnabled(converting);
+    };
+    QObject::connect(mode, &QComboBox::currentIndexChanged, &d, [updateMode](int) { updateMode(); });
+    updateMode();
     auto *note = new QLabel(IX_TEXT(
         "Vorhandene Dateien werden übersprungen. Erfolgreiche Umbenennungen bleiben bei Abbruch bestehen."));
     note->setWordWrap(true);
@@ -503,7 +567,6 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
             return;
         }
         BatchOptions o;
-        o.journalRoot = journalRoot;
         for (int i = 0; i < files->count(); ++i)
             o.inputs << files->item(i)->text();
         o.outputDirectory = output->text();
@@ -523,10 +586,12 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
             QtConcurrent::run([o, cancellation] { return BatchProcessor::run(o, *cancellation); }));
     });
     QObject::connect(&watcher, &QFutureWatcherBase::finished, &d, [&] {
-        for (const auto &e : watcher.result())
+        for (const auto &e : watcher.future().takeResult()) {
+            changes.add(e);
             log->appendPlainText((e.error.isEmpty() ? QStringLiteral("OK: ") : IX_TEXT("FEHLER: ")) +
                                  e.input + QStringLiteral(" → ") + e.output +
                                  (e.error.isEmpty() ? QString() : QStringLiteral("\n  ") + e.error));
+        }
         running = false;
         progress->setRange(0, 1);
         progress->setValue(1);
@@ -538,6 +603,9 @@ void batchDialog(QWidget *p, const QStringList &initial, const QString &journalR
     d.exec();
     cancellation->store(true);
     watcher.waitForFinished();
+    if (running)
+        for (const auto &entry : watcher.future().takeResult()) changes.add(entry);
+    return changes;
 }
 bool settingsDialog(QWidget *p) {
     SettingsDialog dialog(p);

@@ -67,7 +67,7 @@
           "separator": true
         },
         {
-          "label": "Thumbnails",
+          "label": "Bildverwaltung …",
           "originalId": 1178,
           "shortcut": "T",
           "command": "thumbnails",
@@ -94,7 +94,7 @@
           "accessKey": null
         },
         {
-          "label": "Batch(Stapel)-Konvertierung/Umbenennung...",
+          "label": "Stapelverarbeitung …",
           "originalId": 1046,
           "shortcut": "B",
           "command": "batch",
@@ -311,7 +311,7 @@
           "accessKey": null
         },
         {
-          "label": "Umgekehrte Markierung verw. (für Effekte in Bild-Menü)",
+          "label": "Auswahl umkehren",
           "originalId": 185,
           "shortcut": "",
           "command": "invertSelection",
@@ -412,7 +412,7 @@
           "accessKey": null
         },
         {
-          "label": "Sichtbaren Fensterbereich freistellen (wenn Scrollleisten sichtbar)",
+          "label": "Sichtbaren Bildbereich freistellen",
           "originalId": 192,
           "shortcut": "",
           "command": "cropViewport",
@@ -558,7 +558,7 @@
           "accessKey": null
         },
         {
-          "label": "Farb-Rahmen hinzufügen (Leinwandgröße ändern)...",
+          "label": "Leinwandgröße ändern …",
           "originalId": 10,
           "shortcut": "Shift+V",
           "command": "canvas",
@@ -863,7 +863,7 @@
           "separator": true
         },
         {
-          "label": "Fotografieren/Screenshot...",
+          "label": "Screenshot …",
           "originalId": 1047,
           "shortcut": "C",
           "command": "capture",

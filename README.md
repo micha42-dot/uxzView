@@ -16,15 +16,16 @@
 - Optional, centered thumbnail strip with 1–5 previous and next images.
 - Search for editing commands directly from the toolbar.
 - Resize, crop with preset or custom aspect ratios, rotate, flip, adjust colors and automatic correction.
-- Visual batch processing with reusable profiles, watermarks and real export previews.
+- Visual batch processing with reusable profiles, watermarks and conversion reports.
 - Ratings, color labels, metadata search and duplicate detection.
-- Internal trash, file-operation history and undo.
+- System trash and undo/redo for image edits.
 - Configurable screenshots and keyboard shortcuts.
 - JPEG, PNG, WebP, TIFF, GIF, APNG, PSD composite images, SVG, RAW and additional plugin-provided formats.
 - Multi-page images, animation playback, 16-bit image data and ICC/EXIF/IPTC/XMP support where supported by the format.
+- ZIP/CBZ image collections through the optional archive format plugin.
 - Offline QR/barcode reading and text recognition from the image or a right-clicked selection, with removable tools and OCR languages.
 - Separate image-format and function extensions, with configurable storage folders.
-- Optional portable mode for settings, profiles, ratings, extensions and file history beside the app.
+- Optional portable mode for settings, profiles, ratings and extensions beside the app.
 - German, English, Korean, Japanese and French interface options.
 
 Format support, test coverage and remaining limitations: [project status](PROJECT_STATUS.md), [format compatibility](docs/FORMAT_COMPATIBILITY.md) and [quality checks](docs/QUALITY.md).

@@ -1,12 +1,11 @@
 # Einstellungen und Symbole in üxzView
 
-**Optionen → Einstellungen** enthält zehn Bereiche in einer vertikalen Kategorienliste. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
+**Optionen → Einstellungen** enthält neun Bereiche in einer vertikalen Kategorienliste. Die Vorschauleiste wird unter **Anzeige → Vorschauen** eingerichtet. Das kompaktere Fenster behält beim Kategorienwechsel seine Größe; auf kleinen Bildschirmen kann der jeweilige Inhalt vertikal scrollen. Zahlenfelder verwenden ihre benötigte Breite. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
 
 | Bereich | Verfügbare Einstellungen |
 | --- | --- |
-| Anzeige | Bildanpassung, Zentrierung, Glättung, ICC-Anzeige nach sRGB, Anzeigeschärfe, Hintergrundfarbe |
+| Anzeige | Bildanpassung, Zentrierung, Glättung, ICC-Anzeige nach sRGB, Anzeigeschärfe, Hintergrundfarbe; Nachbarleiste ein/aus, unabhängig 1–5 vorherige und kommende Bilder, Hintergrund der Vorschaubilder |
 | Oberfläche | Farbschema (Systemdesign/Hell/Dunkel) und Sprache (Deutsch/English/한국어/日本語/Français), beide sofort nach OK; Symbol-/Status-/Menüleiste, Aktionssuche, Symbolgröße 20–32 px, optionale Symbolbeschriftungen, Fenstergröße/-position merken |
-| Vorschauen | Nachbarleiste ein/aus, unabhängig 1–5 vorherige und 1–5 kommende Bilder, Hintergrund wie Oberfläche / wie Bildhintergrund / transparent |
 | Navigation | Natürliche/alphabetische/Datums-/Größensortierung, Reihenfolge umkehren, Wiederholung am Ordnerende, Zoom und Scrollposition beim Bildwechsel behalten, optionale Speicherabfrage (standardmäßig aus) |
 | Vollbild | Eigene Bildanpassung (100 %, ganzes Bild, nur große Bilder, Breite, Höhe, kurze Seite), Zielbildschirm bei mehreren Monitoren, Mauszeiger ausblenden, eigene Hintergrundfarbe (Standard Schwarz), optionale Informationsanzeige mit vier Ecken und auswählbaren Datei-/Bild-/EXIF-Daten; keine Bildflächenumrandung |
 | Diashow | Anzeigedauer, Start im Vollbild, Wiederholung, Zufallsreihenfolge; sonst Sortierung unter Navigation |
@@ -25,6 +24,24 @@ Die Vorschaubilderleiste hat unter **Ansicht** einen eigenen Abschnitt vor Vollb
 
 **Ansicht → Informationen anzeigen (Vollbildmodus)** steht direkt unter **Anzeige-Optionen (Fenstermodus)**. Dort lässt sich die Einblendung aktivieren und eine der vier Ecken auswählen. Einzeln wählbar sind Dateiname, Auflösung, DPI, Dateigröße, Format, Zoom, Kamera, Objektiv, Aufnahmedatum, Belichtungszeit, Blende, ISO, Brennweite und Copyright. Fehlende Angaben entfallen. Dieselben Optionen stehen unter **Einstellungen → Vollbild**. Die Anzeige liest bereits geladene Metadaten, verändert keine Bildpixel und nimmt keine Mausklicks weg; sie bleibt im Fenstermodus unsichtbar.
 
+**Ansicht → Anzeige-Optionen (Fenstermodus)** markiert genau einen Anpassungsmodus
+mit einem Häkchen. Die zuletzt gewählte Fenster-/Bildschirmvariante bleibt
+auch nach einem Neustart erkennbar. Manuelles Zoomen zeigt vorübergehend „Kein
+Anpassen durchführen“; die automatische Voreinstellung für kommende Bilder bleibt
+erhalten. Im Vollbild zeigt dieses Fenstermenü die Anpassung für die Rückkehr ins
+Fenster. Alte Profile ohne genaue Variantenangabe markieren bei „nur große Bilder“
+standardmäßig „Nur große Bilder an Bildschirm anpassen“.
+
+Die Fenstereinpassung lässt sich auch im Vollbild über Einstellungen ändern; sie
+gilt bei der Rückkehr ins Fenster. Das Schließen eines älteren Fensters setzt eine
+inzwischen neu gewählte Einpassung nicht zurück. „OK“ übernimmt die im Dialog
+angezeigte Einpassung auch in ein Fenster mit veraltetem lokalem Anzeigestatus.
+
+Bei automatischer Bildanpassung wird die passende Größe für jedes Bild neu berechnet,
+auch wenn „Zoomfaktor beim Bildwechsel beibehalten“ aktiv ist. Die Zoomsperre übernimmt
+bewusst gewählte manuelle Vergrößerungen; sie ersetzt die Einpassung nicht durch den
+Zahlenwert des vorherigen Bildes. So behalten eingepasste Panoramen keine Scrollbereiche.
+
 Anzeigeparameter ändern keine Originalpixel. Bildanpassung und die beiden Navigationssperren werden mit ihren Menüaktionen konsistent gespeichert. Symbolbeschriftungen benötigen zusätzliche Breite; die Toolbar bietet bei Platzmangel ihr übliches Überlaufmenü. Die Schaltflächen für vorherige/nächste Seite erscheinen nur bei mehrseitigen Dateien.
 
 Das Bildcachebudget steht standardmäßig auf 192 MiB, Miniaturen auf 16 MiB. Maximal 96 MiB pro Bild werden zusätzlich im Bildcache gehalten. Der aktuelle Bildinhalt, Undo, Encoder und Decoder benötigen unabhängig davon Speicher. Ein höheres Budget ist keine Zusage, dass alle Bilder ohne erneutes Dekodieren verfügbar bleiben. Ausgeschaltete RAW-Vorschauen verhindern eingebettete RAW-Miniaturen; der vollständige RAW-Decoder bleibt nutzbar. Die Batchparallelität gilt als Voreinstellung für neue Ketten und kann im Batchdialog weiterhin geändert werden.
@@ -37,7 +54,7 @@ Die eigenen SVG-Konturen sind im Quellcode unter `src/ui/icons.cpp` definiert. F
 | --- | --- |
 | Ordner | Bild öffnen |
 | Bildschirm mit Play-Dreieck | Diashow |
-| Diskette / Drucker / Papierkorb | Speichern unter / Drucken / interner Papierkorb |
+| Diskette / Drucker / Papierkorb | Speichern unter / Drucken / Systempapierkorb |
 | Schere / zwei Blätter / Klemmbrett | Ausschneiden / Kopieren / Einfügen |
 | Gebogener Linkspfeil | Bildbearbeitung rückgängig |
 | Bild mit Infozeichen | Bildinformationen und Metadaten |
@@ -51,7 +68,7 @@ Tooltips benennen die jeweilige Aktion und vorhandene Tastenkürzel. Unter Oberf
 
 ## Noch nicht enthalten
 
-Der bisherige kleine Einstellungsdialog war unvollständig. Die zehn Bereiche erschließen nun die vorhandenen Funktionen und ergänzen tatsächlich angebundene Optionen. Eine vollständige IrfanView-Einstellungsreferenz ist damit nicht umgesetzt. Dateizuordnungen werden über die beiliegenden Windows-Registrierungsskripte beziehungsweise den Linux-/macOS-Desktop verwaltet (siehe FILE_ASSOCIATIONS.md). Unter anderem fehlen Scanner/TWAIN-Konfiguration, vollständige Monitorprofil-/Softproof-Verwaltung und weitere spezialisierte Druck-/Dateioptionen. Eine zusätzliche Effektgalerie gehört nicht zum Kernumfang; solche Erweiterungen sollen optional bleiben. Einstellungen einzelner Bearbeitungsschritte und Batchprofile liegen weiterhin in ihren jeweiligen Dialogen.
+Die neun Bereiche erschließen die vorhandenen Funktionen und tatsächlich angebundenen Optionen. Eine vollständige IrfanView-Einstellungsreferenz ist damit nicht umgesetzt. Dateizuordnungen werden über die beiliegenden Windows-Registrierungsskripte beziehungsweise den Linux-/macOS-Desktop verwaltet (siehe FILE_ASSOCIATIONS.md). Unter anderem fehlen Scanner/TWAIN-Konfiguration, vollständige Monitorprofil-/Softproof-Verwaltung und weitere spezialisierte Druck-/Dateioptionen. Eine zusätzliche Effektgalerie gehört nicht zum Kernumfang; solche Erweiterungen sollen optional bleiben. Einstellungen einzelner Bearbeitungsschritte und Batchprofile liegen weiterhin in ihren jeweiligen Dialogen.
 
 
 ## Sprache und Screenshot-Kürzel
@@ -62,7 +79,7 @@ Das Screenshot-Kürzel ist ein einzelner Tastendruck mit Modifikatoren. Ein leer
 
 ## Freistellen mit Seitenverhältnis
 
-**Bearbeiten → Freistellen in Aspect-Ratio** bietet 16:9, 9:16, 1:1, 4:3, 3:2 und 21:9. Die Wahl setzt einen passenden Rahmen; Linksziehen zeichnet ihn im gewählten Verhältnis neu, Rechtsziehen verschiebt ihn. **Freistellen / Strg+Y** übernimmt den Ausschnitt und lässt sich rückgängig machen. **Freie Auswahl** hebt die Verhältnisbindung auf. Kleine Ausschnitte werden auf ganze Bildpixel gerundet.
+**Bearbeiten → Freistellen in Aspect-Ratio** bietet 16:9, 9:16, 1:1, 4:3, 3:2 und 21:9 sowie gespeicherte eigene Verhältnisse. Die Wahl setzt einen passenden Rahmen; Linksziehen zeichnet ihn im gewählten Verhältnis neu, Rechtsziehen verschiebt ihn. **Freistellen / Strg+Y** ist bei vorhandener Auswahl aktiv, übernimmt den Ausschnitt und lässt sich rückgängig machen. Ein Linksklick zum Aufheben der Auswahl löst auch die Verhältnisbindung. Reine Anzeigeauffrischungen behalten Rahmen und Verhältnis bei. Kleine Ausschnitte werden auf ganze Bildpixel gerundet.
 
 Unter **Optionen → Einstellungen → Freistellen** lassen sich bis zu 32 eigene Verhältnisse angeben, z. B. `5:4`, `2:3` oder `239:100`. „Hinzufügen“ legt eine Zeile mit getrennten Zahlenfeldern für Breite und Höhe an; „Entfernen“ löscht die ausgewählte Zeile. Breite und Höhe sind ganze Zahlen von 1 bis 10000. Doppelte Verhältnisse werden zusammengefasst. Die Formate stehen beim nächsten Öffnen des Untermenüs bereit; Abbrechen verwirft Änderungen an den Einstellungen.
 
@@ -89,13 +106,20 @@ sich ebenfalls einzelne Formate auswählen; die Detailansicht unterstützt die
 übliche Sortierung nach Dateigröße. „Starten“ prüft die Ziele automatisch und
 verarbeitet die Dateien im Hintergrund. „Abbrechen“ stoppt zwischen Arbeitsschritten;
 ein bereits laufender Decoder muss zuerst zurückkehren. Bestehende Ziele werden
-standardmäßig übersprungen; freigegebene Ersetzungen bleiben gesichert und über
-das Dateijournal rückgängig machbar.
+standardmäßig übersprungen; freigegebene Ersetzungen werden atomar geschrieben und sind danach nicht mehr
+über eine Dateihistorie rückgängig machbar.
 
 Das Ergebnis nennt erfolgreiche und fehlgeschlagene Dateien sowie tatsächliche
 Größen vor/nach der Konvertierung und die prozentuale Änderung. Die Größensumme
 enthält nur erfolgreiche Ausgaben. Optional liegt ein UTF-8-CSV-Protokoll mit
 Quelle, Ziel, Ergebnis und Bytegrößen im Zielordner; jeder Lauf bekommt eine eigene
 Datei. Ein Protokollfehler verändert bereits erfolgreich erzeugte Bilder nicht.
-Die Größenstatistik bezieht sich auf die Bilddateien; Journal-Sicherungen und
-CSV-Dateien sind darin nicht enthalten. Eine Vorabschätzung wird nicht berechnet.
+Die Größenstatistik bezieht sich auf die Bilddateien; CSV-Dateien sind darin nicht enthalten. Eine Vorabschätzung wird nicht berechnet.
+
+## Navigation und Löschen
+
+Ordnernavigation und Diashow berücksichtigen die Dateiendungen der aktivierten Bildformate. Videos, Textdokumente und andere nicht unterstützte Dateien werden übersprungen. Die Ordnerauflistung öffnet nicht jede Datei zur Erkennung; beschädigte Dateien mit einer unterstützten Bildendung bleiben deshalb sichtbare Decoderfehler. Beim ausdrücklichen Öffnen einer nicht lesbaren Datei wird ebenfalls ein Fehler gemeldet.
+
+Löschen verschiebt Bilder in den Papierkorb des Betriebssystems. Wiederherstellen erfolgt dort. Ist der Systempapierkorb nicht verfügbar, wird die Datei nicht ersatzweise endgültig gelöscht. Dateijournal und Dateioperationen-Undo entfallen ab 0.5.0. Das Rückgängig für Bildbearbeitungen bleibt erhalten.
+
+Die untere Infoleiste behält Bild- und Auswahlinformationen auch beim Überfahren von Menü- und Toolbar-Aktionen. Befehlsbeschreibungen stehen als Tooltips am jeweiligen Bedienelement.

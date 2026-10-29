@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/app_storage.h"
 #include "core/batch_pipeline.h"
-#include "core/file_journal.h"
+#include "core/file_operations.h"
+#include "core/file_revision.h"
 #include "core/image_catalog.h"
 #include "core/plugin_store.h"
 #include <QColor>
@@ -96,22 +97,19 @@ class StorageTests : public QObject {
         QVERIFY(!ix::AppStorage::isPortable()); // Switching is deferred to restart.
         const auto data = home + QStringLiteral("/IxView-data");
         QCOMPARE(get(data + QStringLiteral("/extensions/package/codec.bin")), QByteArray("codec bytes"));
-        QCOMPARE(get(data + QStringLiteral("/file-journal/trash/backup")), QByteArray("original pixels"));
+        QVERIFY(!QFileInfo::exists(data + QStringLiteral("/file-journal")));
+        QCOMPARE(get(source + QStringLiteral("/file-journal/trash/backup")), QByteArray("original pixels"));
         QCOMPARE(get(source + QStringLiteral("/file-journal/entries/entry.json")), journal);
-        QCOMPARE(QJsonDocument::fromJson(get(data + QStringLiteral("/file-journal/entries/entry.json")))
-                     .object().value(QStringLiteral("backup")).toString(), data + QStringLiteral("/file-journal/trash/backup"));
         QVERIFY(ix::AppStorage::initialize(home).isEmpty());
         QCOMPARE(QSettings().value(QStringLiteral("ui/language")).toString(), QStringLiteral("fr"));
         QCOMPARE(QSettings().value(QStringLiteral("resize/presets")).toMap().value(QStringLiteral("small")).toInt(), 800);
     }
-    void movedFolderRetainsRatingsAndFileUndo() {
+    void movedFolderRetainsRatingsAndOriginals() {
         const auto home = path(QStringLiteral("before")), moved = path(QStringLiteral("after"));
         const auto source = path(QStringLiteral("user-data"));
         const auto image = home + QStringLiteral("/photos/one.json");
         const auto original = QJsonDocument(QJsonObject{{QStringLiteral("path"), image}}).toJson();
         QVERIFY(put(image, original));
-        ix::FileJournal journal(source + QStringLiteral("/file-journal"));
-        QVERIFY(journal.perform(QStringLiteral("delete"), image).isEmpty());
         ix::ImageCatalog catalog(source + QStringLiteral("/catalog.json"));
         QVERIFY(catalog.setAnnotation(image, 4, QStringLiteral("green")).isEmpty());
         auto records = catalog.records();
@@ -136,10 +134,8 @@ class StorageTests : public QObject {
                  moved + QStringLiteral("/offline/catalog.json"));
         QCOMPARE(ix::ImageCatalog().record(destination).value(QStringLiteral("rating")).toInt(), 4);
         QCOMPARE(ix::ImageCatalog().record(destination).value(QStringLiteral("metadataText")).toString(), image);
-        const auto undo = ix::FileJournal().undo();
-        QVERIFY2(undo.isEmpty(), qPrintable(undo));
         QCOMPARE(get(destination), original);
-        QVERIFY(QFileInfo::exists(source + QStringLiteral("/file-journal/trash")));
+        QVERIFY(!QFileInfo::exists(moved + QStringLiteral("/IxView-data/file-journal")));
     }
     void cancellationLeavesSourceAndModeIntact() {
         const auto source = path(QStringLiteral("source")), home = path(QStringLiteral("app"));
@@ -149,8 +145,7 @@ class StorageTests : public QObject {
         QVERIFY(!ix::AppStorage::portableRequested(home));
         QVERIFY(!QFileInfo::exists(home + QStringLiteral("/IxView-data")));
         QCOMPARE(get(source + QStringLiteral("/profiles/test.json")), QByteArray("{}"));
-        QVERIFY(QDir().mkpath(source + QStringLiteral("/file-journal")));
-        QLockFile lock(source + QStringLiteral("/file-journal/journal.lock"));
+        QLockFile lock(source + QStringLiteral("/catalog.json.lock"));
         QVERIFY(lock.tryLock(0));
         cancel.store(false);
         QVERIFY(!ix::AppStorage::preparePortable(home, {}, source, cancel).isEmpty());
@@ -230,7 +225,6 @@ class StorageTests : public QObject {
         const auto home = path(QStringLiteral("app"));
         QVERIFY(ix::AppStorage::initialize(home, true).isEmpty());
         const auto data = home + QStringLiteral("/IxView-data");
-        QCOMPARE(ix::FileJournal().root(), data + QStringLiteral("/file-journal"));
         QCOMPARE(ix::ImageCatalog().path(), data + QStringLiteral("/catalog.json"));
         QCOMPARE(ix::PluginStore().root(), data + QStringLiteral("/extensions"));
         QVERIFY(ix::PluginStore().setBuiltinEnabled({QStringLiteral("bmp")}, false).isEmpty());

@@ -29,11 +29,24 @@ settings must not rescan the folder, decode pixels, rebuild the display image,
 clear selections or reset zoom. MainWindow compares fit/sort/color-processing
 preferences before starting the corresponding work.
 
+The image canvas has no frame in either window or fullscreen mode. Fullscreen
+transitions must not restore a sunken Qt panel. The separate 1-pixel top border
+of the status bar remains the divider above image information, with or without
+the preview strip.
+
 Use `dialog_layout.h`: 16 logical pixels outside, 12 between sections, 16 between
 form columns and 8 between form rows. Use layouts instead of fixed coordinates.
 Resize, color and rotation dialogs place their content in a scroll area and keep
 OK/Cancel in a separate footer. Preserve object names, field ranges, model wiring
 and language-specific fonts. Explanations of gestures belong in tooltips.
+
+Settings starts at 800×480 logical pixels, bounded by available screen space.
+Keep its size stable when switching categories. Preview controls belong in a
+frameless Display section, rather than a mostly empty separate page. Numeric fields, short
+selectors and standalone colour buttons use content-sized widths; long options
+wrap while retaining their original accessible names. Scroll page bodies
+vertically on small screens instead of shrinking text or hiding confirmation
+buttons. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md).
 
 ## Live language
 
@@ -243,3 +256,30 @@ Evidence: `build/live-language-validation-summary.json`, `live-language-validati
 Rendered captures: `tests/output/live-language-{de,en,ko,ja,fr}.png`.
 The canonical Windows/source archives are rebuilt after validation; README and
 both existing README images remain unchanged.
+
+## Readability and accessible fields
+
+`ix::spacing` in `dialog_layout.h` names the existing 16-pixel outer margin,
+12-pixel section spacing, 16-pixel form-column gap and 8-pixel form-row gap.
+Use `dialogFieldLabel()` for manual-grid fields that need a label buddy;
+QFormLayout's string/field overload already creates one. Keep field names,
+command IDs and keyboard behavior stable. Supply an accessible name for
+placeholder-only edits and controls whose role is otherwise only visual.
+
+Use PlainText for filenames, metadata-derived values and status/error labels.
+Information values support keyboard selection as well as mouse copying.
+MainWindow consumes command StatusTip events: hover must never replace the
+image/selection information. Keep command descriptions in tooltips and
+accessible action names.
+
+The shared light/dark palette targets at least 4.5:1 for tested text-role pairs,
+including disabled roles as a voluntary readability improvement. Disabled
+selection uses normal theme text on a muted highlight. This is not a claim
+that every native widget/state is WCAG compliant.
+
+Histogram curves are painted as vectors using widget dimensions and font
+metrics. Provide selectable channels and distinct line styles as well as
+colors. Keep processing asynchronous, row-bounded and exclusive to the dialog.
+Extension selection actions and local-package/standard-footer actions occupy
+separate rows; hide empty feedback rather than reserving placeholder space.
+See [the UI/UX review](UI_UX_REVIEW_2026-10-29.md) for evidence and limits.

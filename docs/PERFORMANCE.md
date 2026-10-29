@@ -1,4 +1,93 @@
-# Performance in üxzView 0.4
+# Performance in üxzView
+
+## Batch source ownership and cache eviction · 29.10.2026
+
+The [memory follow-up](MEMORY_REVIEW_2026-10-29.md) records a reproduced extra
+original-pixel owner during batch processing, ownership transfer in run/preview,
+and release of transformed preview pixels before rereading the saved result.
+Cache invalidation now hashes affected paths once rather than scanning the full
+list for each retained entry. Tests cover actual buffer cleanup before output
+publication and selective eviction with 10,000 unrelated paths. These establish
+avoided ownership/work, without a process-RAM or whole-app timing claim.
+
+## Direct file operations · 0.5.0 · 29.10.2026
+
+Removing the file journal also removes full-source SHA-256 reads from direct
+rename/copy, per-operation history writes and the extra named-stage/hash/backup
+path in batch conversion. Batch exports use the existing atomic Save transaction;
+rename-only workers no longer construct a decoder registry.
+
+The initial 0.5.0 component measurement uses the retained
+`ixview_file_operation_tests --profile-rename report.json` harness. It
+measures five separate SHA-256 reads and five current direct renames of a 64 MiB
+temporary file. On the local Windows host, with a warm filesystem, one volume
+and an empty metadata catalog, the removed hash component takes a median
+435.53 ms (428.69–557.21 ms); current direct rename takes 0.88 ms (0.82–1.26 ms).
+This compares an eliminated component with the current operation, not total
+old/new application time or cold-start performance. No whole-app speedup is inferred.
+Evidence and limitations: [0.5.0 review](REVIEW_0.5.0.md) and
+`build/0.5.0-rename-benchmark.json`.
+
+The follow-up removes catalog writes for unannotated source files and replaces
+classic-batch global cache clearing with affected-path eviction. Tests compare
+unchanged catalog bytes/native file revisions and count actual decode callbacks
+for a cached neighbor across a cancelled batch dialog. Original/current path
+maps update in constant expected time per rename. Matching initial/final revisions
+also preserve the active image buffers and pixel Undo/Redo through batch renames;
+tests check unchanged pixel-buffer identity. These are avoided-work checks, not
+new whole-app timing measurements.
+
+## File-operation cache retention · 29.10.2026
+
+Direct rename/copy/move/Delete now invalidate only affected image/thumbnail
+paths. A controlled rename regression previously decoded an unchanged neighbor
+again (decode count 1 → 2); it now retains the original cached result (count
+stays 1). Tests also retain unrelated previews and APNG sessions, evict affected
+paths and reject reinsertion by an older in-flight read. This proves an avoided
+decode in that workflow, not a percentage speedup for the whole app.
+External-source reconciliation evicts the old/new active paths when reloading.
+The visual batch pipeline still uses conservative global invalidation. Version
+0.5.0 removes journal/file-Undo paths entirely.
+Copy/move source guards add worker-side revision checks, not another full-file
+hashing pass.
+
+## Ressourcenlebensdauer und Architekturprüfung · 28.10.2026
+
+Ein abgeschlossenes `QFuture` hielt das letzte Original-/Anzeigebild nach einem
+Dokumentersatz weiter fest. Der Abschluss konsumiert das Ergebnis jetzt mit
+`takeResult()`. Originalpräzision und Caches bleiben erhalten; ein verwaister
+Besitzer entfällt. Die Fehler wurden vor der Änderung mit kontrollierten
+Eigentümertests reproduziert.
+
+6000 × 4000 RGB-PNG (96.000.000 Pixelbytes), verstecktes Fenster, Dokument- und
+Thumbnailcache deaktiviert, Ersetzen durch ein 3 × 2-Zwischenablagebild:
+zwei frische Prozesse je Arm, je drei Zyklen, Vorher/Nachher/Vorher/Nachher.
+Der private Prozessspeicher nach Ersetzen fällt im Median von **131,06 auf
+39,49 MiB**. Innerhalb eines Durchgangs werden vorher 0,00, nachher **91,74 MiB**
+freigegeben. Der unabhängige Sharing-Test bestätigt die Freigabe in 0/6 alten und
+6/6 korrigierten Fällen. Windows-Prozesszähler enthalten auch Allocator-/Plugin-
+zustände; sie sind keine exakte Summe lebender Bildpuffer.
+
+30 zusätzliche korrigierte Lade-/Ersetzungszyklen bleiben nach Ersetzen zwischen
+39,13 und 39,76 MiB; alle 30 alten Pixelpuffer werden freigegeben. Das ist kein
+Beweis gegen sämtliche Leaks langer gemischter Sitzungen. Allgemeine JPEG-/PNG-,
+Index- und Repaint-Kontrollen schwanken; daraus wird kein kausaler Decoder- oder
+Navigationstempo-Gewinn abgeleitet. Echte OS-Cold-Cache-Messungen fehlen.
+
+Die gemeinsame Undo/Redo-Rechnung zählt nun Bildtext/ICC und native Metadaten,
+geteilt gehaltene Pixel/Metadaten einmal, innerhalb eines gemeinsamen 128-MiB-
+Budgets. Eine übergroße inverse Operation bleibt erlaubt. Aktive Dokumente,
+Anzeige, Decoder, temporäre Filter-/Encoderpuffer und parallele Batch-Dateien
+werden dadurch nicht global begrenzt. Das nominale Zusammenspiel und weitere
+Prioritäten stehen im [vollständigen Bericht](ARCHITECTURE_REVIEW_2026-10-28.md).
+
+Rohdaten: `build/architect-audit-comparison.json`,
+`architect-audit-memory-{before,after}-{1,2}.json`,
+`architect-audit-memory-30-cycles.json`, `architect-audit-general-*.json` und
+`architect-audit-render-*.json`. Der reproduzierbare Maintenance-CLI-Aufruf steht
+in [DEVELOPMENT.md](DEVELOPMENT.md). Benchmarks liefen ohne parallele Builds/Tests.
+
+## Frühere Messreihen
 
 Messung mit `ixview_benchmarks`, Windows 11, Release-Build, Qt 6.11.2 und Offscreen-Oberfläche. Rohdaten: `tests/output/performance-before.json` und `performance-after.json`. Kein synthetischer Durchlauf ersetzt Messungen mit echten Kameradateien, Netzlaufwerken, vielen Metadaten oder der tatsächlichen Desktopausgabe.
 

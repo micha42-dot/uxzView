@@ -25,7 +25,7 @@ class Manager : public QDialog {
         root_->setReadOnly(true);
         root_->setCursorPosition(0);
         root_->setToolTip(root_->text());
-        rootRow->addWidget(new QLabel(IX_TEXT("Erweiterungsordner:")));
+        rootRow->addWidget(ix::dialogFieldLabel(IX_TEXT("Erweiterungsordner:"), root_));
         rootRow->addWidget(root_, 1);
         choose_ = new QPushButton(IX_TEXT("Ändern …"));
         choose_->setObjectName(QStringLiteral("chooseExtensionRoot"));
@@ -46,6 +46,7 @@ class Manager : public QDialog {
         auto *row = new QHBoxLayout;
         url_ = new QLineEdit;
         url_->setObjectName(QStringLiteral("extensionCatalogUrl"));
+        url_->setAccessibleName(IX_TEXT("Erweiterungskatalog"));
         url_->setPlaceholderText(IX_TEXT("HTTPS-Adresse oder file:///… eines üxzView-Katalogs"));
         url_->setText(QSettings().value(QStringLiteral("extensions/catalog")).toString());
         row->addWidget(url_, 1);
@@ -54,10 +55,12 @@ class Manager : public QDialog {
         row->addWidget(fetch);
         layout->addLayout(row);
         search_ = new QLineEdit;
+        search_->setAccessibleName(IX_TEXT("Erweiterungen / Formate suchen …"));
         search_->setPlaceholderText(IX_TEXT("Erweiterungen / Formate suchen …"));
         layout->addWidget(search_);
         table_ = new QTableWidget(0, 4);
         table_->setObjectName(QStringLiteral("extensionTable"));
+        table_->setAccessibleName(IX_TEXT("Bildpaket-Formate"));
         table_->setHorizontalHeaderLabels({IX_TEXT("Erweiterung"), IX_TEXT("Version / Formate"),
                                            IX_TEXT("Status"), IX_TEXT("Kompatibilität")});
         table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -69,6 +72,7 @@ class Manager : public QDialog {
         tabs_->addTab(table_, IX_TEXT("Bildpaket-Formate"));
         tools_ = new QTableWidget(0, 5);
         tools_->setObjectName(QStringLiteral("functionExtensionTable"));
+        tools_->setAccessibleName(IX_TEXT("Funktionserweiterungen"));
         tools_->setHorizontalHeaderLabels({IX_TEXT("Erweiterung"), IX_TEXT("Version"), IX_TEXT("Status"), IX_TEXT("Download / installiert"), IX_TEXT("Kompatibilität")});
         tools_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         tools_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -80,16 +84,18 @@ class Manager : public QDialog {
         status_ = new QLabel;
         status_->setWordWrap(true);
         status_->setObjectName(QStringLiteral("extensionStatus"));
+        status_->setTextFormat(Qt::PlainText);
+        status_->hide();
         layout->addWidget(status_);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close);
         buttons->button(QDialogButtonBox::Close)->setText(IX_TEXT("Schließen"));
-        local_ = buttons->addButton(IX_TEXT("Lokales Paket installieren …"), QDialogButtonBox::ActionRole);
+        local_ = new QPushButton(IX_TEXT("Lokales Paket installieren …"));
         local_->setObjectName(QStringLiteral("installLocalExtension"));
-        install_ = buttons->addButton(IX_TEXT("Installieren / aktualisieren"), QDialogButtonBox::ActionRole);
+        install_ = new QPushButton(IX_TEXT("Installieren / aktualisieren"));
         install_->setObjectName(QStringLiteral("installCatalogExtension"));
-        toggle_ = buttons->addButton(IX_TEXT("Aktivieren / deaktivieren"), QDialogButtonBox::ActionRole);
+        toggle_ = new QPushButton(IX_TEXT("Aktivieren / deaktivieren"));
         toggle_->setObjectName(QStringLiteral("toggleExtension"));
-        remove_ = buttons->addButton(IX_TEXT("Entfernen"), QDialogButtonBox::ActionRole);
+        remove_ = new QPushButton(IX_TEXT("Entfernen"));
         remove_->setObjectName(QStringLiteral("removeExtension"));
         connect(remove_, &QPushButton::clicked, this, [this] {
             const auto item = selected();
@@ -99,7 +105,15 @@ class Manager : public QDialog {
         });
         abort_ = buttons->addButton(IX_TEXT("Abbrechen"), QDialogButtonBox::ActionRole);
         abort_->setEnabled(false);
-        layout->addWidget(buttons);
+        auto *actions = new QHBoxLayout;
+        actions->setSpacing(ix::spacing::row);
+        actions->addWidget(install_); actions->addWidget(toggle_); actions->addWidget(remove_);
+        actions->addStretch();
+        layout->addLayout(actions);
+        auto *footer = new QHBoxLayout;
+        footer->setSpacing(ix::spacing::row);
+        footer->addWidget(local_); footer->addStretch(); footer->addWidget(buttons);
+        layout->addLayout(footer);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
         connect(search_, &QLineEdit::textChanged, this, [this] { reload(); });
         connect(local_, &QPushButton::clicked, this, [this] {
@@ -113,7 +127,7 @@ class Manager : public QDialog {
             }
             file.close();
             if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024) {
-                status_->setText(IX_TEXT("Paket nicht lesbar oder größer als 64 MiB."));
+                setStatus(IX_TEXT("Paket nicht lesbar oder größer als 64 MiB."));
                 return;
             }
             installPackage(file.readAll(), {});
@@ -121,7 +135,7 @@ class Manager : public QDialog {
         connect(fetch, &QPushButton::clicked, this, [this] {
             auto address = QUrl::fromUserInput(url_->text());
             if (!allowed(address)) {
-                status_->setText(IX_TEXT("Katalog benötigt HTTPS oder eine lokale Datei."));
+                setStatus(IX_TEXT("Katalog benötigt HTTPS oder eine lokale Datei."));
                 return;
             }
             QSettings().setValue(QStringLiteral("extensions/catalog"), address.toString());
@@ -131,13 +145,13 @@ class Manager : public QDialog {
                 if (error.error != QJsonParseError::NoError || !document.isObject() ||
                     document.object().value(QStringLiteral("schema")).toInt() != 1 ||
                     !document.object().value(QStringLiteral("packages")).isArray()) {
-                    status_->setText(IX_TEXT("Ungültiger üxzView-Katalog."));
+                    setStatus(IX_TEXT("Ungültiger üxzView-Katalog."));
                     return;
                 }
                 catalog_ = document.object().value(QStringLiteral("packages")).toArray();
                 base_ = address;
                 reload();
-                status_->setText(
+                setStatus(
                     IX_TEXT("Katalog geladen; passende Aktualisierungen können ausgewählt werden."));
             });
         });
@@ -148,21 +162,21 @@ class Manager : public QDialog {
                 return;
             auto error = ix::PluginStore::compatibility(item);
             if (!error.isEmpty()) {
-                status_->setText(error);
+                setStatus(error);
                 return;
             }
             auto address = base_.resolved(QUrl(item.value(QStringLiteral("packageUrl")).toString()));
             auto hash = item.value(QStringLiteral("sha256")).toString();
             if (!allowed(address) ||
                 !QRegularExpression(QStringLiteral("^[a-fA-F0-9]{64}$")).match(hash).hasMatch()) {
-                status_->setText(IX_TEXT("Paket benötigt eine HTTPS-/Datei-Adresse und SHA-256."));
+                setStatus(IX_TEXT("Paket benötigt eine HTTPS-/Datei-Adresse und SHA-256."));
                 return;
             }
             download(address, 64 * 1024 * 1024, [this, hash, item](QByteArray bytes) {
                 auto manifest = QJsonDocument::fromJson(bytes).object();
                 for (auto key : {"id", "version", "os", "arch", "kind", "qtMajor", "qtMinor"})
                     if (manifest.value(QString::fromLatin1(key)) != item.value(QString::fromLatin1(key))) {
-                        status_->setText(IX_TEXT("Paketbeschreibung stimmt nicht mit dem Katalog überein."));
+                        setStatus(IX_TEXT("Paketbeschreibung stimmt nicht mit dem Katalog überein."));
                         return;
                     }
                 installPackage(bytes, hash);
@@ -173,7 +187,7 @@ class Manager : public QDialog {
             if (tabs_->currentIndex() == 1) {
                 if (item.value(QStringLiteral("origin")).toString() != QStringLiteral("installed")) return;
                 const auto error = toolStore_.setEnabled(item.value(QStringLiteral("id")).toString(), !item.value(QStringLiteral("enabled")).toBool());
-                status_->setText(error.isEmpty() ? IX_TEXT("Gespeichert.") : ix::localized(error));
+                setStatus(error.isEmpty() ? IX_TEXT("Gespeichert.") : ix::localized(error));
                 reload(); return;
             }
             auto origin = item.value(QStringLiteral("origin")).toString();
@@ -191,7 +205,7 @@ class Manager : public QDialog {
                 error = store_.setBuiltinEnabled(formats, !enabled);
             } else
                 return;
-            status_->setText(error.isEmpty() ? IX_TEXT("Gespeichert. Bitte üxzView neu starten.") : error);
+            setStatus(error.isEmpty() ? IX_TEXT("Gespeichert. Bitte üxzView neu starten.") : error);
             reload();
         });
         connect(abort_, &QPushButton::clicked, this, [this] {
@@ -205,7 +219,7 @@ class Manager : public QDialog {
         connect(&worker_, &QFutureWatcher<QString>::finished, this, [this] {
             const auto error = worker_.result(); busy_ = false;
             updateRoot();
-            reload(); status_->setText(error.isEmpty() ? success_ : ix::localized(error));
+            reload(); setStatus(error.isEmpty() ? success_ : ix::localized(error));
         });
         QFile catalog(QStringLiteral(":/tool-catalog.json"));
         if (catalog.open(QIODevice::ReadOnly)) bundled_ = QJsonDocument::fromJson(catalog.readAll()).object().value(QStringLiteral("packages")).toArray();
@@ -219,7 +233,7 @@ class Manager : public QDialog {
                     break;
                 }
         }
-        status_->setText(ix::ExtensionStorage::restartPending(domain()) ? IX_TEXT("Neuer Erweiterungsordner vorgemerkt. Bitte üxzView neu starten.") : QString());
+        setStatus(ix::ExtensionStorage::restartPending(domain()) ? IX_TEXT("Neuer Erweiterungsordner vorgemerkt. Bitte üxzView neu starten.") : QString());
     }
     ~Manager() override {
         disconnect(&worker_, nullptr, this, nullptr);
@@ -232,6 +246,10 @@ class Manager : public QDialog {
     }
 
   private:
+    void setStatus(const QString &text) {
+        status_->setText(text);
+        status_->setVisible(!text.isEmpty());
+    }
     ix::PluginStore store_;
     ix::ToolStore toolStore_;
     QFutureWatcher<QString> worker_;
@@ -287,7 +305,7 @@ class Manager : public QDialog {
     void work(std::function<QString()> task, const QString &success) {
         if (busy_ || reply_ || ix::ExtensionStorage::restartPending(domain())) return;
         busy_ = true; cancel_.store(false); success_ = success;
-        status_->setText(IX_TEXT("Erweiterungen werden vorbereitet …"));
+        setStatus(IX_TEXT("Erweiterungen werden vorbereitet …"));
         updateButtons();
         worker_.setFuture(QtConcurrent::run([task = std::move(task)] {
             try { return task(); }
@@ -301,7 +319,7 @@ class Manager : public QDialog {
     void obtainTool(const QJsonObject &item) {
         if (item.value(QStringLiteral("origin")).toString() != QStringLiteral("catalog")) return;
         const auto error = ix::ToolStore::compatibility(item);
-        if (!error.isEmpty()) { status_->setText(ix::localized(error)); return; }
+        if (!error.isEmpty()) { setStatus(ix::localized(error)); return; }
         const auto url = QUrl(item.value(QStringLiteral("catalogBase")).toString()).resolved(QUrl(item.value(QStringLiteral("packageUrl")).toString()));
         if (url.isLocalFile()) {
             auto path = url.toLocalFile();
@@ -309,13 +327,13 @@ class Manager : public QDialog {
             if (!path.isEmpty()) installTool(path, item);
             return;
         }
-        if (!allowed(url)) { status_->setText(IX_TEXT("Paket benötigt HTTPS oder eine lokale Datei.")); return; }
+        if (!allowed(url)) { setStatus(IX_TEXT("Paket benötigt HTTPS oder eine lokale Datei.")); return; }
         const qint64 size = item.value(QStringLiteral("bytes")).toInteger();
         if (size <= 0 || size > 512LL * 1024 * 1024 || !QRegularExpression(QStringLiteral("^[a-fA-F0-9]{64}$")).match(item.value(QStringLiteral("sha256")).toString()).hasMatch()) {
-            status_->setText(IX_TEXT("Downloadgröße oder Paketprüfsumme fehlt oder stimmt nicht.")); return;
+            setStatus(IX_TEXT("Downloadgröße oder Paketprüfsumme fehlt oder stimmt nicht.")); return;
         }
         auto file = std::make_shared<QTemporaryFile>();
-        if (!file->open()) { status_->setText(file->errorString()); return; }
+        if (!file->open()) { setStatus(file->errorString()); return; }
         QNetworkRequest request(url);
         request.setTransferTimeout(30000);
         // Release hosts may redirect to a separate HTTPS asset CDN. Forbid
@@ -334,32 +352,32 @@ class Manager : public QDialog {
         };
         connect(reply, &QIODevice::readyRead, this, drain);
         connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 current, qint64 total) {
-            status_->setText(IX_TEXT("Download: ") + QStringLiteral("%1 / %2 MiB").arg(double(current) / 1048576, 0, 'f', 2).arg(double(total) / 1048576, 0, 'f', 2));
+            setStatus(IX_TEXT("Download: ") + QStringLiteral("%1 / %2 MiB").arg(double(current) / 1048576, 0, 'f', 2).arg(double(total) / 1048576, 0, 'f', 2));
         });
         connect(reply, &QNetworkReply::finished, this, [this, reply, file, failed, drain, item, size] {
             drain(); reply_ = nullptr; updateButtons();
-            if (*failed || file->size() != size) status_->setText(IX_TEXT("Downloadgröße stimmt nicht oder Datei ist nicht speicherbar."));
-            else if (reply->error() != QNetworkReply::NoError) status_->setText(reply->errorString());
-            else if (!file->flush()) status_->setText(file->errorString());
+            if (*failed || file->size() != size) setStatus(IX_TEXT("Downloadgröße stimmt nicht oder Datei ist nicht speicherbar."));
+            else if (reply->error() != QNetworkReply::NoError) setStatus(reply->errorString());
+            else if (!file->flush()) setStatus(file->errorString());
             else installTool(file->fileName(), item, file);
             reply->deleteLater();
         });
-        updateButtons(); status_->setText(IX_TEXT("Download läuft …"));
+        updateButtons(); setStatus(IX_TEXT("Download läuft …"));
     }
     void installPackage(const QByteArray &bytes, const QString &hash) {
         auto error = store_.install(bytes, hash);
-        status_->setText(error.isEmpty() ? IX_TEXT("Paket installiert. Bitte üxzView neu starten.") : error);
+        setStatus(error.isEmpty() ? IX_TEXT("Paket installiert. Bitte üxzView neu starten.") : error);
         reload();
     }
     void download(const QUrl &url, qint64 limit, std::function<void(QByteArray)> done) {
         if (busy_ || reply_) {
-            status_->setText(IX_TEXT("Ein Download läuft bereits."));
+            setStatus(IX_TEXT("Ein Download läuft bereits."));
             return;
         }
         if (url.isLocalFile()) {
             QFile file(url.toLocalFile());
             if (!file.open(QIODevice::ReadOnly) || file.size() > limit) {
-                status_->setText(IX_TEXT("Datei nicht lesbar oder zu groß."));
+                setStatus(IX_TEXT("Datei nicht lesbar oder zu groß."));
                 return;
             }
             done(file.readAll());
@@ -375,7 +393,7 @@ class Manager : public QDialog {
         auto bytes = std::make_shared<QByteArray>();
         auto tooLarge = std::make_shared<bool>(false);
         updateButtons();
-        status_->setText(IX_TEXT("Download läuft …"));
+        setStatus(IX_TEXT("Download läuft …"));
         connect(reply, &QIODevice::readyRead, this, [reply, bytes, tooLarge, limit] {
             if (*tooLarge)
                 return;
@@ -392,9 +410,9 @@ class Manager : public QDialog {
                     reply_ = nullptr;
                     updateButtons();
                     if (*tooLarge || bytes->size() > limit)
-                        status_->setText(IX_TEXT("Download überschreitet die Größenbegrenzung."));
+                        setStatus(IX_TEXT("Download überschreitet die Größenbegrenzung."));
                     else if (reply->error() != QNetworkReply::NoError)
-                        status_->setText(reply->errorString());
+                        setStatus(reply->errorString());
                     else
                         done(*bytes);
                     reply->deleteLater();

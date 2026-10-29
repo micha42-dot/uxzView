@@ -3,8 +3,11 @@
 #pragma once
 #include "codec_registry.h"
 #include "processing.h"
+#include <QHash>
+#include <QSet>
 #include <atomic>
 #include <functional>
+#include <optional>
 namespace ix {
 struct BatchOptions {
     QStringList inputs;
@@ -15,10 +18,27 @@ struct BatchOptions {
     bool renameOnly = false;
     QSize resizeTo;
     bool allowLoss = false;
-    QString journalRoot;
 };
 struct BatchEntry {
     QString input, output, error;
+    bool moved = false;
+    QString sourceRevision = {}, targetRevision = {};
+};
+struct BatchRelocation {
+    QString path, sourceRevision, targetRevision;
+};
+// Transient result summary. Track file identity through sequential renames,
+// including paths freed and reused by a different file in the same dialog.
+class BatchFileChanges {
+  public:
+    void add(const BatchEntry &entry);
+    QString resolve(const QString &original) const;
+    std::optional<BatchRelocation> relocation(const QString &original) const;
+    QStringList affectedPaths() const { return affected_.values(); }
+  private:
+    QHash<QString, QString> originalForCurrent_;
+    QHash<QString, BatchRelocation> currentForOriginal_;
+    QSet<QString> affected_;
 };
 class BatchProcessor {
   public:

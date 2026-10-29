@@ -10,14 +10,21 @@ Build from [PLATFORMS.md](PLATFORMS.md) and read [ARCHITECTURE.md](ARCHITECTURE.
 | View/selection/fullscreen | `ui/image_view.*`, `platform_support.*` | Pixel/fit checks and native DPI/window tests. |
 | Appearance/dialogs | `ui/appearance.*`, `dialog_layout.h`, [UI_STYLE.md](UI_STYLE.md) | Live theme changes retain pixels/selection/zoom; multilingual/DPI dialog reachability. |
 | Live language | `core/localization.*`, `ui/interface_language.*` | Concurrent readers; window/fullscreen state, edits/Undo, stable actions/search rows and explicit numeric locales. |
-| Loading/navigation/history | `ui/main_window.*`, `document_activity.h`, `directory_index.*` | Queued navigation, stale results, failed reads, unsaved-edit policy. |
-| Save/files/batch | `main_window_files.cpp`, `file_journal.*`, `batch_plan.cpp`, `batch_pipeline.*` | Conflicts, cancellation, rollback, source preservation. |
+| Loading/navigation | `ui/main_window.*`, `document_activity.h`, `directory_index.*` | Queued navigation, stale results, failed reads, unsaved-edit policy. |
+| Pixel history/memory | `core/document_history.*`, `image_memory.*` | Undo/Redo transitions, source reconciliation, selection/precision, shared-buffer costs and combined budgets. |
+| Save/files/batch | `main_window_files.cpp`, `file_operations.*`, `batch_plan.cpp`, `batch_pipeline.*` | Conflicts, cancellation, rollback, source preservation. |
 | Recognition | `recognition_input.*`, `tool_store.*`, `tool_dialog.cpp` | Selection/alpha export, real process, cancellation, removal/leases. |
 | Packages/storage | `app_storage.*`, `extension_storage.*`, `scripts` | Corrupt/legacy state, relocation, privacy, archive integrity. |
 
-Qt suites are in `tests/test_ixview.cpp`, `quality_ixview.cpp`, `storage_ixview.cpp`, `extensions_ixview.cpp` and `workflow_ixview.cpp`. The workflow suite covers navigation, modal file operations and related preview/export regressions. Add tests to the suite that owns the behavior. For a substantial new component, prefer a dedicated test source/target over growing the main test translation unit indefinitely. Test observable results and failures rather than mirroring implementation branches.
+Qt suites are in `tests/test_ixview.cpp`, `quality_ixview.cpp`, `storage_ixview.cpp`, `file_operations_ixview.cpp`, `extensions_ixview.cpp`, `workflow_ixview.cpp`, `maintenance_ixview.cpp` and `ui_quality_ixview.cpp`. The workflow suite covers navigation, modal file operations and related preview/export regressions; maintenance isolates history budgets, resource lifetimes and JPEG/archive guards. The UI quality suite covers palette contrast, compact histogram/extension layouts, literal information values, accessible field names and stable image status. Add tests to the suite that owns the behavior. For a substantial new component, prefer a dedicated test source/target over growing the main test translation unit indefinitely. Test observable results and failures rather than mirroring implementation branches.
 
 ## Build and verify
+
+File operations carry applied state independently of catalog warnings. Keep
+file work on workers and invalidate only affected cache paths. There is no file
+journal or file-operation Undo. Preserve pixel Undo/Redo. Batch output uses the
+same atomic encoder as Save; cancellation/source checks run before commit.
+Do not recreate a second staged-file installation/backup subsystem.
 
 Wait for builds to finish before running tests. UI suites run sequentially and may move/focus windows; avoid competing desktop tests.
 
@@ -52,15 +59,16 @@ expose this as `-RequireFullFeatures`. This rejects a missing Exiv2, LibRaw or Q
 Network dependency at configure time. Keep this check in release preparation.
 Deliberately reduced builds leave it off and can use `IX_ENABLE_METADATA=OFF`,
 `CMAKE_DISABLE_FIND_PACKAGE_Qt6Network=TRUE` and `BUILD_TESTING=OFF`.
-Native Qt deployment receives the installed module paths, relative to the
-install prefix, rather than the corresponding build-tree binaries.
+Native Qt deployment receives prefix-relative installed module paths on Windows
+and macOS. On Linux it scans build modules whose SDK RUNPATH can still resolve
+optional dependencies; the installed modules retain their relocatable RUNPATH.
 Run `scripts/verify_native_modules.py` after deployment (on Unix, pass
 `--stage dist/native` and remove SDK library environment variables first).
 It resolves both modules and their exports without invoking UI/tool functions.
 On macOS it uses the app's `--probe-modules` diagnostic so dyld resolves
 `@executable_path` from the actual bundle executable, not Python. This command
 is also available directly on Windows/Linux and exits before profile setup.
-CTest declares all five suites serial and limits each to 300 seconds; parallel
+CTest declares all suites serial and limits each to 300 seconds; parallel
 CTest invocation must not overlap their profile/GUI state. Native install,
 package and module-loader logs are retained and included in failure diagnostics.
 
@@ -75,7 +83,7 @@ python -m unittest discover -s tests -p "test_release_validation.py" -v
 CTest keeps complete QtTest text and JUnit reports in the build directory. The
 QtTest file loggers do not also write their contents to CTest's captured stdout.
 After a failure, run `python scripts/report_test_logs.py --build-dir build/native`
-(or `--build-dir build` on Windows). This prints all five suites and CTest's
+(or `--build-dir build` on Windows). This prints every retained suite report and CTest's
 `Testing/Temporary/LastTest.log`, including partial reports after a crash.
 Desktop CI prints these on failure and uploads all `*test-results.*` plus CTest
 logs even when compilation or testing fails. Inspect `workflow-test-results.txt`
@@ -124,6 +132,21 @@ Toolbar artwork lives in `src/ui/icons.cpp`: original 24-unit vectors with round
 - For fullscreen timing, set `IX_PROFILE_TRANSITIONS=1` for a native test, then unset it. Logs include snapshot, cover-ready, restore and total times. Compositor timing is not a visual guarantee.
 - Use `ixview_benchmarks` and [PERFORMANCE.md](PERFORMANCE.md) for speed work. Retain before/after builds, alternate equivalent runs, distinguish cold/warm caches and avoid simultaneous builds/tests. Report regressions too.
 - Keep generated logs/fixtures in `build` or `tests/output`; do not commit private images or profiles.
+
+For image-result lifetime measurements, the maintenance executable supports:
+
+```powershell
+./build/ixview_maintenance_tests.exe build/memory.json --profile-memory -platform offscreen
+$env:IX_AUDIT_MEMORY_CYCLES='30'
+./build/ixview_maintenance_tests.exe build/memory-30.json --profile-memory -platform offscreen
+Remove-Item Env:IX_AUDIT_MEMORY_CYCLES
+```
+
+It generates a controlled 24-MP PNG under `build/audit-fixtures`, disables document
+and thumbnail caches in an isolated profile, and replaces each loaded image with
+a tiny clipboard image. Windows reports private/working-set counters; all hosts
+check buffer sharing. This is a specific ownership workload, not whole-app leak
+proof. Keep benchmarks separate from compilation and desktop tests.
 
 ## Workspace housekeeping
 

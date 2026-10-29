@@ -131,6 +131,21 @@ class ReleaseRuntimeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             release_package.validate_release(self.runtime)
 
+    def test_missing_archive_plugin_is_rejected(self):
+        plugin = self.root / 'build/imageformats/ixarchive.dll'
+        plugin.parent.mkdir()
+        plugin.write_bytes(b'archive-codec')
+        with self.assertRaises(RuntimeError):
+            release_package.validate_release(self.runtime)
+
+    def test_stale_archive_plugin_is_rejected(self):
+        for folder in (self.root / 'build/imageformats', self.runtime / 'imageformats'):
+            folder.mkdir()
+        (self.root / 'build/imageformats/ixarchive.dll').write_bytes(b'archive-codec')
+        (self.runtime / 'imageformats/ixarchive.dll').write_bytes(b'old-codec')
+        with self.assertRaises(RuntimeError):
+            release_package.validate_release(self.runtime)
+
     def test_deployment_preserves_personal_profile(self):
         personal = self.runtime / 'IxView-data/file-journal/trash/important.bin'
         personal.parent.mkdir(parents=True)

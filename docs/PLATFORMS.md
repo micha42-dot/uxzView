@@ -4,6 +4,14 @@
 
 Alle Befehle werden im Wurzelverzeichnis eines Checkouts oder entpackten Quellpakets ausgeführt. Ein Windows-Build erzeugt keine Linux- oder macOS-Binärdatei; für diese Builds einen entsprechenden Host verwenden.
 
+ZIP/CBZ benötigt zusätzlich ein zur verwendeten Qt-Version passendes
+`KF6Archive`-Entwicklungspaket. CMake baut bei vorhandenem `KF6::Archive` automatisch
+das separate `ixarchive`-Bildformat-Plugin; mit `-DIX_ARCHIVE_FORMATS=OFF` lässt es
+sich ausschließen. Ohne KArchive meldet die Konfiguration die fehlende optionale
+Funktion und baut die übrige Anwendung weiter. Das gesperrte Windows-SDK enthält
+KArchive bereits. Die bisherigen Linux-/macOS-CI-Jobs installieren es nicht und
+prüfen daher weiterhin den Build ohne Archiv-Plugin.
+
 | System | Ziel / Build-Konfiguration | Hier nachgewiesen |
 | --- | --- | --- |
 | Windows | Windows 10 ab 1809 und neuer, x64; MSYS2-UCRT-SDK | Windows-11-Build, alle fünf Offscreen-Suiten und vierunddreißig native Fensterabläufe; portables Paket ohne SDK-Pfade |

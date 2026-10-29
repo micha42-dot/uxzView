@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag matching CMakeLists.txt (for example v0.4.8)
+        description: Existing version tag matching CMakeLists.txt (for example v0.5.0)
         required: true
         type: string
 permissions:

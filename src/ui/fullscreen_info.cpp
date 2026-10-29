@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fullscreen_info.h"
+#include "dialog_layout.h"
 #include "core/localization.h"
 #include <QtWidgets>
 namespace ix {
@@ -93,8 +94,8 @@ FullscreenInfoEditor::FullscreenInfoEditor(QWidget *parent) : QWidget(parent) {
     enabled_->setChecked(initial.enabled);
     layout->addWidget(enabled_);
     auto *details = new QWidget;
-    auto *form = new QFormLayout(details);
-    form->setContentsMargins(0, 0, 0, 0);
+    auto *form = dialogFormLayout();
+    details->setLayout(form);
     corner_ = new QComboBox;
     corner_->setObjectName(QStringLiteral("fullscreen/info/corner"));
     corner_->addItem(IX_TEXT("Oben links"), int(Qt::TopLeftCorner));
@@ -141,7 +142,7 @@ bool fullscreenInfoDialog(QWidget *parent) {
     QDialog dialog(parent);
     dialog.setObjectName(QStringLiteral("fullscreenInfoDialog"));
     dialog.setWindowTitle(IX_TEXT("Informationen anzeigen (Vollbildmodus)"));
-    auto *layout = new QVBoxLayout(&dialog);
+    auto *layout = dialogLayout(&dialog);
     auto *editor = new FullscreenInfoEditor;
     layout->addWidget(editor);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);

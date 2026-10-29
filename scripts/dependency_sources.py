@@ -18,7 +18,7 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_BASE = "https://repo.msys2.org/mingw/sources/"
-OWN_DLLS = {"ixrawpreview.dll", "ixextensions.dll"}
+OWN_DLLS = {"ixrawpreview.dll", "ixextensions.dll", "ixarchive.dll"}
 
 
 def digest(path):

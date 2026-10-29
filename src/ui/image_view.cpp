@@ -20,7 +20,7 @@ ImageView::Fit ImageView::fullscreenFit() {
     return Fit(std::clamp(settings.value(QStringLiteral("fullscreen/fit"), int(fallback)).toInt(), 0, 5));
 }
 ImageView::ImageView(QWidget *p) : QAbstractScrollArea(p) {
-    setFrameStyle(QFrame::StyledPanel | QFrame::Sunken);
+    setFrameStyle(QFrame::NoFrame);
     setFocusPolicy(Qt::StrongFocus);
     viewport()->setMouseTracking(true);
     viewport()->setAttribute(Qt::WA_OpaquePaintEvent);
@@ -378,6 +378,7 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
     if (e->button() == Qt::LeftButton) {
         if (!insideImage(point)) {
             setSelection({});
+            aspectRatio_ = {};
             return;
         }
         if (!fullscreenClick_ && (!aspectRatio_.isValid() || e->modifiers().testFlag(Qt::ControlModifier)) &&
@@ -449,6 +450,8 @@ void ImageView::mouseMoveEvent(QMouseEvent *e) {
 }
 void ImageView::mouseReleaseEvent(QMouseEvent *e) {
     mouseMoveEvent(e);
+    if (e->button() == Qt::LeftButton && !clickDragged_ && selection_.isEmpty())
+        aspectRatio_ = {};
     const bool navigateClick = fullscreenClick_ && !clickDragged_ && e->button() == clickButton_;
     const bool contextClick = !image_.isNull() && !window()->isFullScreen() && !clickDragged_ &&
                               e->button() == Qt::RightButton && clickButton_ == Qt::RightButton;
