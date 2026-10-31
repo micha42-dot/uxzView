@@ -58,7 +58,9 @@ fullscreen captures are saved under `tests/output/ui-audit/settings-compact-*`.
 Existing settings persistence/Cancel, immediate application, crop ratios,
 recognition, editing and native DPI tests remain part of validation.
 
-All eight suites pass 428 Qt cases without skips; all 45 Python tests pass.
+At completion of this layout pass, all eight suites pass 428 Qt cases without
+skips; all 45 Python tests pass. Later closing-preference cases and current totals
+are recorded in [Quality checks](QUALITY.md).
 The complete 33-block validator passes, including native Windows checks at
 100/125/150/200 percent scaling. After removing the preview border, the complete
 core checks and all 38 native UI quality cases at each of those four scales pass

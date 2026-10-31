@@ -37,7 +37,7 @@ class MainWindow : public QMainWindow {
   public:
     explicit MainWindow(QWidget *parent = nullptr, QString cacheRoot = {});
     ~MainWindow() override;
-    void openPath(const QString &path, int page = 0, bool checkChanges = true);
+    void openPath(QString path, int page = 0, bool checkChanges = true);
     const ImageDocument &document() const {
         return document_;
     }
@@ -128,7 +128,8 @@ class MainWindow : public QMainWindow {
     void refreshFiles(bool force = false);
     void navigate(int direction);
     void page(int direction);
-    bool confirmDiscard(bool changingImage = false);
+    enum class DiscardPolicy { Ask, UsePreference };
+    bool confirmDiscard(DiscardPolicy policy = DiscardPolicy::Ask);
     bool saveImage(bool selection = false, bool forceDialog = false);
     void fileOperation(const QString &operation);
     void operation(std::function<QImage(const QImage &)> fn);

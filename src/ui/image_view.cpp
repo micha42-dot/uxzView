@@ -376,12 +376,7 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
     clickDragged_ = false;
     panStart_ = point;
     if (e->button() == Qt::LeftButton) {
-        if (!insideImage(point)) {
-            setSelection({});
-            aspectRatio_ = {};
-            return;
-        }
-        if (!fullscreenClick_ && (!aspectRatio_.isValid() || e->modifiers().testFlag(Qt::ControlModifier)) &&
+        if (insideImage(point) && !fullscreenClick_ && (!aspectRatio_.isValid() || e->modifiers().testFlag(Qt::ControlModifier)) &&
             !selection_.isEmpty() && selection_.contains(imagePoint(point))) {
             if (e->modifiers().testFlag(Qt::ControlModifier))
                 setSelection({});
@@ -414,8 +409,16 @@ void ImageView::mouseMoveEvent(QMouseEvent *e) {
         clickDragged_ = true;
     if (selecting_ && clickDragged_) {
         const auto end = imagePoint(point);
-        auto rect = QRect(anchor_, end).normalized();
-        if (aspectRatio_.isValid()) {
+        const auto between = [](QPoint a, QPoint b) {
+            return QRect(QPoint(std::min(a.x(), b.x()), std::min(a.y(), b.y())),
+                         QPoint(std::max(a.x(), b.x()), std::max(a.y(), b.y())));
+        };
+        // Both endpoints are pixels; keep them inclusive in reverse drags too.
+        auto rect = between(anchor_, end);
+        const QRectF dragged(between(panStart_, point));
+        if (!dragged.intersects(QRectF(origin(), QSizeF(image_.size()) * zoom_)))
+            rect = {};
+        if (aspectRatio_.isValid() && !rect.isEmpty()) {
             const int sx = end.x() < anchor_.x() ? -1 : 1, sy = end.y() < anchor_.y() ? -1 : 1;
             const int availableWidth = sx > 0 ? image_.width() - anchor_.x() : anchor_.x() + 1;
             const int availableHeight = sy > 0 ? image_.height() - anchor_.y() : anchor_.y() + 1;

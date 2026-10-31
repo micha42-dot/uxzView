@@ -114,9 +114,9 @@ Der Benchmark erzeugt unter `build/perf-fixtures` zwei deterministische 24-Megap
 
 Der Positionsvergleich führt im selben Build 10.000 Zugriffe auf dieselbe Liste einmal mit linearer Suche und einmal mit der Hashtabelle aus. Das trennt die Datenstrukturwirkung von wechselnder Rechnerlast. Die 10.000 Dateien sind keine repräsentative RAW-/Metadatensammlung und messen keine vollständige Miniaturansicht.
 
-## Grenzen
+## Grenzen der damaligen Messreihe
 
-Kein gekachelter Gigapixel-Decoder, keine unterbrechbaren Qt-Decoder, kein vorauseilendes vollständiges RAW-Decoding. Der Metadatenkatalog bleibt eine atomar geschriebene JSON-Datei mit Größenbegrenzung. Seit 0.4.3 besitzt das Dateijournal einzelne atomare Operationsdateien; die History-Ansicht liest weiterhin den Gesamtindex. Sehr große Langzeitarchive benötigen perspektivisch eine Datenbank. Das Journal schreibt pro erfolgreicher Datei einen dauerhaften Zustand und prüft Hashes; diese Integritätsarbeit kostet Zeit. Ähnliche Bilder werden als Prüfkandidaten gemeldet, mit maximal 10.000 Paaren pro Suche. Keine pauschale Zusage, dass jeder Bildtyp und jeder Ordner schneller wird.
+Kein gekachelter Gigapixel-Decoder, keine unterbrechbaren Qt-Decoder, kein vorauseilendes vollständiges RAW-Decoding. Der Metadatenkatalog bleibt eine atomar geschriebene JSON-Datei mit Größenbegrenzung. Das damalige Dateijournal schrieb einzelne atomare Operationsdateien, las für die History den Gesamtindex und verursachte zusätzliche Hash-/Schreibkosten. **Ab 0.5.0 sind Journal und Dateioperationen-Undo entfernt; diese Kosten gehören nicht mehr zum aktuellen Ablauf.** Historische Messwerte bleiben zum Vergleich erhalten. Sehr große Langzeitarchive benötigen perspektivisch eine Datenbank. Ähnliche Bilder werden als Prüfkandidaten gemeldet, mit maximal 10.000 Paaren pro Suche. Keine pauschale Zusage, dass jeder Bildtyp und jeder Ordner schneller wird.
 
 ## Gemessener Abschlusslauf
 
@@ -805,4 +805,21 @@ and retained `batch-plan-before.exe`/`batch-plan-after.exe`.
 
 ```powershell
 ./build/ixview_benchmarks.exe build/plan.json --profile-batch-plan -platform offscreen
+```
+
+## Öffnen-Filter — 31.10.2026
+
+Der Öffnen-Dialog baut seine Filter aus Leser-Endungen auf, ohne die vollständigen
+Decoder-/Encoderfähigkeiten abzufragen. In drei frischen Windows-Prozessen mit
+warmem Dateisystem sinkt der Median der ersten Filtervorbereitung von 274,945 auf
+75,498 ms (rund 72,5 %). RAW-, HEIF-, AVIF-, OpenEXR- und JPEG-XL-Plugins werden
+dabei nicht mehr geladen. Das misst die Filtervorbereitung, nicht die gesamte
+Dialoganzeige, Shell-Verzeichnisabfrage oder einen Vergleich mit IrfanView.
+
+Die fünf warmen Folgeaufrufe je Prozess und alle einzelnen Anfangswerte stehen
+in `build/open-filter-before-*.json` und `open-filter-after-*.json`.
+[Umsetzung und Grenzen der Dialogprüfung](OPEN_SELECTION_REVIEW_2026-10-31.md).
+
+```powershell
+./build/ixview_benchmarks.exe build/open-filter.json --profile-open-filter -platform offscreen
 ```

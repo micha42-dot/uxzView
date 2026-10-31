@@ -34,7 +34,7 @@ QVariant PipelineResultModel::data(const QModelIndex &index, int role) const {
     switch (index.column()) {
     case 0: return role == Qt::ToolTipRole ? entry.input : QFileInfo(entry.input).fileName();
     case 1: return role == Qt::ToolTipRole ? entry.output : QFileInfo(entry.output).fileName();
-    case 2: return entry.replaces ? IX_TEXT("Ersetzen mit Sicherung") : IX_TEXT("Neu anlegen");
+    case 2: return entry.replaces ? IX_TEXT("Ersetzen") : IX_TEXT("Neu anlegen");
     default: return !entry.error.isEmpty() ? localized(entry.error)
         : completed_ ? IX_TEXT("Fertig") : IX_TEXT("Bereit");
     }

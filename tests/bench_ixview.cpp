@@ -3,6 +3,7 @@
 #include "convolution_reference.h"
 #include "core/apng_codec.h"
 #include "core/codec_registry.h"
+#include "core/file_operations.h"
 #include "core/batch_pipeline.h"
 #include "core/directory_index.h"
 #include "core/image_loading.h"
@@ -30,6 +31,68 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QJsonObject profileCacheAdmission() {
+    const auto base=QDir::current().filePath(QStringLiteral("build/audit-fixtures"));
+    if (!QDir().mkpath(base)) return {{QStringLiteral("error"),QStringLiteral("Fixture directory failed")}};
+    QTemporaryDir temporary(base+QStringLiteral("/cache-admission-XXXXXX"));
+    if (!temporary.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary directory failed")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,temporary.path());
+    qApp->setProperty("ixStorageData",temporary.filePath(QStringLiteral("profile")));
+    QSettings().setValue(QStringLiteral("navigation/askToSave"),false);
+    const auto path=temporary.filePath(QStringLiteral("source.bmp"));
+    const QSize dimensions(5120,5120);
+    QImage generated(dimensions,QImage::Format_RGB32); generated.fill(QColor(37,129,211));
+    if (!generated.save(path)) return {{QStringLiteral("error"),QStringLiteral("BMP generation failed")}};
+    generated={};
+    const auto originalHash=ix::sha256File(path);
+    const auto fileBytes=QFileInfo(path).size();
+    ix::CodecRegistry registry;
+    ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true);
+    int decodes=0;
+    qint64 pixelBytes=0;
+    for (int i=0;i<2;++i) {
+        auto result=ix::ImageLoadCache::read(registry,path,0,[&] { ++decodes; });
+        if (!result.ok()) return {{QStringLiteral("error"),result.error}};
+        pixelBytes=result.document.pixels.sizeInBytes();
+        if (result.document.pixels.size()!=dimensions || pixelBytes!=100LL*1024*1024)
+            return {{QStringLiteral("error"),QStringLiteral("Unexpected decoded size")}};
+    }
+    ix::MainWindow window;
+    QString uiError;
+    QTimer dismiss;
+    QObject::connect(&dismiss,&QTimer::timeout,&window,[&] {
+        if (auto *message=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+            uiError=message->text(); message->reject();
+        }
+    });
+    dismiss.start(10);
+    auto wait=[&] {
+        QElapsedTimer timer; timer.start();
+        while (window.isBusy() && timer.elapsed()<30000) { QApplication::processEvents(); QThread::msleep(1); }
+        return !window.isBusy() && uiError.isEmpty();
+    };
+    window.openPath(path);
+    if (!wait() || window.document().pixels.size()!=dimensions)
+        return {{QStringLiteral("error"),QStringLiteral("Main-window load failed: ")+uiError}};
+    auto *view=window.findChild<ix::ImageView *>();
+    view->setSelection({10,10,120,90}); window.dispatch(QStringLiteral("crop"));
+    if (!wait() || window.document().pixels.size()!=QSize(120,90) || !window.document().modified)
+        return {{QStringLiteral("error"),QStringLiteral("Crop failed: ")+uiError}};
+    const bool undo=window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled();
+    window.dispatch(QStringLiteral("undo"));
+    if (!wait() || window.document().pixels.size()!=dimensions || !undo)
+        return {{QStringLiteral("error"),QStringLiteral("Pixel Undo failed: ")+uiError}};
+    const bool unchanged=ix::sha256File(path)==originalHash;
+    if (!unchanged || decodes!=2) return {{QStringLiteral("error"),QStringLiteral("Source/cache expectations failed")}};
+    return {{QStringLiteral("width"),dimensions.width()},{QStringLiteral("height"),dimensions.height()},
+        {QStringLiteral("decoded_pixel_bytes"),pixelBytes},{QStringLiteral("file_bytes"),fileBytes},
+        {QStringLiteral("cache_admission_bytes"),96LL*1024*1024},{QStringLiteral("decode_calls_for_two_cache_reads"),decodes},
+        {QStringLiteral("main_window_loaded"),true},{QStringLiteral("crop_succeeded"),true},
+        {QStringLiteral("pixel_undo_restored_original_size"),true},{QStringLiteral("source_hash_unchanged"),unchanged},
+        {QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"),QStringLiteral("Generated 100 MiB RGB32 BMP; proves cache admission differs from load/edit limits, not gigapixel or global-RAM support.")}};
+}
 QJsonObject profileBatchResults() {
     QList<ix::PipelineFile> entries;
     constexpr int count = 20000;
@@ -773,6 +836,37 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-cache-admission"))) {
+        const auto result=profileCacheAdmission();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-open-filter"))) {
+        auto modules = [] {
+            QJsonArray names;
+#ifdef Q_OS_WIN
+            for (const auto &name : {QStringLiteral("kimg_raw.dll"), QStringLiteral("kimg_heif.dll"),
+                 QStringLiteral("kimg_avif.dll"), QStringLiteral("kimg_exr.dll"), QStringLiteral("kimg_jxl.dll")})
+                if (GetModuleHandleW(reinterpret_cast<const wchar_t *>(name.utf16()))) names.append(name);
+#endif
+            return names;
+        };
+        ix::CodecRegistry registry;
+        const auto before = modules();
+        QElapsedTimer timer; timer.start();
+        const auto filter = registry.openFilter();
+        const auto first = timer.nsecsElapsed()/1e6;
+        const auto after = modules();
+        QJsonArray warm;
+        for (int i=0;i<5;++i) { timer.restart(); const auto next=registry.openFilter(); warm.append(timer.nsecsElapsed()/1e6); }
+        const QJsonObject report{{QStringLiteral("first_filter_ms"),first}, {QStringLiteral("warm_filter_ms"),warm},
+            {QStringLiteral("filter_characters"),filter.size()}, {QStringLiteral("filter_groups"),filter.count(QStringLiteral(";;"))+1},
+            {QStringLiteral("heavy_plugins_before"),before}, {QStringLiteral("heavy_plugins_after"),after},
+            {QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+            {QStringLiteral("note"),QStringLiteral("Fresh process, warm filesystem; filter preparation only, excludes file dialog and shell enumeration.")}};
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(report).toJson()); return 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-batch-results"))) {
         QFile out(app.arguments().value(1));
         if (!out.open(QIODevice::WriteOnly)) return 4;

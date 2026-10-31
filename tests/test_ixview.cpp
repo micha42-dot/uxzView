@@ -2226,7 +2226,7 @@ class IxTests : public QObject {
         QTRY_COMPARE(largeView->fit(), ix::ImageView::Fit::Original);
         QCOMPARE(largeView->zoom(), .25);
     }
-    void imageChangesDiscardEditsByDefaultButClosingStillAsks() {
+    void imageChangesAndClosingDiscardEditsByDefault() {
         QSettings settings;
         const auto old = settings.value(QStringLiteral("navigation/askToSave"));
         settings.remove(QStringLiteral("navigation/askToSave"));
@@ -2249,13 +2249,13 @@ class IxTests : public QObject {
         QTRY_VERIFY(window.document().modified);
         QCOMPARE(window.document().pixels.size(), QSize(120, 90));
         int questions = 0;
-        bool closing = false, errorShown = false;
+        bool errorShown = false;
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
             if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
                 if (message->standardButtons().testFlag(QMessageBox::Save)) {
                     ++questions;
-                    message->button(closing ? QMessageBox::Cancel : QMessageBox::Discard)->click();
+                    message->button(QMessageBox::Discard)->click();
                 } else {
                     errorShown = true;
                     message->accept();
@@ -2289,12 +2289,11 @@ class IxTests : public QObject {
         QCOMPARE(questions, 0);
         window.dispatch(QStringLiteral("grayscale"));
         QTRY_VERIFY(window.document().modified);
-        closing = true;
-        QVERIFY(!window.close());
-        QCOMPARE(questions, 1);
-        QVERIFY(window.document().modified);
+        QVERIFY(window.close());
+        QCOMPARE(questions, 0);
+        QVERIFY(!window.isVisible());
         QCOMPARE(ix::sha256File(first), hash);
-        closing = false;
+        window.show();
         const auto frames = folder + QStringLiteral("/frames.gif");
         QFile file(frames);
         QVERIFY(file.open(QIODevice::WriteOnly));
@@ -2309,10 +2308,75 @@ class IxTests : public QObject {
         window.findChild<QAction *>(QStringLiteral("nextPage"))->trigger();
         QTRY_COMPARE(window.document().page, 1);
         window.dispatch(QStringLiteral("animation"));
-        QCOMPARE(questions, 1);
+        QCOMPARE(questions, 0);
         QVERIFY(!window.document().modified);
         QVERIFY(!window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
         QCOMPARE(ix::sha256File(frames), frameHash);
+    }
+    void editedClosingFollowsSavePreference_data() {
+        QTest::addColumn<int>("method");
+        QTest::addColumn<bool>("ask");
+        for (bool ask : {false, true})
+            for (int method = 0; method < 3; ++method)
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2")
+                    .arg(QStringList{QStringLiteral("close"), QStringLiteral("escape"), QStringLiteral("menu")}.at(method))
+                    .arg(ask ? QStringLiteral("ask") : QStringLiteral("discard")))) << method << ask;
+    }
+    void editedClosingFollowsSavePreference() {
+        QFETCH(int, method); QFETCH(bool, ask);
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("navigation/askToSave"));
+        const bool hadPreference = settings.contains(QStringLiteral("navigation/askToSave"));
+        const auto restore = qScopeGuard([&] {
+            if (hadPreference) settings.setValue(QStringLiteral("navigation/askToSave"), previous);
+            else settings.remove(QStringLiteral("navigation/askToSave"));
+        });
+        settings.setValue(QStringLiteral("navigation/askToSave"), ask);
+        const auto path = dir(QStringLiteral("close-edited-%1-%2.png").arg(method).arg(int(ask)));
+        QVERIFY(pattern(160, 120).save(path));
+        const auto originalHash = ix::sha256File(path);
+        ix::MainWindow window;
+        window.show(); window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        auto *view = window.findChild<ix::ImageView *>(); QVERIFY(view);
+        auto *exitAction = window.findChild<QAction *>(QStringLiteral("exit")); QVERIFY(exitAction);
+        if (method == 1) window.dispatch(QStringLiteral("grayscale"));
+        else {
+            view->setSelection({10, 10, 80, 60});
+            window.dispatch(QStringLiteral("crop"));
+        }
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        const auto edited = window.document().pixels;
+        int questions = 0;
+        auto answer = QMessageBox::Cancel;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                ++questions;
+                if (auto *button = message->button(answer)) button->click();
+                else message->reject();
+            }
+        });
+        timer.start(20);
+        const auto close = [&] {
+            if (method == 0) window.close();
+            else if (method == 1) QTest::keyClick(view, Qt::Key_Escape);
+            else exitAction->trigger();
+        };
+        close();
+        if (ask) {
+            QCOMPARE(questions, 1);
+            QVERIFY(window.isVisible());
+            QVERIFY(window.document().modified);
+            QCOMPARE(window.document().pixels, edited);
+            QVERIFY(window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
+            QCOMPARE(ix::sha256File(path), originalHash);
+            answer = QMessageBox::Discard;
+            close();
+        }
+        QVERIFY(!window.isVisible());
+        QCOMPARE(questions, ask ? 2 : 0);
+        QCOMPARE(ix::sha256File(path), originalHash);
     }
     void imageChangeSaveQuestionCanBeEnabled() {
         QSettings settings;
@@ -3936,6 +4000,91 @@ class IxTests : public QObject {
             }
             QCOMPARE(view.image(), source);
         }
+    }
+    void openFilterUsesReaderExtensionsOnly() {
+        class MetadataCodec final : public ix::ImageCodec {
+          public:
+            mutable int capabilityQueries = 0;
+            bool accepts(const QString &) const override { return false; }
+            ix::ImageResult read(const QString &, int) const override { return {}; }
+            QStringList extensions() const override {
+                return {QStringLiteral("readerfixture"), QStringLiteral("readerfixture")};
+            }
+            QList<ix::FormatCapability> capabilities() const override {
+                ++capabilityQueries;
+                return {{QStringLiteral("Fixture"), {QStringLiteral("readerfixture")}, true, false, {}}};
+            }
+        };
+        auto codec = std::make_shared<MetadataCodec>();
+        ix::CodecRegistry registry; registry.add(codec);
+        const auto filter = registry.openFilter();
+        QCOMPARE(codec->capabilityQueries, 0);
+        const auto filters = filter.split(QStringLiteral(";;"));
+        QVERIFY(filters.first().contains(QStringLiteral("*.readerfixture")));
+        QCOMPARE(filters.first().count(QStringLiteral("*.readerfixture")), 1);
+        QVERIFY(filters.contains(QStringLiteral("READERFIXTURE (*.readerfixture)")));
+        QVERIFY(filters.last().endsWith(QStringLiteral("(*)")));
+        QVERIFY(filter.contains(QStringLiteral("*.png")));
+        QVERIFY(filter.contains(QStringLiteral("*.apng")));
+    }
+    void selectionStartsOutsideImage_data() {
+        QTest::addColumn<int>("edge"); QTest::addColumn<bool>("constrained");
+        for (int edge = 0; edge < 8; ++edge) for (bool constrained : {false, true})
+            QTest::newRow(qPrintable(QStringLiteral("edge-%1-%2").arg(edge).arg(constrained ? QStringLiteral("ratio") : QStringLiteral("free"))))
+                << edge << constrained;
+    }
+    void selectionStartsOutsideImage() {
+        QFETCH(int, edge); QFETCH(bool, constrained);
+        ix::ImageView view;
+        view.resize(800, 600);
+        const auto source = pattern(240, 160);
+        view.setImage(source); view.setZoom(edge % 2 ? .75 : 1.5);
+        view.show(); QTest::qWait(20);
+        auto *surface = view.viewport();
+        const QPointF origin((surface->width()-source.width()*view.zoom())/2,
+                             (surface->height()-source.height()*view.zoom())/2);
+        const QRectF bounds(origin, QSizeF(source.size())*view.zoom());
+        const auto center = bounds.center().toPoint();
+        const QList<QPoint> starts{
+            {qFloor(bounds.left())-25, center.y()}, {qCeil(bounds.right())+25, center.y()},
+            {center.x(), qFloor(bounds.top())-25}, {center.x(), qCeil(bounds.bottom())+25},
+            bounds.topLeft().toPoint()-QPoint(25,25), bounds.topRight().toPoint()+QPoint(25,-25),
+            bounds.bottomLeft().toPoint()+QPoint(-25,25), bounds.bottomRight().toPoint()+QPoint(25,25)};
+        const auto start = starts.at(edge);
+        if (constrained) view.setSelectionAspectRatio({16,9});
+        QTest::mousePress(surface, Qt::LeftButton, Qt::NoModifier, start);
+        QTest::mouseMove(surface, center);
+        QTest::mouseRelease(surface, Qt::LeftButton, Qt::NoModifier, center);
+        const auto selected = view.selection();
+        QVERIFY(!selected.isEmpty());
+        QVERIFY(source.rect().contains(selected));
+        if (edge==0 || edge==4 || edge==6) QCOMPARE(selected.left(),0);
+        if (edge==1 || edge==5 || edge==7) QCOMPARE(selected.right(),source.width()-1);
+        if (edge==2 || edge==4 || edge==5) QCOMPARE(selected.top(),0);
+        if (edge==3 || edge==6 || edge==7) QCOMPARE(selected.bottom(),source.height()-1);
+        if (constrained) {
+            QCOMPARE(view.selectionAspectRatio(),QSize(16,9));
+            QVERIFY(qAbs(qint64(selected.width())*9-qint64(selected.height())*16)<=16);
+        }
+        QCOMPARE(view.image(), source);
+    }
+    void backgroundOnlySelectionStaysEmpty() {
+        ix::ImageView view; view.resize(800,600);
+        const auto source=pattern(240,160); view.setImage(source); view.setZoom(1);
+        view.show(); QTest::qWait(20);
+        auto *surface=view.viewport();
+        for (const auto end : {QPoint(100,100), QPoint(100,450)}) {
+            view.setSelection({20,20,60,40});
+            QTest::mousePress(surface,Qt::LeftButton,Qt::NoModifier,{20,20});
+            QTest::mouseMove(surface,end);
+            QTest::mouseRelease(surface,Qt::LeftButton,Qt::NoModifier,end);
+            QVERIFY(view.selection().isEmpty());
+        }
+        view.setSelectionAspectRatio({16,9});
+        QTest::mouseClick(surface,Qt::LeftButton,Qt::NoModifier,{20,20});
+        QVERIFY(view.selection().isEmpty());
+        QVERIFY(!view.selectionAspectRatio().isValid());
+        QCOMPARE(view.image(),source);
     }
     void selectionMagnifierMouseFlow() {
         ix::ImageView view;

@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.5.0 · Stand: 29.10.2026**
+**Version 0.5.0 · Stand: 31.10.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -17,6 +17,37 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Alle 35 Aussagen der externen Kritik gegen Code und Prüfbelege abgeglichen.
+  100 MiB Pixel über die Hauptfensterpipeline geladen, freigestellt und mit Undo
+  wiederhergestellt; 96 MiB begrenzen nur die zusätzliche Cacheaufnahme.
+  Veraltete Batch-Sicherungsversprechen in fünf Sprachen entfernt.
+  [Befunde, Prioritäten und offene Grenzen](docs/EXTERNAL_REVIEW_2026-10-31.md).
+
+- Öffnen-Filter nutzen Formatmetadaten statt sämtliche Decoder/Encoder zu laden.
+  Die erste Filtervorbereitung sinkt in drei frischen Prozessen im Median von
+  275 auf 75 ms; die fünf geprüften schweren Plugins bleiben dabei ungeladen.
+  Dateidialoge erhalten kurze Filtertexte und ihre Qt-Ausgangsgröße vor dem Anzeigen.
+- Auswahlrahmen können auf dem Bildhintergrund beginnen und liegen am Bildrand
+  an, auch bei festen Seitenverhältnissen. Rückwärtsziehen schließt beide
+  Endpixel ein; reines Hintergrundziehen erzeugt keine Auswahl.
+  465 Qt-Fälle im Build und portablen Paket sowie alle 45 Python-Tests bestehen.
+  [Messung, Tests und offene native Sichtprüfung](docs/OPEN_SELECTION_REVIEW_2026-10-31.md).
+
+- Navigationsprüfung: Öffnen-Aufträge behalten ihren angeforderten Dateipfad über
+  Speicherabfragen hinweg. Navigation ohne tatsächlichen Datei-/Seitenwechsel
+  behält Bearbeitung und Undo und startet keinen unnötigen Ladevorgang.
+  Seitenziele werden vor der Abfrage und nach dem Speichern geprüft.
+  Neun der elf neuen Prüffälle scheiterten vor der Korrektur; jetzt bestehen
+  445 Qt-Fälle im Build und portablen Paket sowie alle 45 Python-Tests.
+  [Befunde und Prüfgrenzen](docs/NAVIGATION_REVIEW_2026-10-30.md).
+
+- Schließen, Escape und „Beenden“ verwerfen ungespeicherte Bearbeitungen
+  standardmäßig wie der Bildwechsel. Die gemeinsame Abfrage lässt sich unter
+  Navigation einschalten; sechs neue Fälle prüfen die drei Schließwege mit und
+  ohne Abfrage, Abbrechen mit erhaltenem Bild-Undo und unveränderte Quelldateien.
+  434 Qt-Fälle bestehen im Build und portablen Paket; alle 45 Python-Tests sowie
+  die gezielten nativen Schließ-/Navigationsprüfungen bestehen ebenfalls.
 
 - Die Bildfläche bleibt im Fenster und nach Vollbildwechseln rahmenlos;
   der Trennstrich über den Bildinformationen bleibt erhalten.

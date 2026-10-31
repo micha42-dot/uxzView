@@ -21,7 +21,8 @@ NATIVE_GROUPS = {
         fileOpenDuringSaveIsDeferredUntilTransactionEnds keyboardFolderNavigation
         duplicateResultOpensWithoutManualDialogClosing fullscreenCloseKeepsWindowFitPreference
         saveReadOnlyFormatOffersSaveAs uppercaseJpegSaveRetainsLosslessCommands watermarkConvertsTaggedColorSpace
-        fittedImageHasNoPhantomScrollbarsAndWheelNavigates imageChangesDiscardEditsByDefaultButClosingStillAsks
+        fittedImageHasNoPhantomScrollbarsAndWheelNavigates imageChangesAndClosingDiscardEditsByDefault
+        editedClosingFollowsSavePreference
         imageChangeSaveQuestionCanBeEnabled aspectRatioCropMenuAppliesAndUndoes fullscreenMouseNavigationAndDrags
         neighborPreviewsReuseWidgetsAndRefreshChangedFiles'''.split(),
     'native-toolbar-test-results': '''optionalWidgetsAndNeighborNavigation outlineIconsAndZoomSemantics

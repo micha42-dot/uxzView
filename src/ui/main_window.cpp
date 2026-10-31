@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "main_window.h"
+#include "image_file_dialog.h"
 #include "view_fit_options.h"
 #include "extension_dialog.h"
 #include "action_search.h"
@@ -821,7 +822,8 @@ void MainWindow::beginWork(std::function<WorkResult()> fn, WorkMode mode) {
         }
     }));
 }
-void MainWindow::openPath(const QString &path, int pageIndex, bool checkChanges) {
+void MainWindow::openPath(QString path, int pageIndex, bool checkChanges) {
+    // Keep the requested name alive across dialogs and directory-index updates.
     if (path.isEmpty())
         return;
     // A new explicit choice supersedes queued steps from the previous folder.
@@ -837,7 +839,7 @@ void MainWindow::openPath(const QString &path, int pageIndex, bool checkChanges)
     // the image the user has just chosen while the window was already idle.
     deferredOpenTimer_.stop();
     deferredOpen_.reset();
-    if (checkChanges && !confirmDiscard(true))
+    if (checkChanges && !confirmDiscard(DiscardPolicy::UsePreference))
         return;
     animationTimer_.stop();
     if (path != document_.path) {
@@ -981,16 +983,19 @@ void MainWindow::navigate(int direction) {
     int index = fileIndex_ + direction;
     if (QSettings().value(QStringLiteral("navigation/wrap"), true).toBool())
         index = (index % files_.size() + files_.size()) % files_.size();
-    if (index >= 0 && index < files_.size())
+    if (index >= 0 && index < files_.size() && files_.at(index) != document_.path)
         openPath(files_.at(index));
 }
 void MainWindow::page(int direction) {
     if (activity_.busy() || QApplication::activeModalWidget())
         return;
-    if (document_.modified && !confirmDiscard(true))
+    const int index = document_.page + direction;
+    if (index < 0 || index >= document_.pageCount || index == document_.page)
         return;
-    int index = document_.page + direction;
-    if (index >= 0 && index < document_.pageCount)
+    if (document_.modified && !confirmDiscard(DiscardPolicy::UsePreference))
+        return;
+    // Saving can collapse a multi-page document into a single output page.
+    if (index < document_.pageCount && index != document_.page)
         openPath(document_.path, index, false);
 }
 void MainWindow::restoreHistory(bool redo) {
@@ -1383,8 +1388,7 @@ void MainWindow::startSlideshow(bool dialog) {
     }
     if (dialog) {
         if (document_.empty()) {
-            auto p = QFileDialog::getOpenFileName(this, IX_TEXT("Slideshow – erstes Bild"), {},
-                                                  registry_.openFilter());
+            auto p = openImageFile(this, IX_TEXT("Slideshow – erstes Bild"), {}, registry_);
             if (p.isEmpty())
                 return;
             openPath(p);
@@ -1415,9 +1419,8 @@ void MainWindow::dispatch(const QString &cmd) {
     if (activity_.busy() || QApplication::activeModalWidget())
         return;
     if (cmd == QStringLiteral("open")) {
-        auto p = QFileDialog::getOpenFileName(this, IX_TEXT("Öffnen"),
-                                              QSettings().value(QStringLiteral("files/directory")).toString(),
-                                              registry_.openFilter());
+        auto p = openImageFile(this, IX_TEXT("Öffnen"),
+                               QSettings().value(QStringLiteral("files/directory")).toString(), registry_);
         if (!p.isEmpty())
             openPath(p);
         return;
@@ -1680,7 +1683,7 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (cmd == QStringLiteral("firstPage") || cmd == QStringLiteral("lastPage")) {
         if (document_.pageCount > 1)
-            openPath(document_.path, cmd == QStringLiteral("firstPage") ? 0 : document_.pageCount - 1);
+            page((cmd == QStringLiteral("firstPage") ? 0 : document_.pageCount - 1) - document_.page);
         return;
     }
     if (cmd == QStringLiteral("focusZoom")) {
@@ -1979,19 +1982,14 @@ void MainWindow::dispatch(const QString &cmd) {
         histogramDialog(this, document_.pixels);
         return;
     }
-    if (cmd == QStringLiteral("first")) {
-        if (!files_.isEmpty())
-            openPath(files_.constFirst());
-        return;
-    }
-    if (cmd == QStringLiteral("last")) {
-        if (!files_.isEmpty())
-            openPath(files_.constLast());
-        return;
-    }
-    if (cmd == QStringLiteral("random")) {
-        if (!files_.isEmpty())
-            openPath(files_.at(QRandomGenerator::global()->bounded(files_.size())));
+    if (cmd == QStringLiteral("first") || cmd == QStringLiteral("last") || cmd == QStringLiteral("random")) {
+        if (!files_.isEmpty()) {
+            const auto index = cmd == QStringLiteral("first") ? 0
+                : cmd == QStringLiteral("last") ? files_.size() - 1
+                                                : QRandomGenerator::global()->bounded(files_.size());
+            if (files_.at(index) != document_.path)
+                openPath(files_.at(index));
+        }
         return;
     }
     if (cmd == QStringLiteral("zoomIn")) {
@@ -2051,7 +2049,7 @@ void MainWindow::dispatch(const QString &cmd) {
             animationPlaying_ = false;
             return;
         }
-        if (!confirmDiscard(true) || !document_.animated)
+        if (!confirmDiscard(DiscardPolicy::UsePreference) || !document_.animated)
             return;
         animationPlaying_ = true;
         if (animationEnded_) {
@@ -2177,8 +2175,8 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (cmd == QStringLiteral("compare")) {
         QString path =
-            QFileDialog::getOpenFileName(this, IX_TEXT("Bilder vergleichen"),
-                                         QFileInfo(document_.path).absolutePath(), registry_.openFilter());
+            openImageFile(this, IX_TEXT("Bilder vergleichen"),
+                          QFileInfo(document_.path).absolutePath(), registry_);
         if (path.isEmpty())
             return;
         auto *other = new MainWindow;
@@ -2195,7 +2193,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
         e->ignore();
         return;
     }
-    if (!confirmDiscard()) {
+    if (!confirmDiscard(DiscardPolicy::UsePreference)) {
         e->ignore();
         return;
     }

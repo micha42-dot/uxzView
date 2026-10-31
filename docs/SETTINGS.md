@@ -14,7 +14,12 @@
 | Speicherorte | Portabelmodus nach Neustart, Datenordner anzeigen/öffnen, vorhandenes Benutzerprofil auf Wunsch als portable Kopie übernehmen |
 | Leistung | Bild-/Miniaturcachebudget einschließlich Abschalten, eingebettete RAW-Vorschauen, anfängliche Zahl paralleler Batchdateien, Caches leeren |
 
-Beim Bildwechsel werden ungespeicherte Bearbeitungen standardmäßig verworfen. Unter **Navigation → Beim Bildwechsel nachfragen, ob Änderungen gespeichert werden sollen** lässt sich die Abfrage mit Speichern, Verwerfen und Abbrechen einschalten. Die Einstellung gilt auch beim Seitenwechsel in mehrseitigen Bildern. Gespeicherte Originaldateien werden durch das Weiterblättern nicht verändert. Schlägt das Öffnen des nächsten Bildes fehl, bleibt die bisherige Bearbeitung erhalten. Beim Schließen des Fensters wird weiterhin nach ungespeicherten Änderungen gefragt.
+Beim Bildwechsel und Schließen werden ungespeicherte Bearbeitungen standardmäßig ohne Nachfrage verworfen. Unter **Navigation → Beim Bildwechsel und Schließen nach ungespeicherten Änderungen fragen** lässt sich die Abfrage mit Speichern, Verwerfen und Abbrechen einschalten. Die Einstellung gilt auch beim Seitenwechsel in mehrseitigen Bildern und beim Schließen über Escape oder „Beenden“. Escape im Vollbild wechselt weiterhin zunächst zurück ins Fenster; dabei bleiben Bearbeitungen erhalten. Gespeicherte Originaldateien werden durch das Verwerfen nicht verändert. Schlägt das Öffnen des nächsten Bildes fehl, bleibt die bisherige Bearbeitung erhalten.
+
+Wählt ein Navigationsbefehl wieder das bereits angezeigte Bild oder dieselbe
+Seite, bleiben Bearbeitung und Undo erhalten; eine Speicherabfrage entfällt.
+Das gilt auch für einen Ordner mit nur einem Bild und Seitenbefehle am Anfang
+oder Ende einer mehrseitigen Datei. Bewusstes Neuladen bleibt möglich.
 
 Die Modi **An Fenster anpassen** und **Nur große Bilder verkleinern** zeigen das gesamte Bild ohne automatische Scrollleisten. Das Mausrad blättert dann durch die Bilddateien. Bei tatsächlichem Zoom scrollt es weiterhin im Bild; Strg+Mausrad verändert den Zoom.
 
@@ -107,7 +112,8 @@ sich ebenfalls einzelne Formate auswählen; die Detailansicht unterstützt die
 verarbeitet die Dateien im Hintergrund. „Abbrechen“ stoppt zwischen Arbeitsschritten;
 ein bereits laufender Decoder muss zuerst zurückkehren. Bestehende Ziele werden
 standardmäßig übersprungen; freigegebene Ersetzungen werden atomar geschrieben und sind danach nicht mehr
-über eine Dateihistorie rückgängig machbar.
+über eine Dateihistorie rückgängig machbar. „Vorhandene Dateien ersetzen“ legt
+keine private Sicherung an; der atomare Einzeldateiersatz ist kein Backup.
 
 Das Ergebnis nennt erfolgreiche und fehlgeschlagene Dateien sowie tatsächliche
 Größen vor/nach der Konvertierung und die prozentuale Änderung. Die Größensumme

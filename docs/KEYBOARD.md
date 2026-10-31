@@ -6,11 +6,16 @@ Die Bedienung folgt den erfassten 4.76-Menüs sowie den [offiziellen Tasten- und
 
 ## Rahmen und Lupe
 
-1. Linke Maustaste im Bild drücken, ein Rechteck aufziehen und loslassen.
+1. Linke Maustaste in der Bildfläche drücken, ein Rechteck aufziehen und loslassen.
 2. Über der Markierung erscheint ein selbst gezeichneter Lupenzeiger.
 3. Ein Linksklick innerhalb der Markierung vergrößert diesen Bereich und richtet ihn im Fenster aus. Die Bildpixel werden nicht bearbeitet.
 
 Strg+Linksklick innerhalb der Markierung hebt sie auf. Rechtsziehen innerhalb verschiebt die Markierung; Strg beschränkt die Bewegung auf die Y-Achse, Shift auf X. Rechte oder mittlere Maustaste außerhalb verschiebt ein größeres Bild. Klicks ohne Ziehen erzeugen keine winzige Markierung.
+
+Ein Auswahlrahmen kann auch auf dem Hintergrund außerhalb des Bildes beginnen.
+Sobald er ins Bild reicht, liegt sein Anfang am Bildrand; außerhalb liegende
+Anteile gehören nicht zur Auswahl. Das gilt auch für feste Seitenverhältnisse.
+Ein Ziehen vollständig im Hintergrund erzeugt keinen Rahmen.
 
 Im Vollbild blättert ein **Linksklick zurück**, ein **Rechtsklick weiter**, auch auf dem Hintergrund. Ziehbewegungen markieren oder verschieben weiterhin und blättern nicht. Enter oder Escape verlässt das Vollbild; ein Doppelklick im Fenster öffnet es. Bei einem festen Freistellverhältnis zeichnet Linksziehen einen neuen Rahmen statt die Lupe auszulösen.
 
@@ -34,13 +39,20 @@ Im Vollbild blättert ein **Linksklick zurück**, ein **Rechtsklick weiter**, au
 | Bildansicht | + oder = / - | Vergrößern / verkleinern |
 | Bildansicht | Strg+H | Originalgröße |
 | Bildansicht | Strg+A | Ganzes Bild markieren / Markierung aufheben |
-| Hauptfenster | Enter / Escape | Vollbild umschalten / Vollbild verlassen |
+| Hauptfenster | Enter | Vollbild umschalten |
+| Vollbild | Escape | Vollbild verlassen |
+| Fenstermodus | Escape | Diashow beenden, sonst Fenster schließen |
 | Hauptfenster | F1 / A | Tastaturhilfe / Über üxzView |
 | Sichtbare Toolbar | Shift+T | Zoomfeld auswählen |
 | Zoomfeld | Enter / Escape | Eingabe übernehmen / verwerfen und zur Bildansicht zurückkehren |
 | Geöffnete Datei | Shift+P / Strg+N | Dateipfad kopieren / Datei in weiterem Fenster öffnen |
 
 F6 ergänzt F2 (Umbenennen), U ergänzt F5 (Aktualisieren), Strg+Einfg ergänzt Strg+C und Shift+Einfg ergänzt Strg+V. Die sonstigen Menü-Kürzel, etwa Strg+R, L/R, H/V, Strg+Z/Strg+J und Strg+Y, bleiben erhalten. Standard-Textbearbeitung in Eingabefeldern hat ihren eigenen Kontext.
+
+Beim Bildwechsel und Schließen werden ungespeicherte Bearbeitungen standardmäßig
+verworfen. Die gemeinsame Speicherabfrage lässt sich unter
+[Einstellungen → Navigation](SETTINGS.md) einschalten. Das reine Verlassen des
+Vollbilds verändert Bearbeitungen nicht.
 
 ## Noch offen
 

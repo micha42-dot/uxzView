@@ -34,6 +34,12 @@ transitions must not restore a sunken Qt panel. The separate 1-pixel top border
 of the status bar remains the divider above image information, with or without
 the preview strip.
 
+Image-opening dialogs use `image_file_dialog.*`. Set options, directory, filters
+and fallback size before showing them. Hide wildcard details from the filter
+labels while retaining the actual filtering patterns. Keep native dialogs
+available; their geometry belongs to the OS. Do not preload codecs just to show
+the file chooser.
+
 Use `dialog_layout.h`: 16 logical pixels outside, 12 between sections, 16 between
 form columns and 8 between form rows. Use layouts instead of fixed coordinates.
 Resize, color and rotation dialogs place their content in a scroll area and keep

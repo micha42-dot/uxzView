@@ -201,7 +201,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     check(navigation, QStringLiteral("navigation/wrap"),
           IX_TEXT("Nach dem letzten Bild wieder beim ersten beginnen"), true);
     check(navigation, QStringLiteral("navigation/askToSave"),
-          IX_TEXT("Beim Bildwechsel nachfragen, ob Änderungen gespeichert werden sollen"), false);
+          IX_TEXT("Beim Bildwechsel und Schließen nach ungespeicherten Änderungen fragen"), false);
     check(navigation, QStringLiteral("view/lockZoom"), IX_TEXT("Zoomfaktor beim Bildwechsel beibehalten"),
           false);
     check(navigation, QStringLiteral("view/lockScroll"),

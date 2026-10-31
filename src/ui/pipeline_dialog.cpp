@@ -96,7 +96,7 @@ PipelineDialog::PipelineDialog(const QStringList &files, QWidget *parent, QStrin
     grid->addWidget(pattern_, 9, 1);
     grid->addWidget(dialogFieldLabel(IX_TEXT("Parallele Dateien:"), threads_), 9, 2);
     grid->addWidget(threads_, 9, 3);
-    overwrite_ = new QCheckBox(IX_TEXT("Vorhandene Dateien ersetzen (mit Sicherung)"));
+    overwrite_ = new QCheckBox(IX_TEXT("Vorhandene Dateien ersetzen"));
     overwrite_->setObjectName(QStringLiteral("pipelineOverwrite"));
     loss_ = new QCheckBox(IX_TEXT("Verluste beim Export zulassen"));
     loss_->setObjectName(QStringLiteral("pipelineAllowLoss"));

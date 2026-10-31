@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
+#include "animation_fixture.h"
 #include "core/directory_index_service.h"
 #include "core/batch_pipeline.h"
 #include "core/batch_report.h"
@@ -53,6 +54,213 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void imageOpenDialogIsPreparedBeforeShowing_data() {
+        QTest::addColumn<bool>("accept");
+        QTest::newRow("cancel") << false;
+        QTest::newRow("select") << true;
+    }
+    void imageOpenDialogIsPreparedBeforeShowing() {
+        QFETCH(bool, accept);
+        QSettings settings;
+        const auto previousAsk=settings.value(QStringLiteral("navigation/askToSave"));
+        const bool previousNative=QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        const auto restore=qScopeGuard([&] {
+            settings.setValue(QStringLiteral("navigation/askToSave"),previousAsk);
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,previousNative);
+        });
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,true);
+        settings.setValue(QStringLiteral("navigation/askToSave"),false);
+        const auto first=photo(QStringLiteral("prepared-picker/first.png"),Qt::red);
+        const auto second=photo(QStringLiteral("prepared-picker/second.png"),Qt::green);
+        QVERIFY(!first.isEmpty() && !second.isEmpty());
+        ix::MainWindow window; window.show(); window.openPath(first);
+        QTRY_VERIFY(!window.isBusy() && window.document().path==first);
+        window.dispatch(QStringLiteral("grayscale"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        const auto edited=window.document().pixels;
+        struct Probe final : QObject {
+            QSize firstSize;
+            QPointer<QFileDialog> dialog;
+            int visibleResizes=0;
+            bool eventFilter(QObject *object,QEvent *event) override {
+                auto *picker=qobject_cast<QFileDialog *>(object);
+                if (!picker || picker->objectName()!=QStringLiteral("imageOpenDialog")) return false;
+                if (event->type()==QEvent::Show) { dialog=picker; firstSize=picker->size(); }
+                if (event->type()==QEvent::Resize && dialog==picker) ++visibleResizes;
+                return false;
+            }
+        } probe;
+        qApp->installEventFilter(&probe);
+        const auto remove=qScopeGuard([&] { qApp->removeEventFilter(&probe); });
+        bool handled=false, hiddenDetails=false, genericIcons=false, nativeAllowed=false;
+        bool rightDirectory=false, compactLabel=false;
+        QSize shownSize;
+        QTimer timer;
+        connect(&timer,&QTimer::timeout,&window,[&] {
+            auto *picker=qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+            if (!picker || handled) return;
+            handled=true;
+            shownSize=picker->size();
+            hiddenDetails=picker->testOption(QFileDialog::HideNameFilterDetails);
+            genericIcons=picker->testOption(QFileDialog::DontUseCustomDirectoryIcons);
+            nativeAllowed=!picker->testOption(QFileDialog::DontUseNativeDialog);
+            rightDirectory=picker->directory().absolutePath()==QFileInfo(second).absolutePath();
+            if (auto *types=picker->findChild<QComboBox *>(QStringLiteral("fileTypeCombo")))
+                compactLabel=types->count()>1 && !types->itemText(0).contains(QLatin1Char('*'));
+            if (accept) picker->selectFile(second);
+            QTimer::singleShot(40,picker,[picker,accept] {
+                if (accept) QMetaObject::invokeMethod(picker,"accept",Qt::DirectConnection); else picker->reject();
+            });
+        });
+        timer.start(10);
+        window.dispatch(QStringLiteral("open"));
+        timer.stop();
+        QVERIFY(handled && hiddenDetails && genericIcons && nativeAllowed && rightDirectory && compactLabel);
+        QVERIFY(probe.firstSize.isValid());
+        QCOMPARE(probe.firstSize,shownSize);
+        QCOMPARE(probe.visibleResizes,0);
+        QVERIFY(shownSize.width()<=800 && shownSize.height()<=520);
+        QTRY_VERIFY(!window.isBusy());
+        QCOMPARE(window.document().path,accept ? second : first);
+        if (accept) { QVERIFY(!window.document().modified); QCOMPARE(window.document().pixels.pixelColor(0,0),QColor(Qt::green)); }
+        else { QVERIFY(window.document().modified); QCOMPARE(window.document().pixels,edited); }
+    }
+    void openRequestOwnsPathAcrossQuestion() {
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("navigation/askToSave"));
+        const auto restore = qScopeGuard([&] { settings.setValue(QStringLiteral("navigation/askToSave"), previous); });
+        settings.setValue(QStringLiteral("navigation/askToSave"), true);
+        const auto first = photo(QStringLiteral("owned-open/first.png"), Qt::red);
+        const auto second = photo(QStringLiteral("owned-open/second.png"), Qt::green);
+        const auto third = photo(QStringLiteral("owned-open/third.png"), Qt::blue);
+        QVERIFY(!first.isEmpty() && !second.isEmpty() && !third.isEmpty());
+        const auto sourceHash = ix::sha256File(first);
+        ix::MainWindow window;
+        window.show(); window.openPath(first);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == first);
+        window.dispatch(QStringLiteral("grayscale"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        QString requested = second;
+        int questions = 0;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                ++questions;
+                // A caller's selection can change during a modal event loop.
+                requested = third;
+                if (auto *discard = message->button(QMessageBox::Discard)) discard->click();
+                else message->reject();
+            }
+        });
+        timer.start(10);
+        window.openPath(requested);
+        timer.stop();
+        QTRY_VERIFY(!window.isBusy());
+        QCOMPARE(questions, 1);
+        QCOMPARE(requested, third);
+        QCOMPARE(window.document().path, second);
+        QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::green));
+        QCOMPARE(ix::sha256File(first), sourceHash);
+    }
+    void noOpFileNavigationPreservesEdits_data() {
+        QTest::addColumn<bool>("ask");
+        QTest::newRow("discard") << false;
+        QTest::newRow("ask") << true;
+    }
+    void noOpFileNavigationPreservesEdits() {
+        QFETCH(bool, ask);
+        QSettings settings;
+        const auto oldAsk = settings.value(QStringLiteral("navigation/askToSave"));
+        const auto oldWrap = settings.value(QStringLiteral("navigation/wrap"));
+        const auto restore = qScopeGuard([&] {
+            settings.setValue(QStringLiteral("navigation/askToSave"), oldAsk);
+            settings.setValue(QStringLiteral("navigation/wrap"), oldWrap);
+        });
+        settings.setValue(QStringLiteral("navigation/askToSave"), ask);
+        settings.setValue(QStringLiteral("navigation/wrap"), true);
+        const auto path = photo(QStringLiteral("no-op-file-%1/only.png").arg(int(ask)), Qt::red);
+        QVERIFY(!path.isEmpty());
+        const auto sourceHash = ix::sha256File(path);
+        ix::MainWindow window;
+        auto *service = window.findChild<ix::DirectoryIndexService *>(); QVERIFY(service);
+        QSignalSpy ready(service, &ix::DirectoryIndexService::ready);
+        window.show(); window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        window.dispatch(QStringLiteral("grayscale"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        const auto edited = window.document().pixels;
+        auto *view = window.findChild<ix::ImageView *>(); QVERIFY(view);
+        const auto displayKey = view->image().cacheKey();
+        int questions = 0;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                ++questions;
+                if (auto *discard = message->button(QMessageBox::Discard)) discard->click();
+                else message->reject();
+            }
+        });
+        timer.start(10);
+        for (const auto *command : {"next", "previous", "first", "last", "random"}) {
+            window.dispatch(QString::fromLatin1(command));
+            QTRY_VERIFY(!window.isBusy());
+            QCOMPARE(questions, 0);
+            QVERIFY(window.document().modified);
+            QCOMPARE(window.document().pixels, edited);
+            QCOMPARE(view->image().cacheKey(), displayKey);
+            QVERIFY(window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
+        }
+        QCOMPARE(ix::sha256File(path), sourceHash);
+    }
+    void noOpPageNavigationPreservesEdits_data() {
+        QTest::addColumn<bool>("ask"); QTest::addColumn<int>("edge");
+        for (bool ask : {false, true}) for (int edge = 0; edge < 4; ++edge)
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(ask ? QStringLiteral("ask") : QStringLiteral("discard")).arg(edge)))
+                << ask << edge;
+    }
+    void noOpPageNavigationPreservesEdits() {
+        QFETCH(bool, ask); QFETCH(int, edge);
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("navigation/askToSave"));
+        const auto restore = qScopeGuard([&] { settings.setValue(QStringLiteral("navigation/askToSave"), previous); });
+        settings.setValue(QStringLiteral("navigation/askToSave"), ask);
+        const auto path = temporary_.filePath(QStringLiteral("no-op-page-%1-%2.png").arg(int(ask)).arg(edge));
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+        const auto fixture = ix::test::apngFixture(2, {16, 8}, 60000);
+        QCOMPARE(file.write(fixture), qint64(fixture.size())); file.close();
+        const auto sourceHash = ix::sha256File(path);
+        const int page = edge % 2;
+        ix::MainWindow window;
+        window.show(); window.openPath(path, page);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        QCOMPARE(window.document().pageCount, 2);
+        window.dispatch(QStringLiteral("grayscale"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        const auto edited = window.document().pixels;
+        auto *view = window.findChild<ix::ImageView *>(); QVERIFY(view);
+        const auto displayKey = view->image().cacheKey();
+        int questions = 0;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                ++questions;
+                if (auto *discard = message->button(QMessageBox::Discard)) discard->click();
+                else message->reject();
+            }
+        });
+        timer.start(10);
+        if (edge < 2)
+            QTest::keyClick(view, page == 0 ? Qt::Key_PageUp : Qt::Key_PageDown, Qt::ControlModifier);
+        else window.dispatch(page == 0 ? QStringLiteral("firstPage") : QStringLiteral("lastPage"));
+        QTRY_VERIFY(!window.isBusy());
+        QCOMPARE(questions, 0);
+        QCOMPARE(window.document().page, page);
+        QVERIFY(window.document().modified);
+        QCOMPARE(window.document().pixels, edited);
+        QCOMPARE(view->image().cacheKey(), displayKey);
+        QVERIFY(window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
+        QCOMPARE(ix::sha256File(path), sourceHash);
+    }
     void menuCheckmarksMatchForExclusiveAndIndependentChoices_data() {
         QTest::addColumn<QString>("theme");
         QTest::newRow("light") << QStringLiteral("light");

@@ -36,9 +36,25 @@ does it scan the bounded 256 KiB header for conservative EXIF/IPTC/XMP export
 warnings. Keep that fallback for unsupported formats and builds without Exiv2;
 parser warnings are independent of whether an export-loss warning is required.
 
+`CodecRegistry::openFilter` uses readable extension keys, with normalized groups
+for aliases, instead of full decoder/encoder capabilities. Qt's extension source
+reads plugin metadata without mapping codec libraries. Keep full capability
+discovery for operations that need it, such as export formats and format details.
+`ui/image_file_dialog.*` configures image-opening dialogs before `exec`: concise
+filter labels, generic directory icons and a bounded initial widget size. Native
+dialog availability remains controlled by Qt and the platform.
+
 `MainWindow` currently coordinates the active document, commands, history and asynchronous completion. `DocumentActivity` is the single GUI-thread gate for loading/editing, saving, file transactions and delayed capture. Saving and file operations hold it across nested dialog event loops. Mutating commands must acquire the appropriate phase; queued opens/navigation run after the transaction finishes. `WorkMode` tells completion how to install a result and update history. Changing it while its worker runs is unsafe.
 
 The load service reads no settings and installs no document. Its optional preview callback runs only after a full-image cache miss, outside the cache lock, on the calling worker; GUI consumers queue it and check their generation/lifetime. Color management and display sharpening affect only the returned display image.
+
+`MainWindow::openPath` takes its path by value. Modal save questions process
+events; directory snapshots or caller selections may change before loading
+starts. Keep an owned, implicitly shared QString across that boundary, not a
+reference into a widget or folder list. Navigation checks whether its target
+actually differs before asking about edits. Page navigation revalidates its
+target after saving, since export can collapse a document to one page. Explicit
+reloads and animation use the load path without the navigation no-op guards.
 
 Pixel history belongs to the GUI-thread value owner `core/document_history.*`.
 MainWindow copies a target before preparing its display in a worker, then commits
@@ -135,7 +151,9 @@ Document/thumbnail insertion costs include comments, text, ICC bytes and native
 metadata estimates in addition to pixels. `Metadata::nativeBytes` is collected
 with tags, including available EXIF data areas; it is a bounded estimate, not
 serialized profile state. Charges can overcount shared buffers. The 96 MiB
-original-pixel ceiling still applies, while total entry cost uses the selected
+original-pixel cache-admission ceiling still applies; it is not an image loading
+or editing limit. The [external review](EXTERNAL_REVIEW_2026-10-31.md) records a
+100 MiB load/crop/Undo proof. Total entry cost uses the selected
 budget. Disabled caches skip cost preparation. Cost arithmetic rejects entries
 beyond the maximum supported budget rather than wrapping/saturating into it.
 

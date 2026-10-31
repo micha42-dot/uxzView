@@ -14,6 +14,7 @@
 #include <QPainter>
 #include <QSaveFile>
 #include <QSet>
+#include <QMap>
 #include <mutex>
 namespace ix {
 bool isRawFormat(const QByteArray &format) {
@@ -342,16 +343,18 @@ QStringList CodecRegistry::extensions() const {
 }
 QString CodecRegistry::openFilter() const {
     QStringList patterns;
-    for (const auto &e : extensions())
-        patterns << QStringLiteral("*.%1").arg(e);
-    QStringList filters{QStringLiteral("Bilddateien (%1)").arg(patterns.join(QLatin1Char(' ')))};
-    for (const auto &cap : capabilities()) {
-        if (!cap.read) continue;
-        QStringList extensions;
-        for (const auto &extension : cap.extensions) extensions << QStringLiteral("*.%1").arg(extension);
-        filters << QStringLiteral("%1 (%2)").arg(cap.name, extensions.join(QLatin1Char(' ')));
+    QMap<QString, QStringList> groups;
+    // Opening needs reader keys, not full reader/writer discovery, which maps
+    // optional decoder libraries into the process before the chooser is shown.
+    for (const auto &extension : extensions()) {
+        const auto pattern = QStringLiteral("*.%1").arg(extension);
+        patterns.append(pattern);
+        groups[QString::fromLatin1(normalized(extension.toLatin1())).toUpper()].append(pattern);
     }
-    filters << QStringLiteral("Alle Dateien (*)");
+    QStringList filters{IX_TEXT("Bilddateien") + QStringLiteral(" (%1)").arg(patterns.join(QLatin1Char(' ')))};
+    for (auto group = groups.cbegin(); group != groups.cend(); ++group)
+        filters.append(QStringLiteral("%1 (%2)").arg(group.key(), group.value().join(QLatin1Char(' '))));
+    filters.append(IX_TEXT("Alle Dateien") + QStringLiteral(" (*)"));
     return filters.join(QStringLiteral(";;"));
 }
 QString CodecRegistry::saveFilter() const {

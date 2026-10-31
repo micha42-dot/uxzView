@@ -33,7 +33,7 @@ if(TARGET IxView::Exiv2)
     target_compile_definitions(ixcore PRIVATE IX_HAVE_EXIV2)
 endif()
 add_library(ixui STATIC src/ui/appearance.cpp src/ui/interface_language.cpp src/ui/image_view.cpp src/ui/fullscreen_info.cpp src/ui/resize_dialog.cpp src/ui/dialogs.cpp
-    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/pipeline_step_editor.cpp src/ui/pipeline_result_model.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
+    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/image_file_dialog.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/pipeline_step_editor.cpp src/ui/pipeline_result_model.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
 target_link_libraries(ixui PUBLIC ixcore Qt6::Widgets Qt6::PrintSupport Qt6::Svg)
 target_compile_definitions(ixui PUBLIC QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII)
 qt_add_executable(IxView WIN32 MACOSX_BUNDLE src/main.cpp resources/app.qrc)

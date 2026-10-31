@@ -4,6 +4,22 @@
 
 ## 0.5.0
 
+- Remove obsolete batch labels promising replacement backups after file history
+  removal; use plain Replace captions in all five languages. Clarify the cache
+  admission threshold and add a reproducible 100 MiB load/crop/Undo benchmark.
+- Build image-opening filters from reader extension metadata without discovering
+  every decoder/encoder. Prepare concise filter labels and fallback geometry
+  before showing the chooser; retain native dialogs where available.
+- Allow selections to start on the image background and clip them to image
+  edges, including aspect ratios. Keep reverse-drag endpoints pixel-inclusive;
+  background-only drags create no selection.
+- Own open-request paths across modal save questions so caller/directory changes
+  cannot redirect an in-progress request. Preserve edits and Undo when navigation
+  selects the current file/page; check page bounds before asking to save and
+  revalidate after saving. Avoid needless reloads for these navigation commands.
+- Discard unsaved edits on closing by default, including Escape and Exit.
+  The existing optional save question now covers both image changes and closing;
+  update its caption in all five languages.
 - Keep the image canvas frameless in window and fullscreen modes, including
   fullscreen return. Retain the separator above image information.
 - Compact Settings into nine stable categories, place previews in a frameless Display section,

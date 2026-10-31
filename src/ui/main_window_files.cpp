@@ -23,9 +23,10 @@ void applySource(ImageDocument &document, const SourceFileState &source) {
     document.fileBytes = source.bytes;
 }
 } // namespace
-bool MainWindow::confirmDiscard(bool changingImage) {
+bool MainWindow::confirmDiscard(DiscardPolicy policy) {
     if (!document_.modified ||
-        (changingImage && !QSettings().value(QStringLiteral("navigation/askToSave"), false).toBool()))
+        (policy == DiscardPolicy::UsePreference &&
+         !QSettings().value(QStringLiteral("navigation/askToSave"), false).toBool()))
         return true;
     slideshow_.stop();
     stopAnimation();

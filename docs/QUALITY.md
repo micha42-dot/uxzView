@@ -1,8 +1,24 @@
 # Quality checks
 
-üxzView 0.5.0 has eight Qt test suites. On Windows 11, the development build and portable runtime each pass **428 Qt cases: 167 functional, 115 workflow, 43 quality, 12 storage, 21 file-operation, 17 extension, 15 maintenance and 38 UI quality cases, with no skips**. All 45 Python tests and 33 validator blocks pass, including native Windows widgets at 100/125/150/200 percent scaling. Ten added cases traverse the compact Settings pages in five languages and two themes. These counts include Qt setup/cleanup checks and data-driven cases; they are not a count of independent features. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md) for layout decisions and final frameless verification. The [0.5.0 review](REVIEW_0.5.0.md) records removal of disk history, the follow-up rename/annotation/Undo corrections, retained atomic Save guards and the isolated rename measurement. It also records the initial native wheel-fixture failure and its event-scoped assertion. The earlier [UI/UX review](UI_UX_REVIEW_2026-10-29.md) and [architecture/resource audit](ARCHITECTURE_REVIEW_2026-10-28.md) retain their historical measurements and platform limits.
+The [external review cross-check](EXTERNAL_REVIEW_2026-10-31.md) evaluates all
+35 supplied assertions and records a generated 100 MiB decoded-image load,
+crop and pixel-Undo proof with an unchanged source hash. The full core and
+portable checks pass after removing obsolete batch backup promises; no new
+native cross-platform, HDR or peak-process-memory coverage is implied.
 
-Current evidence: `build/menu-settings-build.log`, `menu-settings-validation.log`, `menu-settings-frameless-validation.log`, `menu-settings-frameless-scale-*.txt` and `menu-settings-portable.log`. The full validator report is `build/menu-settings-validation-summary.json`; the final frameless adjustment reruns the core checks and native UI suite at all four scales. See the [memory review](MEMORY_REVIEW_2026-10-29.md) for the preceding failing-before ownership regression and cache lookup tradeoff. The compiler reports no warnings. Portable verification
+üxzView 0.5.0 has eight Qt test suites. On Windows 11, the development build and portable runtime each pass **465 Qt cases: 191 functional, 128 workflow, 43 quality, 12 storage, 21 file-operation, 17 extension, 15 maintenance and 38 UI quality cases, with no skips**. All 45 Python tests pass. The preceding complete audit passed 33 validator blocks, including native Windows widgets at 100/125/150/200 percent scaling. Ten added cases traverse the compact Settings pages in five languages and two themes. These counts include Qt setup/cleanup checks and data-driven cases; they are not a count of independent features. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md) for layout decisions and final frameless verification. The [0.5.0 review](REVIEW_0.5.0.md) records removal of disk history, the follow-up rename/annotation/Undo corrections, retained atomic Save guards and the isolated rename measurement. It also records the initial native wheel-fixture failure and its event-scoped assertion. The earlier [UI/UX review](UI_UX_REVIEW_2026-10-29.md) and [architecture/resource audit](ARCHITECTURE_REVIEW_2026-10-28.md) retain their historical measurements and platform limits.
+
+The 31 October opening/selection pass adds eighteen functional and two workflow
+cases. The full core checks and targeted native Windows widget checks pass.
+The fallback picker has a stable first-show size in selection/Cancel flows;
+these checks deliberately force the Qt fallback and do not establish native
+Shell presentation. Live Computer Use returned access denied, leaving the native
+small-to-large transition visually unverified. The measured opening-filter
+improvement and the exact selection-edge regressions are recorded in the
+[opening/selection review](OPEN_SELECTION_REVIEW_2026-10-31.md).
+Evidence: `build/open-selection-*`, `open-dialog-*` and `open-filter-*`.
+
+Menu/settings evidence: `build/menu-settings-build.log`, `menu-settings-validation.log`, `menu-settings-frameless-validation.log`, `menu-settings-frameless-scale-*.txt` and `menu-settings-portable.log`. The full validator report is `build/menu-settings-validation-summary.json`; the final frameless adjustment reruns the core checks and native UI suite at all four scales. See the [memory review](MEMORY_REVIEW_2026-10-29.md) for the preceding failing-before ownership regression and cache lookup tradeoff. The compiler reports no warnings. Portable verification
 also runs QR recognition, all five OCR languages and relocated-profile startup
 without SDK paths. Deployment resolves all imports across 136 PE modules;
 packaging separately verifies source selection, runtime/source consistency and
@@ -21,6 +37,16 @@ image fitting at four native Windows scales. The restored-window capture
 `tests/output/fullscreen-restored-fit.png` shows the frameless sides and retained
 status divider. The 45 Python tests and full 33-block matrix above belong to the
 preceding menu/settings audit; this small canvas adjustment does not rerun them.
+
+The closing follow-up adds six functional cases for Close, Escape and the Exit
+action with the save question disabled/enabled. Cancel retains edited pixels and
+Undo; accepting Discard leaves source-file hashes unchanged. Closing and image
+navigation share the existing opt-in preference. Other explicit image-replacement
+operations retain their separate confirmation policy. Evidence:
+`build/close-discard-build.log`, `close-discard-validation-summary.json`,
+`close-discard-native.txt` and `close-discard-portable.log`. The complete core
+validation and targeted native Windows close/navigation/focus checks are rerun;
+the full 33-block DPI matrix above remains the preceding menu/settings result.
 
 The maintenance suite isolates consumed-result pixel ownership, destruction while
 image work is queued, history precision/selection/source reconciliation, combined
@@ -73,6 +99,15 @@ Settings checks exercise numeric aspect-ratio rows, the 32-row limit, row remova
 Selection repaint checks compare complete before/after pixels with actual damaged regions at fractional zoom, including clipped/tiny frames, removal and 8-/16-bit sources. Metadata range reads cover read-only Unicode JPEGs with trailing data and PNGs across the 64-KiB buffer boundary; EXIF, IPTC and XMP remain readable. The Exiv2 0.27 compatibility path and other desktop operating systems have not been newly tested here.
 
 Windows extension tests also force a directory sharing lock during publication of prepared data. They check recovery after release, bounded failure for a retained lock, cancellation and preservation of an occupied destination. Normal successful commits do not wait; only failed Windows renames retry, for at most 200 ms.
+
+The 30 October navigation review adds eleven workflow cases. Nine exposed
+failures before correction; all pass afterward. Owned open-request paths survive
+modal questions, and navigation without a target change retains edits/display
+pixels and Undo. Current evidence is `build/navigation-review-*`; the complete
+core run and targeted native Windows run pass. The initial unrelated save-revision
+access-denied result, its three successful unchanged isolated checks and the
+subsequent successful full run are retained. See the
+[navigation review](NAVIGATION_REVIEW_2026-10-30.md) for exact scope and limits.
 
 ## PSD coverage
 
