@@ -18,6 +18,14 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Ordnerfilter prüfen einfache Formatendungen direkt, statt jeden Dateinamen
+  gegen die gesamte Musterliste zu prüfen. Sonderfälle behalten Qt-Matching;
+  Sortierung und Änderungsprüfungen bleiben erhalten. Acht neue Datenfälle
+  sichern die Filterkompatibilität; 473 Qt-Fälle und 45 Python-Tests bestehen.
+  Der lokale 10.000-Dateien-Vergleich mit 99 Endungen sinkt von 1.144 auf 65 ms
+  Median für den vollständigen Listenaufbau ohne Suche nach der neuesten Datei.
+  [Vergleich mit 10.000 gemischten Dateien](docs/DIRECTORY_FILTER_REVIEW_2026-10-31.md).
+
 - Alle 35 Aussagen der externen Kritik gegen Code und Prüfbelege abgeglichen.
   100 MiB Pixel über die Hauptfensterpipeline geladen, freigestellt und mit Undo
   wiederhergestellt; 96 MiB begrenzen nur die zusätzliche Cacheaufnahme.

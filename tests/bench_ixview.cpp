@@ -31,6 +31,46 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QJsonObject profileDirectoryFilters() {
+    const auto base=QDir::current().filePath(QStringLiteral("build/audit-fixtures"));
+    if (!QDir().mkpath(base)) return {{QStringLiteral("error"),QStringLiteral("Fixture directory failed")}};
+    QTemporaryDir temporary(base+QStringLiteral("/directory-filters-XXXXXX"));
+    if (!temporary.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary directory failed")}};
+    for (int i=0;i<10000;++i) {
+        const auto suffix=i%4==0 ? QStringLiteral("txt") : i%4==1 ? QStringLiteral("PNG")
+                         : i%4==2 ? QStringLiteral("jpg") : QStringLiteral("svgz");
+        QFile file(temporary.filePath(QStringLiteral("image%1.").arg(i)+suffix));
+        if (!file.open(QIODevice::WriteOnly) || file.write("fixture")!=7)
+            return {{QStringLiteral("error"),QStringLiteral("Fixture write failed")}};
+    }
+    const auto formats=ix::CodecRegistry().extensions();
+    QJsonArray scenarios;
+    for (int scenario=0;scenario<3;++scenario) {
+        const auto extensions=scenario==0 ? QStringList{QStringLiteral("png")} : formats;
+        QJsonArray samples;
+        QString digest;
+        int count=0;
+        for (int sample=0;sample<3;++sample) {
+            QElapsedTimer timer; timer.start();
+            const auto snapshot=ix::scanDirectory(temporary.path(),extensions,0,false,nullptr,scenario==2);
+            samples.append(timer.nsecsElapsed()/1e6);
+            count=snapshot.files.size();
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            for (const auto &path:snapshot.files) {
+                hash.addData(QFileInfo(path).fileName().toUtf8()); hash.addData(QByteArrayView("\n"));
+            }
+            const auto current=QString::fromLatin1(hash.result().toHex());
+            if (!digest.isEmpty() && current!=digest)
+                return {{QStringLiteral("error"),QStringLiteral("Inconsistent scan results")}};
+            digest=current;
+        }
+        scenarios.append(QJsonObject{{QStringLiteral("extensions"),extensions.size()},
+            {QStringLiteral("find_latest"),scenario==2},{QStringLiteral("files"),count},
+            {QStringLiteral("ordered_names_sha256"),digest},{QStringLiteral("ms"),samples}});
+    }
+    return {{QStringLiteral("scenarios"),scenarios},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"),QStringLiteral("10000 tiny mixed files, warm filesystem; complete natural-order scan including position map, excludes fixture generation and image decoding. Same profiler before/after.")}};
+}
 QJsonObject profileCacheAdmission() {
     const auto base=QDir::current().filePath(QStringLiteral("build/audit-fixtures"));
     if (!QDir().mkpath(base)) return {{QStringLiteral("error"),QStringLiteral("Fixture directory failed")}};
@@ -836,6 +876,11 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-directory-filters"))) {
+        const auto result=profileDirectoryFilters();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-cache-admission"))) {
         const auto result=profileCacheAdmission();
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;

@@ -4,6 +4,9 @@
 
 ## 0.5.0
 
+- Filter ordinary image extensions through a per-scan suffix set instead of
+  testing every filename against the entire wildcard list. Preserve Qt matching
+  for nonliteral filters and Unicode suffixes; retain sorting and cancellation.
 - Remove obsolete batch labels promising replacement backups after file history
   removal; use plain Replace captions in all five languages. Clarify the cache
   admission threshold and add a reproducible 100 MiB load/crop/Undo benchmark.

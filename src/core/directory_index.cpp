@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QLocale>
+#include <QSet>
 #include <algorithm>
 #include <limits>
 #include <vector>
@@ -17,9 +18,22 @@ DirectorySnapshot scanDirectory(const QString &path, const QStringList &extensio
     timer.start();
     DirectorySnapshot result;
     result.directory = QDir(path).absolutePath();
+    // Image format keys are literal ASCII suffixes. Testing every filename
+    // against dozens of wildcard patterns dominates otherwise cheap scans.
+    // Retain Qt's matching for empty lists, compound suffixes and patterns.
+    const bool literalSuffixes = !extensions.isEmpty() &&
+        std::all_of(extensions.cbegin(), extensions.cend(), [](const QString &ext) {
+            return !ext.isEmpty() && std::all_of(ext.cbegin(), ext.cend(), [](QChar c) {
+                return c.unicode() < 128 && c.isLetterOrNumber();
+            });
+        });
+    QSet<QString> suffixes;
     QStringList filters;
-    for (const auto &ext : extensions)
-        filters.append(QStringLiteral("*.") + ext);
+    for (const auto &ext : extensions) filters.append(QStringLiteral("*.") + ext);
+    if (literalSuffixes) {
+        suffixes.reserve(extensions.size());
+        for (const auto &ext : extensions) suffixes.insert(ext.toLower());
+    }
     if (cancel && cancel->load())
         return result;
     QLocale locale;
@@ -38,10 +52,23 @@ DirectorySnapshot scanDirectory(const QString &path, const QStringList &extensio
     // Enumerate names/types directly. Probing permissions for every entry can
     // take seconds on Windows; the decoder checks access when a file is opened.
     const auto flags = QDirListing::IteratorFlag::FilesOnly | QDirListing::IteratorFlag::ResolveSymlinks;
-    for (const auto &entry : QDirListing(result.directory, filters, flags)) {
+    for (const auto &entry : QDirListing(result.directory, literalSuffixes ? QStringList{} : filters, flags)) {
         if (cancel && cancel->load())
             return {};
-        const auto name = entry.fileName(), absolute = entry.filePath();
+        const auto name = entry.fileName();
+        if (literalSuffixes) {
+            const auto dot = name.lastIndexOf(QLatin1Char('.'));
+            if (dot < 0) continue;
+            const auto suffix = name.mid(dot + 1);
+            const bool ascii = std::all_of(suffix.cbegin(), suffix.cend(), [](QChar c) {
+                return c.unicode() < 128;
+            });
+            // Qt's case-insensitive patterns also match e.g. long s to ASCII s.
+            // A lowercase-only lookup would silently omit those rare filenames.
+            const bool matches = ascii ? suffixes.contains(suffix.toLower()) : QDir::match(filters, name);
+            if (!matches) continue;
+        }
+        const auto absolute = entry.filePath();
         const auto stamp = (findLatest || sorting == 2) ? entry.fileInfo().lastModified().toMSecsSinceEpoch() : 0;
         if (findLatest && stamp > newest) {
             newest = stamp;

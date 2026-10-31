@@ -239,6 +239,45 @@ class IxTests : public QObject {
         QVERIFY(ix::scanDirectory(folder, {QStringLiteral("png")}, 0, false).files.contains(link));
 #endif
     }
+    void directoryExtensionFiltersMatchQt_data() {
+        QTest::addColumn<QStringList>("extensions");
+        QTest::newRow("simple") << QStringList{QStringLiteral("png"),QStringLiteral("jpg"),QStringLiteral("svgz")};
+        QTest::newRow("mixed-case") << QStringList{QStringLiteral("PNG"),QStringLiteral("JpG"),QStringLiteral("SVGZ")};
+        QTest::newRow("duplicates") << QStringList{QStringLiteral("png"),QStringLiteral("PNG"),QStringLiteral("png")};
+        QTest::newRow("compound") << QStringList{QStringLiteral("tar.gz")};
+        QTest::newRow("wildcard") << QStringList{QStringLiteral("png*")};
+        QTest::newRow("unicode") << QStringList{QString::fromUtf8("\xc3\xa4")};
+        QTest::newRow("empty-extension") << QStringList{QString()};
+        QTest::newRow("empty") << QStringList{};
+    }
+    void directoryExtensionFiltersMatchQt() {
+        QFETCH(QStringList,extensions);
+        const auto folder=dir(QStringLiteral("extension-filter-")+QString::fromLatin1(QTest::currentDataTag()));
+        QVERIFY(QDir().mkpath(folder+QStringLiteral("/directory.png")));
+        const QStringList names{QStringLiteral("image10.PNG"),QStringLiteral("image2.jpg"),
+            QStringLiteral("scan.2026.svgz"),QStringLiteral("archive.tar.gz"),QStringLiteral("almost.apng"),
+            QStringLiteral("png"),QStringLiteral("imagepng"),QStringLiteral("near.pngx"),
+            QStringLiteral("image.txt"),QStringLiteral(".hidden.png"),
+            QString::fromUtf8("unicode.\xc3\xa4"),QString::fromUtf8("long-s.\xc5\xbfvgz")};
+        for (const auto &name:names) {
+            QFile file(folder+QLatin1Char('/')+name);
+            QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write("fixture"),qint64(7));
+        }
+        QStringList patterns;
+        for (const auto &ext:extensions) patterns.append(QStringLiteral("*.")+ext);
+        auto expected=QDir(folder).entryList(patterns,QDir::Files,QDir::NoSort);
+        for (bool latest:{false,true}) {
+            const auto snapshot=ix::scanDirectory(folder,extensions,0,false,nullptr,latest);
+            QStringList actual;
+            for (int i=0;i<snapshot.files.size();++i) {
+                actual.append(QFileInfo(snapshot.files[i]).fileName());
+                QCOMPARE(snapshot.positions.value(snapshot.files[i],-1),i);
+            }
+            actual.sort(); expected.sort(); QCOMPARE(actual,expected);
+            if (latest && !actual.isEmpty()) QVERIFY(snapshot.files.contains(snapshot.latest));
+            else QVERIFY(snapshot.latest.isEmpty());
+        }
+    }
     void neighborPreviewsReuseWidgetsAndRefreshChangedFiles() {
         QSettings settings;
         QVariantMap saved;

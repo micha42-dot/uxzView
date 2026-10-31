@@ -133,6 +133,18 @@ Toolbar artwork lives in `src/ui/icons.cpp`: original 24-unit vectors with round
 - Use `ixview_benchmarks` and [PERFORMANCE.md](PERFORMANCE.md) for speed work. Retain before/after builds, alternate equivalent runs, distinguish cold/warm caches and avoid simultaneous builds/tests. Report regressions too.
 - Keep generated logs/fixtures in `build` or `tests/output`; do not commit private images or profiles.
 
+For directory-filter measurements, use:
+
+```powershell
+./build/ixview_benchmarks.exe build/directory-filters.json --profile-directory-filters -platform offscreen
+```
+
+This creates an isolated 10,000-file mixed-format fixture and measures full
+directory snapshots with one/all extensions and optional newest-file lookup.
+Fixture setup and image decoding are excluded. See the
+[filter review](DIRECTORY_FILTER_REVIEW_2026-10-31.md) for matching-result hashes,
+Qt compatibility checks and the before/after limits.
+
 For image-result lifetime measurements, the maintenance executable supports:
 
 ```powershell

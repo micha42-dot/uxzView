@@ -141,6 +141,14 @@ boundary and shown as errors, never as successful empty runs.
 
 `DirectorySnapshot` carries a shared ordered list and positional lookup. Use const access during navigation to avoid detaching large Qt containers. `DirectoryIndexService` owns one low-priority worker, its cancellation token and at most one pending request. A newer request cancels the active scan and replaces the pending value; cancelled results never reach consumers. Destruction cancels and joins work. Scanners receive values and a token, with no widget/service access; a supplied scanner must observe cancellation and support destruction-time joining. Result consumers may request another scan or destroy the service synchronously. MainWindow retains folder watching, the installed snapshot and navigation decisions.
 
+Directory scans use one per-scan suffix set for literal ASCII format keys,
+avoiding a complete wildcard-list match for every filename. Empty/compound/
+wildcard/Unicode filter forms retain Qt's original iterator filtering. Unicode
+filename suffixes use Qt matching too: lowercase alone does not preserve its
+case rules (for example long s). Keep cancellation checks before filtering and
+attribute reads after acceptance. The [filter review](DIRECTORY_FILTER_REVIEW_2026-10-31.md)
+records Qt-reference tests and complete-scan component measurements.
+
 The optional `ActionSearch` owns a persistent row per command and observes that action’s metadata/lifetime. Typing changes the completion prefix, without rebuilding rows. Empty queries cannot invoke a retained match. A completion consumer may delete the selected action/widget; invocation retains a guarded action and schedules its context timer before notifying consumers.
 
 `PreviewService` separately owns two low-priority workers and a queue that drops obsolete requests before creating futures. On a thumbnail-cache miss, an unchanged, single-page, nonanimated PNG/BMP original at the same source revision can supply pixels through QImage implicit sharing. Borrow under the cache lock, then scale outside it; never use an edited/display image or apply this shortcut indiscriminately to decoder-scaled JPEGs, RAW or animation pages. Cancellation/null checks and a native revision recheck follow scaling too. Do not replace revision checks with timestamp-only assumptions.

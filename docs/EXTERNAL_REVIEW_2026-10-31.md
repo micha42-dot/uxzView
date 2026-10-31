@@ -133,8 +133,8 @@ allein aus dem bestehenden Editor keinen speichersparenden Gigapixel-Editor.
 
 ## Verifikation und Grenzen
 
-Der Entwicklungsbuild und das aktualisierte Windows-Paket bestehen jeweils alle
-**465 Qt-Fälle** der acht Suiten; alle **45 Python-Tests** bestehen ebenfalls.
+Bei dieser Gegenprüfung bestanden Entwicklungsbuild und Windows-Paket jeweils
+alle **465 Qt-Fälle** der acht Suiten und alle **45 Python-Tests**.
 Der neue Großbildnachweis ist ein eigener Benchmarkmodus und erhöht diese
 Fallzahl nicht. Die Portable-Prüfung umfasst außerdem OCR in fünf Sprachen,
 QR-Erkennung und einen verlegten Portabelordner ohne SDK im Suchpfad.

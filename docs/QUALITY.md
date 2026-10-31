@@ -6,7 +6,14 @@ crop and pixel-Undo proof with an unchanged source hash. The full core and
 portable checks pass after removing obsolete batch backup promises; no new
 native cross-platform, HDR or peak-process-memory coverage is implied.
 
-üxzView 0.5.0 has eight Qt test suites. On Windows 11, the development build and portable runtime each pass **465 Qt cases: 191 functional, 128 workflow, 43 quality, 12 storage, 21 file-operation, 17 extension, 15 maintenance and 38 UI quality cases, with no skips**. All 45 Python tests pass. The preceding complete audit passed 33 validator blocks, including native Windows widgets at 100/125/150/200 percent scaling. Ten added cases traverse the compact Settings pages in five languages and two themes. These counts include Qt setup/cleanup checks and data-driven cases; they are not a count of independent features. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md) for layout decisions and final frameless verification. The [0.5.0 review](REVIEW_0.5.0.md) records removal of disk history, the follow-up rename/annotation/Undo corrections, retained atomic Save guards and the isolated rename measurement. It also records the initial native wheel-fixture failure and its event-scoped assertion. The earlier [UI/UX review](UI_UX_REVIEW_2026-10-29.md) and [architecture/resource audit](ARCHITECTURE_REVIEW_2026-10-28.md) retain their historical measurements and platform limits.
+üxzView 0.5.0 has eight Qt test suites. On Windows 11, the development build and portable runtime each pass **473 Qt cases: 199 functional, 128 workflow, 43 quality, 12 storage, 21 file-operation, 17 extension, 15 maintenance and 38 UI quality cases, with no skips**. All 45 Python tests pass. The preceding complete audit passed 33 validator blocks, including native Windows widgets at 100/125/150/200 percent scaling. Ten added cases traverse the compact Settings pages in five languages and two themes. These counts include Qt setup/cleanup checks and data-driven cases; they are not a count of independent features. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md) for layout decisions and final frameless verification. The [0.5.0 review](REVIEW_0.5.0.md) records removal of disk history, the follow-up rename/annotation/Undo corrections, retained atomic Save guards and the isolated rename measurement. It also records the initial native wheel-fixture failure and its event-scoped assertion. The earlier [UI/UX review](UI_UX_REVIEW_2026-10-29.md) and [architecture/resource audit](ARCHITECTURE_REVIEW_2026-10-28.md) retain their historical measurements and platform limits.
+
+Eight added directory-filter cases compare results with Qt, including empty,
+compound, wildcard and Unicode forms. The
+[directory filter review](DIRECTORY_FILTER_REVIEW_2026-10-31.md) records the
+before/after scan measurement and its limits. Current core and portable evidence
+is in `build/directory-filter-validation-summary.json` and
+`build/directory-filter-portable.log`.
 
 The 31 October opening/selection pass adds eighteen functional and two workflow
 cases. The full core checks and targeted native Windows widget checks pass.

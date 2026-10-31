@@ -1,5 +1,13 @@
 # Performance in üxzView
 
+## Directory extension filtering · 31.10.2026
+
+The [directory filter review](DIRECTORY_FILTER_REVIEW_2026-10-31.md) measures
+complete 10,000-file scans with the active format set before and after replacing
+repeated wildcard matching with literal suffix lookup. Special filter forms and
+Unicode suffixes retain Qt matching. This accelerates rebuilding a directory
+snapshot; it is not an image-decoder or whole-application speedup claim.
+
 ## Batch source ownership and cache eviction · 29.10.2026
 
 The [memory follow-up](MEMORY_REVIEW_2026-10-29.md) records a reproduced extra
