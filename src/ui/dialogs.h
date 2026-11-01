@@ -37,5 +37,4 @@ void histogramDialog(QWidget *parent, const QImage &image);
 void formatDialog(QWidget *parent, const CodecRegistry &registry);
 BatchFileChanges batchDialog(QWidget *parent, const QStringList &initial);
 bool settingsDialog(QWidget *parent);
-void thumbnailsDialog(QWidget *parent, const QStringList &files, const std::function<void(QString)> &open);
 } // namespace ix

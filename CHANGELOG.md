@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Load catalog snapshots and perform annotation IO off the GUI thread; retain
+  owned library inputs and process GUI paints/timers while joining worker work.
+  Filter existing extension rows during search, move folder enumeration to a
+  worker, and remove the unused eager thumbnail dialog. Keep extraction/file
+  phases and mandatory shutdown joins intact.
 - Document concurrent worker progress callbacks and verify queued GUI delivery;
   retain the pipeline dialog's guarded, coalesced progress mailbox.
 - Publish POSIX moves without replacing an occupied destination, including

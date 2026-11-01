@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/localization.h"
 #include "core/directory_index.h"
+#include "core/image_catalog.h"
 #include "ui/appearance.h"
 #include "ui/dialogs.h"
 #include "ui/extension_dialog.h"
@@ -9,6 +10,10 @@
 #include "ui/menu_support.h"
 #include "ui/pipeline_dialog.h"
 #include "ui/settings_dialog.h"
+#include "ui/library_dialog.h"
+#include "ui/worker_wait.h"
+#include <QLockFile>
+#include <QSemaphore>
 #include <QAccessible>
 #include <QScopeGuard>
 #include <QtTest>
@@ -53,6 +58,48 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void workerWaitKeepsGuiTimersAlive() {
+        QSemaphore release;
+        QFutureWatcher<int> watcher;
+        bool heartbeat=false;
+        QTimer::singleShot(30,&watcher,[&] { heartbeat=true; release.release(); });
+        watcher.setFuture(QtConcurrent::run([&] { return release.tryAcquire(1,1000) ? 42 : -1; }));
+        ix::waitForGuiWorker(watcher);
+        QVERIFY(heartbeat); QCOMPARE(watcher.future().takeResult(),42);
+    }
+    void catalogAnnotationWaitKeepsGuiResponsive() {
+        const auto prior=qApp->property("ixStorageData");
+        const auto restore=qScopeGuard([&] { qApp->setProperty("ixStorageData",prior); });
+        const auto root=temporary_.filePath(QStringLiteral("catalog-responsive"));
+        QVERIFY(QDir().mkpath(root)); qApp->setProperty("ixStorageData",root);
+        const auto path=temporary_.filePath(QStringLiteral("catalog-responsive.png"));
+        QImage image(8,6,QImage::Format_RGB32); image.fill(Qt::blue); QVERIFY(image.save(path));
+        ix::ImageCatalog catalog; QVERIFY(catalog.setAnnotation(path,1,QStringLiteral("green")).isEmpty());
+        QLockFile lock(root+QStringLiteral("/catalog.json.lock")); QVERIFY(lock.tryLock(0));
+        bool heartbeat=false, inspected=false;
+        QTimer::singleShot(0,this,[&] {
+            auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget()); QVERIFY(dialog);
+            const auto close=qScopeGuard([&] { dialog->reject(); });
+            QTRY_VERIFY_WITH_TIMEOUT(dialog->property("catalogReady").toBool(),10000);
+            auto *list=dialog->findChild<QListWidget *>(QStringLiteral("catalogImages")); QVERIFY(list);
+            QCOMPARE(list->count(),1); list->setCurrentRow(0); list->item(0)->setSelected(true);
+            auto *rating=dialog->findChild<QSpinBox *>(QStringLiteral("catalogRating")); QVERIFY(rating);
+            rating->setValue(4);
+            auto *apply=dialog->findChild<QPushButton *>(QStringLiteral("catalogApply")); QVERIFY(apply);
+            QTimer errors;
+            connect(&errors,&QTimer::timeout,dialog,[] {
+                if (auto *message=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) message->accept();
+            });
+            errors.start(10);
+            QTimer::singleShot(100,dialog,[&] { heartbeat=true; lock.unlock(); });
+            apply->click(); errors.stop();
+            QVERIFY(heartbeat);
+            QCOMPARE(catalog.record(path).value(QStringLiteral("rating")).toInt(),4);
+            inspected=true;
+        });
+        ix::libraryDialog(nullptr,{path},[](QString) {});
+        QVERIFY(inspected);
+    }
     void missingRootMenusHaveStableFallbacks() {
         QMenuBar bar;
         auto *menu = ix::ensureRootMenu(bar, QStringLiteral("ansicht"), QStringLiteral("&Ansicht"));
@@ -169,6 +216,27 @@ class UiQualityTests : public QObject {
             QVERIFY(dialog->rect().contains(QRect(buttons->mapTo(dialog, QPoint()), buttons->size())));
         });
         QCOMPARE(image.cacheKey(), key);
+    }
+    void extensionSearchRetainsRowsAndClearsHiddenSelection() {
+#ifndef IX_TEST_EXTENSION_MANAGER
+        QSKIP("Optional extension-manager module not built");
+#else
+        probe([&] { ix::extensionManagerDialog(nullptr); }, [&](QDialog *dialog) {
+            auto *tabs=dialog->findChild<QTabWidget *>(QStringLiteral("extensionSections")); QVERIFY(tabs);
+            tabs->setCurrentIndex(1);
+            auto *search=dialog->findChild<QLineEdit *>(QStringLiteral("extensionSearch")); QVERIFY(search);
+            auto *table=dialog->findChild<QTableWidget *>(QStringLiteral("functionExtensionTable")); QVERIFY(table);
+            const int count=table->rowCount(); QVERIFY(count>0);
+            auto *first=table->item(0,0); QVERIFY(first); table->setCurrentCell(0,0);
+            search->setText(QStringLiteral("no-such-package-92f65be8"));
+            QCOMPARE(table->rowCount(),count); QCOMPARE(table->item(0,0),first);
+            QVERIFY(table->isRowHidden(0)); QCOMPARE(table->currentRow(),-1);
+            auto *toggle=dialog->findChild<QPushButton *>(QStringLiteral("toggleExtension")); QVERIFY(toggle);
+            QVERIFY(!toggle->isEnabled());
+            search->clear();
+            QCOMPARE(table->item(0,0),first); QVERIFY(!table->isRowHidden(0));
+        });
+#endif
     }
     void extensionActionsFitSmallWindows_data() { variants(); }
     void extensionActionsFitSmallWindows() {

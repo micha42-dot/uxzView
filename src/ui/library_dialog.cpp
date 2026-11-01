@@ -5,6 +5,7 @@
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "icons.h"
+#include "worker_wait.h"
 #include <QScopeGuard>
 #include <QtConcurrent>
 #include <QtWidgets>
@@ -29,7 +30,8 @@ class ViewportObserver final : public QObject {
 
 } // namespace
 
-void libraryDialog(QWidget *parent, const QStringList &files, const std::function<void(QString)> &open) {
+void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std::function<void(QString)> &open) {
+    const auto files = requestedFiles;
     QDialog dialog(parent);
     dialog.setObjectName(QStringLiteral("libraryDialog"));
     dialog.setWindowTitle(IX_TEXT("Bildverwaltung"));
@@ -77,6 +79,8 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
     mark->addItems(markLabels);
     annotation->addWidget(mark);
     auto *save = new QPushButton(IX_TEXT("Auf Auswahl anwenden"));
+    save->setObjectName(QStringLiteral("catalogApply"));
+    rating->setObjectName(QStringLiteral("catalogRating"));
     annotation->addWidget(save);
     annotation->addStretch();
     layout->addLayout(annotation);
@@ -95,7 +99,15 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
     QSet<QString> requested;
     QHash<QString, QListWidgetItem *> items;
     ImageCatalog catalog;
-    auto snapshot = catalog.records();
+    QJsonObject snapshot;
+    QFutureWatcher<QJsonObject> snapshotLoader;
+    bool catalogReady = false, catalogBusy = false;
+    dialog.setProperty("catalogReady", false);
+    const auto enableCatalog = [&](bool enabled) {
+        for (auto *button : {save, index, exact, near}) button->setEnabled(enabled);
+        rating->setEnabled(enabled); mark->setEnabled(enabled);
+    };
+    enableCatalog(false);
     auto requestVisible = [&] {
         const auto viewport = list->viewport()->rect();
         if (viewport.isEmpty())
@@ -212,16 +224,26 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
             std::max(0, int(colors.indexOf(data.value(QStringLiteral("color")).toString()))));
     });
     QObject::connect(save, &QPushButton::clicked, &dialog, [&] {
+        if (!catalogReady || catalogBusy) return;
+        catalogBusy = true;
+        const auto release = qScopeGuard([&] { catalogBusy = false; });
         QStringList paths;
         for (auto *item : list->selectedItems())
             paths.append(item->data(Qt::UserRole).toString());
-        const auto error = catalog.setAnnotations(paths, rating->value(), colors[mark->currentIndex()]);
-        if (!error.isEmpty())
-            QMessageBox::warning(&dialog, IX_TEXT("Bildkatalog"), localized(error));
-        snapshot = catalog.records();
+        const auto result = runGuiWorker([catalog, paths, value = rating->value(),
+                                          colorValue = colors[mark->currentIndex()]]() mutable {
+            const auto error = catalog.setAnnotations(paths, value, colorValue);
+            return std::pair{error, catalog.records()};
+        });
+        if (!result.first.isEmpty())
+            QMessageBox::warning(&dialog, IX_TEXT("Bildkatalog"), localized(result.first));
+        snapshot = result.second;
         reload();
     });
     auto run = [&](int kind) {
+        if (!catalogReady || catalogBusy) return;
+        catalogBusy = true;
+        const auto release = qScopeGuard([&] { catalogBusy = false; });
         QProgressDialog progress(IX_TEXT("Bilder werden untersucht …"), IX_TEXT("Abbrechen"), 0, files.size(),
                                  &dialog);
         progress.setWindowModality(Qt::WindowModal);
@@ -236,6 +258,7 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
         struct Result {
             QString error;
             DuplicateResult duplicates;
+            QJsonObject records;
         };
         QFutureWatcher<Result> watcher;
         QObject::connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
@@ -245,21 +268,22 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
                 QMetaObject::invokeMethod(
                     &progress, [&progress, value] { progress.setValue(value); }, Qt::QueuedConnection);
             };
-            if (kind == 0)
+            if (kind == 0) {
                 result.error = catalog.index(files, cancel, report);
-            else
+                result.records = catalog.records();
+            } else
                 result.duplicates = ImageCatalog::duplicates(files, kind == 2, 6, cancel, report);
             return result;
         }));
         progress.exec();
         const bool completed = watcher.isFinished() && !cancelledByUser && !progress.wasCanceled();
         cancel.store(true);
-        watcher.waitForFinished();
-        auto result = watcher.result();
+        waitForGuiWorker(watcher);
+        auto result = watcher.future().takeResult();
         if (!result.error.isEmpty())
             QMessageBox::warning(&dialog, IX_TEXT("Bildkatalog"), result.error);
         if (kind == 0) {
-            snapshot = catalog.records();
+            snapshot = std::move(result.records);
             reload();
             status->setText(completed && result.error.isEmpty() ? IX_TEXT("Metadatenindex aktualisiert.")
                                                                : QString());
@@ -315,8 +339,18 @@ void libraryDialog(QWidget *parent, const QStringList &files, const std::functio
     QObject::connect(exact, &QPushButton::clicked, &dialog, [&] { run(1); });
     QObject::connect(near, &QPushButton::clicked, &dialog, [&] { run(2); });
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    reload();
+    QObject::connect(&snapshotLoader, &QFutureWatcherBase::finished, &dialog, [&] {
+        snapshot = snapshotLoader.future().takeResult();
+        reload();
+        catalogReady = true;
+        enableCatalog(true);
+        dialog.setProperty("catalogReady", true);
+        dialog.unsetCursor();
+    });
+    dialog.setCursor(Qt::BusyCursor);
+    snapshotLoader.setFuture(QtConcurrent::run([catalog] { return catalog.records(); }));
     dialog.exec();
+    QObject::disconnect(&snapshotLoader, nullptr, &dialog, nullptr);
     visible.stop();
     previews.cancel();
 }

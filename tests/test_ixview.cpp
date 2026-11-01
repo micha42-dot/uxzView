@@ -1502,6 +1502,9 @@ class IxTests : public QObject {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
             if (!dialog)
                 return;
+            bool polling=false;
+            const auto closeOnFailure=qScopeGuard([&] { if (!polling) dialog->reject(); });
+            QTRY_VERIFY_WITH_TIMEOUT(dialog->property("catalogReady").toBool(),10000);
             auto *list = dialog->findChild<QListWidget *>(QStringLiteral("catalogImages"));
             if (!list) {
                 dialog->reject();
@@ -1523,7 +1526,7 @@ class IxTests : public QObject {
                     dialog->reject();
                 }
             });
-            poll->start(20);
+            polling=true; poll->start(20);
         });
         ix::libraryDialog(nullptr, files, [](QString) {});
         QVERIFY(loaded);
@@ -1913,9 +1916,10 @@ class IxTests : public QObject {
         QTimer::singleShot(150, qApp, [&] {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
             if (dialog && dialog->objectName() == QStringLiteral("libraryDialog")) {
+                const auto close=qScopeGuard([&] { dialog->reject(); });
+                QTRY_VERIFY_WITH_TIMEOUT(dialog->property("catalogReady").toBool(),10000);
                 shown = true;
                 dialog->grab().save(QStringLiteral(IX_TEST_OUTPUT "/library.png"));
-                dialog->reject();
             }
         });
         ix::libraryDialog(nullptr, {source}, [](QString) {});
@@ -1943,7 +1947,8 @@ class IxTests : public QObject {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
             if (!dialog)
                 return;
-            if (!searched && dialog->objectName() == QStringLiteral("libraryDialog")) {
+            if (!searched && dialog->objectName() == QStringLiteral("libraryDialog") &&
+                dialog->property("catalogReady").toBool()) {
                 library = dialog;
                 for (auto *button : dialog->findChildren<QPushButton *>())
                     if (button->text() == ix::localized(QStringLiteral("Identische Bilder"))) {

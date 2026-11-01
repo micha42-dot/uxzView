@@ -1088,6 +1088,7 @@ class WorkflowTests : public QObject {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
             QVERIFY(dialog);
             const auto close = qScopeGuard([&] { dialog->reject(); });
+            QTRY_VERIFY_WITH_TIMEOUT(dialog->property("catalogReady").toBool(),10000);
             auto *list = dialog->findChild<QListWidget *>(QStringLiteral("catalogImages"));
             QVERIFY(list);
             QCOMPARE(list->count(), 3);
@@ -1119,6 +1120,7 @@ class WorkflowTests : public QObject {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
             QVERIFY(dialog);
             const auto close = qScopeGuard([&] { dialog->reject(); });
+            QTRY_VERIFY_WITH_TIMEOUT(dialog->property("catalogReady").toBool(),10000);
             auto *index = button(*dialog, QStringLiteral("Metadaten indexieren"));
             QVERIFY(index);
             QTimer::singleShot(0, dialog, [&] {

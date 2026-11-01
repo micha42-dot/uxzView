@@ -2,6 +2,7 @@
 // Copyright (C) 2026 IxView contributors
 #include "main_window.h"
 #include "menu_support.h"
+#include "worker_wait.h"
 #include "image_file_dialog.h"
 #include "view_fit_options.h"
 #include "extension_dialog.h"
@@ -1512,16 +1513,20 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("find")) {
+        activity_.begin(DocumentActivity::Phase::Files);
+        auto release = qScopeGuard([this] { activity_.finish(); refreshState(); });
+        slideshow_.stop(); stopAnimation(); refreshState();
         QString dir = QFileDialog::getExistingDirectory(this, IX_TEXT("Dateien suchen"));
         if (dir.isEmpty())
             return;
-        QDir folder(dir);
-        QStringList patterns;
-        for (auto &ext : registry_.extensions())
-            patterns << QStringLiteral("*.") + ext;
-        QStringList matches;
-        for (auto &file : folder.entryList(patterns, QDir::Files))
-            matches << folder.filePath(file);
+        const auto matches = runGuiWorker([dir, registry = registry_] {
+            QDir folder(dir);
+            QStringList patterns;
+            for (const auto &ext : registry.extensions()) patterns << QStringLiteral("*.") + ext;
+            QStringList found;
+            for (const auto &file : folder.entryList(patterns, QDir::Files)) found << folder.filePath(file);
+            return found;
+        });
         libraryDialog(this, matches, [this](const QString &path) { openPath(path); });
         reconcileFilePath();
         return;
@@ -2074,6 +2079,9 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("extract")) {
+        activity_.begin(DocumentActivity::Phase::Files);
+        auto release = qScopeGuard([this] { activity_.finish(); refreshState(); });
+        slideshow_.stop(); stopAnimation(); refreshState();
         QString directory = QFileDialog::getExistingDirectory(this, IX_TEXT("Extrahiere alle Bilder"));
         if (directory.isEmpty())
             return;
@@ -2104,9 +2112,9 @@ void MainWindow::dispatch(const QString &cmd) {
         }));
         progress.exec();
         cancel->store(true);
-        watcher.waitForFinished();
-        if (!watcher.result().isEmpty())
-            showError(watcher.result());
+        waitForGuiWorker(watcher);
+        const auto error = watcher.future().takeResult();
+        if (!error.isEmpty()) showError(error);
         return;
     }
     if (cmd == QStringLiteral("print")) {

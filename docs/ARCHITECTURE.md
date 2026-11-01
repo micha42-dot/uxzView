@@ -146,6 +146,24 @@ boundary and shown as errors, never as successful empty runs.
 
 ## Caches and expensive work
 
+Library dialogs own an immutable input-list copy. Initial catalog snapshots load
+asynchronously and publish only into the live dialog; read tasks capture the
+catalog path by value and can finish safely after a closed dialog disconnects.
+Annotations run value-captured storage work; the index worker returns its updated
+snapshot. Neither path reparses catalog JSON on the GUI thread. Controls wait for
+the first snapshot and reject reentrant catalog jobs. Preview work stays limited
+to visible rows. The old eager whole-folder thumbnail dialog has no callers and
+has been removed.
+
+`ui/worker_wait.h` joins GUI-owned work through an event loop that permits paints
+and timers while excluding user input. Shutdown can end that loop early, so a
+final blocking join still protects stack captures. Never detach such workers to
+hide a cancellation wait. Search/extraction hold DocumentActivity's file phase
+across chooser/worker processing; folder discovery runs with owned worker values.
+The extension manager filters cached row text in-place during typing and reloads
+stores only on actual refresh/state changes. Real tool operations continue to
+read fresh storage state; this does not weaken package/lease validation.
+
 `DirectorySnapshot` carries a shared ordered list and positional lookup. Use const access during navigation to avoid detaching large Qt containers. `DirectoryIndexService` owns one low-priority worker, its cancellation token and at most one pending request. A newer request cancels the active scan and replaces the pending value; cancelled results never reach consumers. Destruction cancels and joins work. Scanners receive values and a token, with no widget/service access; a supplied scanner must observe cancellation and support destruction-time joining. Result consumers may request another scan or destroy the service synchronously. MainWindow retains folder watching, the installed snapshot and navigation decisions.
 
 Directory scans use one per-scan suffix set for literal ASCII format keys,

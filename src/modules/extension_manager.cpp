@@ -55,6 +55,7 @@ class Manager : public QDialog {
         row->addWidget(fetch);
         layout->addLayout(row);
         search_ = new QLineEdit;
+        search_->setObjectName(QStringLiteral("extensionSearch"));
         search_->setAccessibleName(IX_TEXT("Erweiterungen / Formate suchen …"));
         search_->setPlaceholderText(IX_TEXT("Erweiterungen / Formate suchen …"));
         layout->addWidget(search_);
@@ -115,7 +116,7 @@ class Manager : public QDialog {
         footer->addWidget(local_); footer->addStretch(); footer->addWidget(buttons);
         layout->addLayout(footer);
         connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        connect(search_, &QLineEdit::textChanged, this, [this] { reload(); });
+        connect(search_, &QLineEdit::textChanged, this, [this] { filterRows(); });
         connect(local_, &QPushButton::clicked, this, [this] {
             auto path = QFileDialog::getOpenFileName(this, QStringLiteral("üxzView-Paket"), {},
                                                      QStringLiteral("üxzView-Pakete (*.ixtool *.ixplugin *.json)"));
@@ -276,7 +277,7 @@ class Manager : public QDialog {
     }
     QJsonObject selected() const {
         const auto *current = tabs_->currentIndex() == 1 ? tools_ : table_;
-        return current->currentRow() < 0
+        return current->currentRow() < 0 || current->isRowHidden(current->currentRow())
                    ? QJsonObject()
                    : current->item(current->currentRow(), 0)->data(Qt::UserRole).toJsonObject();
     }
@@ -418,6 +419,20 @@ class Manager : public QDialog {
                     reply->deleteLater();
                 });
     }
+    void filterRows() {
+        const auto query = search_->text();
+        for (auto *table : {table_, tools_}) {
+            for (int row = 0; row < table->rowCount(); ++row) {
+                const bool hidden = !table->item(row, 0)->data(Qt::UserRole + 1).toString()
+                                         .contains(query, Qt::CaseInsensitive);
+                if (table->isRowHidden(row) != hidden) table->setRowHidden(row, hidden);
+            }
+            if (table->currentRow() >= 0 && table->isRowHidden(table->currentRow())) {
+                table->clearSelection(); table->setCurrentCell(-1, -1);
+            }
+        }
+        updateButtons();
+    }
     void reload() {
         reloadTools();
         table_->setRowCount(0);
@@ -430,8 +445,6 @@ class Manager : public QDialog {
         }
         auto add = [this](QJsonObject item, const QString &name, const QString &version,
                           const QString &status, const QString &compatibility) {
-            if (!(name + version + status).contains(search_->text(), Qt::CaseInsensitive))
-                return;
             int r = table_->rowCount();
             table_->insertRow(r);
             QStringList cells{name, version, status, compatibility};
@@ -440,6 +453,7 @@ class Manager : public QDialog {
                 cell->setData(Qt::UserRole, item);
                 table_->setItem(r, c, cell);
             }
+            table_->item(r, 0)->setData(Qt::UserRole + 1, name + version + status);
         };
         for (auto value : installed) {
             auto item = value.toObject();
@@ -477,7 +491,7 @@ class Manager : public QDialog {
             add(item, item.value(QStringLiteral("name")).toString(id), version, status,
                 ix::PluginStore::compatibility(item));
         }
-        updateButtons();
+        filterRows();
     }
     void reloadTools() {
         tools_->setRowCount(0);
@@ -488,12 +502,12 @@ class Manager : public QDialog {
             const QMap<QString, QString> names{{QStringLiteral("deu"), IX_TEXT("Deutsch")}, {QStringLiteral("eng"), IX_TEXT("Englisch")},
                 {QStringLiteral("fra"), IX_TEXT("Französisch")}, {QStringLiteral("jpn"), IX_TEXT("Japanisch")}, {QStringLiteral("kor"), IX_TEXT("Koreanisch")}};
             if (!language.isEmpty()) name = QStringLiteral("OCR: ") + names.value(language, language);
-            if (!(name + status).contains(search_->text(), Qt::CaseInsensitive)) return;
             auto size = [](qint64 value) { return value > 0 ? QStringLiteral("%1 MiB").arg(double(value) / 1048576, 0, 'f', 2) : QStringLiteral("—"); };
             const QStringList cells{name, item.value(QStringLiteral("version")).toString(), status,
                 size(download) + QStringLiteral(" / ") + size(installed), ix::ToolStore::compatibility(item)};
             const int row = tools_->rowCount(); tools_->insertRow(row);
             for (int col = 0; col < cells.size(); ++col) { auto *cell = new QTableWidgetItem(cells[col]); cell->setData(Qt::UserRole, item); tools_->setItem(row, col, cell); }
+            tools_->item(row, 0)->setData(Qt::UserRole + 1, name + status);
         };
         for (const auto &value : toolStore_.installed()) {
             auto item = value.toObject(); item.insert(QStringLiteral("origin"), QStringLiteral("installed"));
