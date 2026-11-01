@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "main_window.h"
+#include "menu_support.h"
 #include "image_file_dialog.h"
 #include "view_fit_options.h"
 #include "extension_dialog.h"
@@ -662,10 +663,10 @@ void MainWindow::recentMenu(QMenu *menu, const QString &key) {
     }
 }
 void MainWindow::buildExtraFeatures() {
-    auto *viewMenu = menuBar()->findChild<QMenu *>(QStringLiteral("ansicht"));
-    auto *options = menuBar()->findChild<QMenu *>(QStringLiteral("optionen"));
+    auto *viewMenu = ensureRootMenu(*menuBar(), QStringLiteral("ansicht"), QStringLiteral("&Ansicht"));
+    auto *options = ensureRootMenu(*menuBar(), QStringLiteral("optionen"), QStringLiteral("&Optionen"));
     options->setToolTipsVisible(true);
-    auto *fileMenu = menuBar()->findChild<QMenu *>(QStringLiteral("datei"));
+    auto *fileMenu = ensureRootMenu(*menuBar(), QStringLiteral("datei"), QStringLiteral("&Datei"));
     auto *displayOptions = viewMenu->findChild<QMenu *>(QStringLiteral("anzeige-optionen"));
     auto *info = new QAction(viewMenu);
     bindUiText(info, "text", QStringLiteral("Informationen anzeigen (Vollbildmodus)"));
@@ -766,7 +767,8 @@ void MainWindow::buildExtraFeatures() {
         stopAnimation();
         extensionManagerDialog(this);
     });
-    auto *tools = menuBar()->findChild<QMenu *>(QStringLiteral("bild"))->addMenu(IX_TEXT("Funktionserweiterungen"));
+    auto *tools = ensureRootMenu(*menuBar(), QStringLiteral("bild"), QStringLiteral("B&ild"))
+                      ->addMenu(IX_TEXT("Funktionserweiterungen"));
     bindUiText(tools, "title", QStringLiteral("Funktionserweiterungen"));
     for (const auto &entry : {std::pair{QStringLiteral("zxing-cpp"), QStringLiteral("QR-/Barcodes lesen …")},
                               std::pair{QStringLiteral("tesseract-ocr"), QStringLiteral("Text erkennen …")}}) {
@@ -1471,7 +1473,7 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (cmd == QStringLiteral("cropAspect")) {
         if (!document_.empty())
-            findChild<QMenu *>(QStringLiteral("cropAspectMenu"))->popup(QCursor::pos());
+            if (auto *menu = findChild<QMenu *>(QStringLiteral("cropAspectMenu"))) menu->popup(QCursor::pos());
         return;
     }
     if (cmd == QStringLiteral("minimize")) {

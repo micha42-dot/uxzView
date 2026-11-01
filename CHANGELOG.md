@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recreate missing root menus before adding features and ignore a missing crop
+  submenu instead of dereferencing null menu pointers.
 - Reject invalid channel indices before swapping pixels instead of indexing
   outside the RGB channel array.
 ## 0.5.0

@@ -6,6 +6,7 @@
 #include "ui/extension_dialog.h"
 #include "ui/interface_language.h"
 #include "ui/main_window.h"
+#include "ui/menu_support.h"
 #include "ui/pipeline_dialog.h"
 #include "ui/settings_dialog.h"
 #include <QAccessible>
@@ -52,6 +53,34 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void missingRootMenusHaveStableFallbacks() {
+        QMenuBar bar;
+        auto *menu = ix::ensureRootMenu(bar, QStringLiteral("ansicht"), QStringLiteral("&Ansicht"));
+        QVERIFY(menu); QCOMPARE(bar.actions().size(), 1);
+        auto *action = menu->addAction(QStringLiteral("Keep"));
+        QCOMPARE(ix::ensureRootMenu(bar, QStringLiteral("ansicht"), QStringLiteral("Other")), menu);
+        QVERIFY(menu->actions().contains(action)); QCOMPARE(bar.actions().size(), 1);
+        delete menu;
+        QVERIFY(!bar.findChild<QMenu *>(QStringLiteral("ansicht")));
+        auto *replacement = ix::ensureRootMenu(bar, QStringLiteral("ansicht"), QStringLiteral("&Ansicht"));
+        QVERIFY(replacement); QCOMPARE(replacement->objectName(), QStringLiteral("ansicht"));
+        QCOMPARE(bar.actions().size(), 1);
+    }
+    void missingCropMenuKeepsDocumentAndSelection() {
+        const auto path = temporary_.filePath(QStringLiteral("missing-crop-menu.png"));
+        QImage image(16, 12, QImage::Format_RGB32); image.fill(Qt::green);
+        QVERIFY(image.save(path));
+        ix::MainWindow window; window.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && !window.document().empty(), 10000);
+        auto *view = window.findChild<ix::ImageView *>();
+        view->setSelection({1, 2, 3, 4});
+        const auto key = window.document().pixels.cacheKey();
+        auto *menu = window.findChild<QMenu *>(QStringLiteral("cropAspectMenu"));
+        QVERIFY(menu); delete menu;
+        window.dispatch(QStringLiteral("cropAspect"));
+        QCOMPARE(window.document().pixels.cacheKey(), key);
+        QCOMPARE(view->selection(), QRect(1, 2, 3, 4));
+    }
     void initTestCase() {
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewUiQualityTests"));
