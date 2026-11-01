@@ -53,7 +53,7 @@ python scripts/build_tool_packs.py
 python scripts/deploy.py
 ```
 
-Deployment also builds the smaller HEIF/AVIF libraries from pinned sources. Their source archives are downloaded once and cached locally.
+Deployment also builds smaller HEIF/AVIF libraries and a local-file metadata library from pinned sources. Their source archives are downloaded once and cached locally.
 
 ### Linux and macOS
 

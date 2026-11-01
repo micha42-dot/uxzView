@@ -1,6 +1,7 @@
 import pathlib, struct, shutil, os, json
 from build_heif import build as build_heif
 from build_avif import build as build_avif
+from build_exiv2 import build as build_exiv2
 from runtime_files import runtime_files, clean_runtime
 from bundle_tools import prepare as bundle_tools
 from source_archive import documentation_files
@@ -8,6 +9,7 @@ root=pathlib.Path(__file__).resolve().parents[1]
 sdk=root/'.deps/sdk/ucrt64'; dest=root/'dist/uxzView'
 custom_heif = build_heif()
 custom_avif = build_avif()
+custom_exiv2 = build_exiv2()
 # Deployment is generated output. Start clean so removed plugins cannot linger.
 clean_runtime(dest, root)
 shutil.copy2(root/'build/uxzView.exe',dest/'uxzView.exe')
@@ -22,6 +24,10 @@ for kind in ['platforms','styles','imageformats','printsupport','iconengines','t
             (dest/kind).mkdir(exist_ok=True)
             for name in ['qwindows.dll','qoffscreen.dll']:
                 shutil.copy2(source/name,dest/kind/name)
+        elif kind == 'networkinformation':
+            # Native Windows reachability; the GLib/GIO backend is redundant.
+            (dest/kind).mkdir(exist_ok=True)
+            shutil.copy2(source/'qnetworklistmanager.dll',dest/kind/'qnetworklistmanager.dll')
         else: shutil.copytree(source,dest/kind,dirs_exist_ok=True,ignore=shutil.ignore_patterns("qpdf*", "libqpdf*"))
 archive_plugin=root/'build/imageformats/ixarchive.dll'
 if archive_plugin.exists():shutil.copy2(archive_plugin,dest/'imageformats'/archive_plugin.name)
@@ -53,6 +59,11 @@ def imports(file):
 available={f.name.lower():f for f in (sdk/'bin').glob('*.dll')}
 available['libheif.dll'] = custom_heif
 available['libavif-16.dll'] = custom_avif
+available['libexiv2-28.dll'] = custom_exiv2
+# OpenSSL is loaded dynamically by Qt's TLS plugin, not visible in PE imports.
+# Keep its libraries explicit when Exiv2 no longer pulls in Curl incidentally.
+for name in ['libssl-3-x64.dll','libcrypto-3-x64.dll']:
+    shutil.copy2(sdk/'bin'/name,dest/name)
 queue=[p for p in runtime_files(dest) if p.suffix.lower()=='.dll']+[dest/'uxzView.exe'];seen=set();copied=[];missing=[]
 while queue:
     file=queue.pop();key=file.name.lower()
@@ -71,7 +82,8 @@ for source in documentation_files(root):
 (dest/'runtime-manifest.json').write_text(json.dumps({'architecture':'x64','dlls':sorted(set(copied)),'unresolved':missing},indent=2),encoding='utf-8')
 (dest/'custom-builds.json').write_text(json.dumps({
     'libheif.dll':json.loads((root/'build/heif-lite/build-origin.json').read_text()),
-    'libavif-16.dll':json.loads((root/'build/avif-lite/build-origin.json').read_text())
+    'libavif-16.dll':json.loads((root/'build/avif-lite/build-origin.json').read_text()),
+    'libexiv2-28.dll':json.loads((root/'build/exiv2-lite/build-origin.json').read_text())
 },indent=2)+'\n',encoding='utf-8')
 if missing:raise SystemExit(f'Missing runtime libraries: {missing}')
 print(f'Portable app: {dest}; {len(seen)} PE modules, all imports resolved.')

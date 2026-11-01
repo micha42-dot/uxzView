@@ -570,6 +570,16 @@
       "file": "mingw-w64-ucrt-x86_64-zstd-1.5.7-2-any.pkg.tar.zst",
       "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-zstd-1.5.7-2-any.pkg.tar.zst",
       "sha256": "dbdb8427280046a2b41697780aa4c52983b708082b0da4755951dc3bea96ca89"
+    },
+    {
+      "file": "mingw-w64-ucrt-x86_64-gettext-tools-1.0-1-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gettext-tools-1.0-1-any.pkg.tar.zst",
+      "sha256": "e2b017e98dfed1ff026b6d5fc26b228d05d8a0ffc00077727018109f694eee5b"
+    },
+    {
+      "file": "mingw-w64-ucrt-x86_64-gettext-libtextstyle-1.0-1-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gettext-libtextstyle-1.0-1-any.pkg.tar.zst",
+      "sha256": "a9a9254c8f1b0bcedfe83573b14c538df4bf0eb0e6448888ca0f785dfc9cf016"
     }
   ]
 }

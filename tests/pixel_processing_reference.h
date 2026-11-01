@@ -2,6 +2,7 @@
 #pragma once
 #include "core/processing.h"
 #include <array>
+#include <cmath>
 #include <utility>
 namespace ix::test {
 // Legacy full-RGBA64 path retained independently of native 32-bit processing.
@@ -22,6 +23,12 @@ inline QImage referenceNegative(const QImage &source, int channel = -1) {
         return QRgba64::fromRgba64(channel < 0 || channel == 0 ? 65535-pixel.red() : pixel.red(),
             channel < 0 || channel == 1 ? 65535-pixel.green() : pixel.green(),
             channel < 0 || channel == 2 ? 65535-pixel.blue() : pixel.blue(),pixel.alpha());
+    });
+}
+inline QImage referenceGrayscale(const QImage &source) {
+    return referencePixelTransform(source, [](QRgba64 pixel) {
+        const auto value = quint16(std::lround(.2126 * pixel.red() + .7152 * pixel.green() + .0722 * pixel.blue()));
+        return QRgba64::fromRgba64(value, value, value, pixel.alpha());
     });
 }
 inline QImage referenceChannel(const QImage &source, int channel) {

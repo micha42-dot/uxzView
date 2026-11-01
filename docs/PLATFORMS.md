@@ -60,6 +60,11 @@ Das SDK ist projektlokal; `CMakePresets.json` enthält `windows-x64`. Für ander
 
 Die normale Testausführung bleibt offline. Für die fünf echten Kamera-RAWs einmal `python scripts/fetch_quality_fixtures.py` ausführen. Release-Vorbereitung und Windows-CI verlangen alle fünf Dateien. [Qualitätsnachweise](QUALITY.md) beschreiben Profile, HDR, Prüfsummen und Grenzen.
 
+Der Windows-Deploy baut auch Exiv2 aus dem gesperrten Quellpaket ohne HTTP/Curl-
+Leser. Metadatenfunktionen bleiben erhalten; Gettext-Werkzeuge werden nur im SDK
+benötigt. Qt Network und seine TLS-Bibliotheken bleiben für Erweiterungsdownloads
+enthalten. Linux/macOS verwenden weiterhin ihre regulären Exiv2-Bibliotheken.
+
 ## Linux
 
 Beispiel für Ubuntu 24.04 x64 mit GCC, Bash und Qt-SDK. Das Qt aus den Standardpaketen dieser Distribution ist zu alt; zusätzlich Qt ≥ 6.8 einschließlich Qt Svg und Qt Image Formats installieren. Ein Weg ist der Qt-Installer; alternativ der unten gezeigte [aqtinstall-Ablauf](https://aqtinstall.readthedocs.io/en/latest/getting_started.html).

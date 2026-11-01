@@ -328,6 +328,31 @@ QJsonObject profileNativePixelEdits() {
     return {{QStringLiteral("samples"),rows},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
         {QStringLiteral("note"),QStringLiteral("24 MP RGB32/ARGB32, three alternating calls per arm. Negative/all, alpha-channel display, red/blue swap. Includes allocation and working/output conversion; no decode or file IO. Exact pixels, properties and unchanged source checked outside timing. Compare the unchanged reference and production before/after in fresh processes.")}};
 }
+QJsonObject profileGrayscale() {
+    QJsonArray rows;
+    for (const auto format : {QImage::Format_RGB32, QImage::Format_ARGB32}) {
+        auto source = ix::test::filterPattern({6000,4000}, format);
+        source.setColorSpace(QColorSpace::DisplayP3); source.setDotsPerMeterX(4500);
+        source.setText(QStringLiteral("Comment"), QStringLiteral("grayscale measurement"));
+        const auto key = source.cacheKey();
+        const auto expected = ix::test::referenceGrayscale(source);
+        QJsonArray legacyTimes, currentTimes;
+        for (int sample = 0; sample < 3; ++sample)
+            for (const bool legacy : {sample % 2 == 0, sample % 2 != 0}) {
+                QElapsedTimer timer; timer.start();
+                const auto result = legacy ? ix::test::referenceGrayscale(source) : ix::grayscale(source);
+                const auto elapsed = timer.nsecsElapsed() / 1e6;
+                if (result != expected || result.colorSpace() != source.colorSpace() ||
+                    result.dotsPerMeterX() != source.dotsPerMeterX() || result.text() != source.text() || source.cacheKey() != key)
+                    return {{QStringLiteral("error"), QStringLiteral("Grayscale pixels/properties/source changed")}};
+                (legacy ? legacyTimes : currentTimes).append(elapsed);
+            }
+        rows.append(QJsonObject{{QStringLiteral("format"), int(format)},
+            {QStringLiteral("legacy_ms"), legacyTimes}, {QStringLiteral("current_ms"), currentTimes}});
+    }
+    return {{QStringLiteral("samples"), rows}, {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"), QStringLiteral("24 MP RGB32/ARGB32, three alternating samples per arm. Includes allocation/conversion; excludes decode and GUI. Exact pixels and source properties checked outside timing.")}};
+}
 QJsonObject profileSharpen() {
     QJsonArray rows;
     const QVector<double> kernel{0, -1, 0, -1, 5, -1, 0, -1, 0};
@@ -930,6 +955,11 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-grayscale"))) {
+        const auto result = profileGrayscale();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-auto-crop"))) {
         const auto result=profileAutoCrop();
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;

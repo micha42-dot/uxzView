@@ -89,8 +89,8 @@ def collect(check_urls=False):
     custom_path = runtime / 'custom-builds.json'
     custom = json.loads(custom_path.read_text()) if custom_path.exists() else {}
     if custom:
-        import build_heif, build_avif
-        recipes = {'libheif.dll':build_heif,'libavif-16.dll':build_avif}
+        import build_heif, build_avif, build_exiv2
+        recipes = {'libheif.dll':build_heif,'libavif-16.dll':build_avif,'libexiv2-28.dll':build_exiv2}
         if set(custom) != set(recipes):
             raise RuntimeError('Unknown custom runtime build')
         for filename, recipe in recipes.items():
@@ -171,7 +171,8 @@ def collect(check_urls=False):
     lines = ["# Corresponding third-party sources / Drittanbieter-Quellcode", "",
              "üxzView sources and build instructions are included in the accompanying source ZIP.",
              "The libraries below have exact MSYS2 source packages, including build recipes and patches.",
-             "The smaller libheif/libavif are rebuilt by scripts/build_heif.py and scripts/build_avif.py",
+             "libheif/libavif and local-file Exiv2 are rebuilt by scripts/build_heif.py, scripts/build_avif.py",
+             "and scripts/build_exiv2.py",
              "in the accompanying uxzView source ZIP.",
              "Its source hashes, SDK lock, build options and output hash are recorded in custom-builds.json",
              "and in dependency-sources.json. Other listed libraries are unmodified MSYS2 binaries.",

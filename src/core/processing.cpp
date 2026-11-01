@@ -274,6 +274,20 @@ QImage rotate(const QImage &s, double deg) {
     return out;
 }
 QImage grayscale(const QImage &s) {
+    if (nativeRgb32(s))
+        return perPixel32(s, [](QRgb pixel) {
+            const int red = qRed(pixel), green = qGreen(pixel), blue = qBlue(pixel);
+            const int sum = 2126 * red + 7152 * green + 722 * blue;
+            int value = (sum + 5000) / 10000;
+            // Expanding bytes by 257 and rounding back has the same thresholds.
+            // Preserve the legacy floating-point tie behavior at exact halves.
+            if (sum == value * 10000 - 5000) {
+                const auto wide = quint16(std::lround(.2126 * (red * 257) +
+                    .7152 * (green * 257) + .0722 * (blue * 257)));
+                value = QRgba64::fromRgba64(wide, wide, wide, 65535).red8();
+            }
+            return qRgba(value, value, value, qAlpha(pixel));
+        });
     return perPixel(s, [](QRgba64 p) {
         auto v = quint16(std::lround(.2126 * p.red() + .7152 * p.green() + .0722 * p.blue()));
         return QRgba64::fromRgba64(v, v, v, p.alpha());

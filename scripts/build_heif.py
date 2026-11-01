@@ -34,6 +34,7 @@ def digest(path):
 
 def build_codec(*, name, version, source_url, source_sha256, upstream_sha256, options,
                 library_path, target, recipe_path):
+    # Shared verified-source builder, also used by AVIF and local-only Exiv2.
     output = ROOT / 'build' / (name.removeprefix('lib')+'-lite')
     library = output / library_path
     recipe = digest(Path(recipe_path))
@@ -53,7 +54,7 @@ def build_codec(*, name, version, source_url, source_sha256, upstream_sha256, op
             with urllib.request.urlopen(source_url, timeout=60) as response, temporary.open('wb') as stream:
                 while block := response.read(1024*1024): stream.write(block)
             if digest(temporary) != source_sha256:
-                raise RuntimeError('libheif source archive SHA-256 mismatch')
+                raise RuntimeError(f'{name} source archive SHA-256 mismatch')
             temporary.replace(cached)
         finally:
             temporary.unlink(missing_ok=True)
@@ -63,7 +64,7 @@ def build_codec(*, name, version, source_url, source_sha256, upstream_sha256, op
     with tarfile.open(cached) as archive:
         upstream.write_bytes(archive.extractfile(f'mingw-w64-{name}/{name}-{version}.tar.gz').read())
     if digest(upstream) != upstream_sha256:
-        raise RuntimeError('Upstream libheif source SHA-256 mismatch')
+        raise RuntimeError(f'Upstream {name} source SHA-256 mismatch')
     # Always restore the verified source tree: local edits must not silently
     # enter a release while the provenance still describes unmodified sources.
     with tarfile.open(upstream) as archive:

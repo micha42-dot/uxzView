@@ -18,6 +18,11 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Graustufen für native 8-Bit-Bilder: pixelgenau, halber Bildpufferbedarf und im
+  24-MP-Komponententest etwa 3× schneller. Windows-Paket rund 7,66 MB kleiner,
+  14 DLLs weniger; alle Formatfähigkeiten erhalten. 551 Qt-Fälle und 46 Python-
+  Tests bestehen. [Messwerte und Grenzen](docs/RESOURCE_REVIEW_2026-11-01.md).
+
 - Mehrseitige PDFs mit separat geladenem Renderer, Seitenwechsel und Bildexport.
   Unlesbare Ordnereinträge: überspringen (Standard), Meldung mit Dateiname oder
   schwarze Anzeige mit fortgesetzter Navigation. 549 Qt-Fälle im Build und

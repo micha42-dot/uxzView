@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Process native RGB32/ARGB32 grayscale in one output buffer with exact legacy
+  rounding, including floating-point ties. Preserve every 8-bit RGB color and
+  image properties while halving its image-buffer working set.
+- Build Windows Exiv2 for local metadata input without unused HTTP/Curl readers.
+  Keep Qt TLS libraries explicit, use the native network-information backend and
+  omit its redundant GIO dependency chain without dropping image formats.
+
 - Read multi-page PDFs through a lazy Qt PDF/PDFium module, with page navigation,
   white page backgrounds, bounded thumbnails and image export. Add PDF file
   associations; keep PDF writing and password-protected documents unsupported.

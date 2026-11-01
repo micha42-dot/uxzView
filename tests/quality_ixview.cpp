@@ -26,6 +26,16 @@ class QualityTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_{QStringLiteral(IX_QUALITY_OUTPUT "/run-quality-XXXXXX")};
   private slots:
+    void grayscaleMatchesEveryRgbColor() {
+        QImage source(4096,4096,QImage::Format_RGB32); QVERIFY(!source.isNull());
+        for (int y = 0; y < source.height(); ++y) {
+            auto *row = reinterpret_cast<QRgb *>(source.scanLine(y));
+            for (int x = 0; x < source.width(); ++x) row[x] = 0xff000000u | quint32(y * 4096 + x);
+        }
+        const auto key = source.cacheKey();
+        QCOMPARE(ix::grayscale(source),ix::test::referenceGrayscale(source));
+        QCOMPARE(source.cacheKey(),key);
+    }
     void pdfRemainsLazyDuringImageBrowsing() {
         ix::CodecRegistry registry;
         if (!registry.extensions().contains(QStringLiteral("pdf"))) return;
@@ -141,6 +151,7 @@ class QualityTests : public QObject {
             verify(ix::negative(source,channel),ix::test::referenceNegative(source,channel));
             verify(ix::channel(source,channel),ix::test::referenceChannel(source,channel));
         }
+        verify(ix::grayscale(source),ix::test::referenceGrayscale(source));
         for (int first=0;first<3;++first) for (int second=0;second<3;++second)
             verify(ix::swapChannels(source,first,second),ix::test::referenceSwap(source,first,second));
         QCOMPARE(source,before); QCOMPARE(source.cacheKey(),key);
@@ -158,22 +169,26 @@ class QualityTests : public QObject {
         QCOMPARE(ix::negative(source),ix::test::referenceNegative(source));
         QCOMPARE(ix::channel(source,3),ix::test::referenceChannel(source,3));
         QCOMPARE(ix::swapChannels(source,0,2),ix::test::referenceSwap(source,0,2));
+        QCOMPARE(ix::grayscale(source),ix::test::referenceGrayscale(source));
         QCOMPARE(buffer,before);
     }
     void nativePixelEditsFitWithinBudget_data() {
         QTest::addColumn<int>("operation");
         QTest::newRow("negative") << 0; QTest::newRow("channel") << 1; QTest::newRow("swap") << 2;
+        QTest::newRow("grayscale") << 3;
     }
     void nativePixelEditsFitWithinBudget() {
         QFETCH(int,operation);
         QImage source(8193,4096,QImage::Format_RGB32); QVERIFY(!source.isNull()); source.fill(Qt::blue);
         const auto key=source.cacheKey(); QImage result; QString error;
         try {
-            result=operation==0 ? ix::negative(source) : operation==1 ? ix::channel(source,0) : ix::swapChannels(source,0,2);
+            result=operation==0 ? ix::negative(source) : operation==1 ? ix::channel(source,0)
+                : operation==2 ? ix::swapChannels(source,0,2) : ix::grayscale(source);
         } catch (const std::exception &failure) { error=QString::fromUtf8(failure.what()); }
         QVERIFY2(error.isEmpty(),qPrintable(error));
         QCOMPARE(result.size(),source.size());
-        const QColor expected=operation==0 ? Qt::yellow : operation==1 ? Qt::black : Qt::red;
+        const QColor expected=operation==0 ? Qt::yellow : operation==1 ? Qt::black
+            : operation==2 ? Qt::red : QColor(18,18,18);
         QCOMPARE(result.pixelColor(0,0),expected); QCOMPARE(result.pixelColor(8192,4095),expected);
         QCOMPARE(source.pixelColor(8192,4095),QColor(Qt::blue)); QCOMPARE(source.cacheKey(),key);
     }
@@ -182,6 +197,7 @@ class QualityTests : public QObject {
         QVERIFY_EXCEPTION_THROWN(ix::negative(source),std::runtime_error);
         QVERIFY_EXCEPTION_THROWN(ix::channel(source,0),std::runtime_error);
         QVERIFY_EXCEPTION_THROWN(ix::swapChannels(source,0,2),std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(ix::grayscale(source),std::runtime_error);
         QCOMPARE(source.pixelColor(8192,8191),QColor(Qt::blue));
     }
     void autoCropMatchesOriginalPixels_data() {
@@ -215,7 +231,10 @@ class QualityTests : public QObject {
         QImage source(8193, 4096, QImage::Format(format));
         QVERIFY(!source.isNull()); source.fill(Qt::blue);
         const auto key = source.cacheKey();
-        QVERIFY_EXCEPTION_THROWN(ix::grayscale(source), std::runtime_error);
+        if (format == QImage::Format_RGB32)
+            QCOMPARE(ix::grayscale(source).pixelColor(0,0), QColor(18,18,18));
+        else
+            QVERIFY_EXCEPTION_THROWN(ix::grayscale(source), std::runtime_error);
         QVERIFY_EXCEPTION_THROWN(ix::convolve(source, {1}, 1), std::runtime_error);
         QVERIFY_EXCEPTION_THROWN(ix::autoCorrect(source), std::runtime_error);
         QCOMPARE(source.cacheKey(), key);

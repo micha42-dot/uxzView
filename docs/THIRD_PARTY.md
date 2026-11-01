@@ -22,7 +22,7 @@ Wichtige Komponenten:
 
 `deploy.py` kopiert die von MSYS2 mitgelieferten Lizenzverzeichnisse unter `dist/uxzView/licenses`. Der eigene Quellcode ist GPL-3.0-or-later; das Release enthält den zugehörigen üxzView-Quellcode und die Buildskripte.
 
-`scripts/dependency_sources.py --check-urls` erstellt zusätzlich `SOURCES.md` und `dependency-sources.json` im portablen Verzeichnis. Unveränderte Drittanbieter-DLLs werden anhand ihres SHA-256 mit einer Datei aus dem gesperrten SDK verglichen und dem ursprünglichen, ebenfalls hashgeprüften MSYS2-Paket zugeordnet. Für die beiden nachstehend beschriebenen Neubauten werden stattdessen Ausgabehash und dokumentierte Build-Herkunft geprüft. Die Metadaten liefern Paketbasis, Version, Lizenzangaben und PKGBUILD-Prüfsumme. Daraus entstehen genaue Links auf die passenden `.src.tar.zst` mit Quellcode, Patches und Build-Rezepten. Die Verfügbarkeitsprüfung gleicht alle Namen mit dem öffentlichen MSYS2-Quellpaketindex ab. Sie lädt nicht jedes Quellarchiv herunter und bestätigt deshalb dessen Inhalt nicht unabhängig.
+`scripts/dependency_sources.py --check-urls` erstellt zusätzlich `SOURCES.md` und `dependency-sources.json` im portablen Verzeichnis. Unveränderte Drittanbieter-DLLs werden anhand ihres SHA-256 mit einer Datei aus dem gesperrten SDK verglichen und dem ursprünglichen, ebenfalls hashgeprüften MSYS2-Paket zugeordnet. Für die nachstehend beschriebenen Neubauten werden stattdessen Ausgabehash und dokumentierte Build-Herkunft geprüft. Die Metadaten liefern Paketbasis, Version, Lizenzangaben und PKGBUILD-Prüfsumme. Daraus entstehen genaue Links auf die passenden `.src.tar.zst` mit Quellcode, Patches und Build-Rezepten. Die Verfügbarkeitsprüfung gleicht alle Namen mit dem öffentlichen MSYS2-Quellpaketindex ab. Sie lädt nicht jedes Quellarchiv herunter und bestätigt deshalb dessen Inhalt nicht unabhängig.
 
 Seit 0.4.3 werden libheif und libavif für das Windows-Paket aus festgelegten MSYS2-Quelldateien neu gebaut. `scripts/build_heif.py` und `scripts/build_avif.py` prüfen sowohl die Quellpakete als auch die enthaltenen Upstream-Archive per SHA-256 und verwenden das gesperrte SDK. Kvazaar übernimmt HEVC-Encoding, AOM das AV1-Encoding; die zusätzlichen x265-/SVT-AV1-/rav1e-Encoder entfallen. Die Decoder und die angebotenen Formatfamilien bleiben erhalten. Kompressionsverhalten und Encoderlaufzeiten können sich ändern; dies ist kein Nachweis identischer Encoderqualität. `custom-builds.json` und die entsprechenden Einträge in `dependency-sources.json` dokumentieren Quell- und Ausgabehash, Rezepte einschließlich gemeinsamem Build-Helfer, SDK-Lock und CMake-Optionen. Alle übrigen Drittanbieter-DLLs werden weiterhin direkt mit den SDK-Paketen verglichen. Die Rezepte sind Bestandteil des üxzView-Source-ZIP.
 
@@ -45,3 +45,14 @@ project reader module are deployed, without Qt PDF Quick/Widgets or a browser
 process. Qt PDF and bundled PDFium/font/image components retain their own license
 texts under `licenses/qt6-pdf`; exact binary/source origins are recorded in
 `dependency-sources.json` and `SOURCES.md`. See [Qt PDF licensing](https://doc.qt.io/qt-6.8/qtpdf-licensing.html).
+
+## Local-file Exiv2 build
+
+The Windows deployment also rebuilds the pinned Exiv2 0.28.9 source with HTTP/Curl
+readers disabled. Metadata input is local-file based; extension downloads continue
+through Qt Network. XMP, PNG, BMFF/Brotli, video metadata and NLS remain enabled.
+`build_exiv2.py` records source/output hashes and options through the shared verified
+builder. Gettext tools are SDK build dependencies and are not deployed. Runtime
+OpenSSL libraries are retained explicitly for Qt's dynamically loaded TLS backend.
+Windows ships the native Network List Manager plugin; the alternative GIO backend
+and its exclusive dependencies are omitted. No image-format plugin is removed.
