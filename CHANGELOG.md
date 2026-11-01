@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Process negative, channel-display and channel-swap edits directly in native
+  RGB32/ARGB32 output buffers. Retain exact pixels, alpha and image properties;
+  halve their source/working/output image-buffer estimate from 16 to 8 bytes
+  per pixel while keeping the 512 MiB guard. Other formats retain the legacy path.
 - Apply the selected appearance to native Windows title bars, including older
   Windows 10's DWM fallback, late-created dialogs and recreated window handles.
   Keep frame updates independent of image loads and window geometry.

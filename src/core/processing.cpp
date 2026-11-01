@@ -108,6 +108,24 @@ void checkWorkingSet(const QImage &src, int extraBytesPerPixel) {
         pixels > (ImageMemoryLimit - src.sizeInBytes()) / extraBytesPerPixel)
         throw std::runtime_error(IX_TEXT("Bildbearbeitung überschreitet das Speicherlimit von 512 MiB.").toStdString());
 }
+bool nativeRgb32(const QImage &image) {
+    return image.format() == QImage::Format_RGB32 || image.format() == QImage::Format_ARGB32;
+}
+template <class F> QImage perPixel32(const QImage &src, F fn) {
+    checkWorkingSet(src, 4);
+    QImage out(src.size(), src.format());
+    if (out.isNull()) throw std::runtime_error("Speicher nicht verfügbar.");
+    // convertToFormat() carried these properties in the legacy working buffer.
+    out.setDevicePixelRatio(src.devicePixelRatio());
+    out.setOffset(src.offset());
+    const QRgb opaque = src.format() == QImage::Format_RGB32 ? 0xff000000u : 0;
+    for (int y = 0; y < src.height(); ++y) {
+        const auto *source = reinterpret_cast<const QRgb *>(src.constScanLine(y));
+        auto *target = reinterpret_cast<QRgb *>(out.scanLine(y));
+        for (int x = 0; x < src.width(); ++x) target[x] = fn(source[x] | opaque) | opaque;
+    }
+    return finish(src, std::move(out));
+}
 template <class F> QImage perPixel(const QImage &src, F fn) {
     if (src.isNull())
         return {};
@@ -262,6 +280,11 @@ QImage grayscale(const QImage &s) {
     });
 }
 QImage negative(const QImage &s, int channelIndex) {
+    if (nativeRgb32(s)) {
+        const QRgb mask = channelIndex < 0 ? 0x00ffffffu : channelIndex == 0 ? 0x00ff0000u
+                         : channelIndex == 1 ? 0x0000ff00u : channelIndex == 2 ? 0x000000ffu : 0;
+        return perPixel32(s, [mask](QRgb pixel) { return pixel ^ mask; });
+    }
     return perPixel(s, [=](QRgba64 p) {
         return QRgba64::fromRgba64(channelIndex < 0 || channelIndex == 0 ? 65535 - p.red() : p.red(),
                                    channelIndex < 0 || channelIndex == 1 ? 65535 - p.green() : p.green(),
@@ -270,6 +293,11 @@ QImage negative(const QImage &s, int channelIndex) {
     });
 }
 QImage channel(const QImage &s, int c) {
+    if (nativeRgb32(s))
+        return perPixel32(s, [c](QRgb pixel) {
+            const int value = c == 0 ? qRed(pixel) : c == 1 ? qGreen(pixel) : c == 2 ? qBlue(pixel) : qAlpha(pixel);
+            return qRgba(value, value, value, qAlpha(pixel));
+        });
     return perPixel(s, [=](QRgba64 p) {
         quint16 v = c == 0 ? p.red() : c == 1 ? p.green() : c == 2 ? p.blue() : p.alpha();
         return QRgba64::fromRgba64(v, v, v, p.alpha());
@@ -278,6 +306,14 @@ QImage channel(const QImage &s, int c) {
 QImage swapChannels(const QImage &s, int a, int b) {
     if (a < 0 || a > 2 || b < 0 || b > 2)
         throw std::out_of_range("Farbkanal muss zwischen 0 und 2 liegen.");
+    if (nativeRgb32(s)) {
+        const int first = (2-a)*8, second = (2-b)*8;
+        const QRgb mask = (0xffu << first) | (0xffu << second);
+        return perPixel32(s, [=](QRgb pixel) {
+            return (pixel & ~mask) | (((pixel >> first) & 0xffu) << second) |
+                                     (((pixel >> second) & 0xffu) << first);
+        });
+    }
     return perPixel(s, [=](QRgba64 p) {
         std::array<quint16, 3> v{p.red(), p.green(), p.blue()};
         std::swap(v[a], v[b]);

@@ -5,6 +5,7 @@
 #include "core/preview_service.h"
 #include "convolution_reference.h"
 #include "auto_crop_reference.h"
+#include "pixel_processing_reference.h"
 #include "ui/main_window.h"
 #include <QColorSpace>
 #include <QJsonDocument>
@@ -41,6 +42,76 @@ class QualityTests : public QObject {
         QCOMPARE(result.blue(), quint16(0x1234)); QCOMPARE(result.alpha(), quint16(0xdef0));
         QCOMPARE(ix::swapChannels(source, 1, 1), source);
         QCOMPARE(source.cacheKey(), key);
+    }
+    void nativePixelEditsMatchLegacy_data() {
+        QTest::addColumn<int>("format");
+        for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_ARGB32_Premultiplied,
+             QImage::Format_RGBA8888,QImage::Format_RGB888,QImage::Format_Indexed8,QImage::Format_Grayscale8,
+             QImage::Format_Grayscale16,QImage::Format_RGBA64,QImage::Format_RGBA32FPx4})
+            QTest::newRow(QByteArray::number(int(format)).constData()) << int(format);
+    }
+    void nativePixelEditsMatchLegacy() {
+        QFETCH(int,format);
+        auto source=ix::test::filterPattern({257,113},QImage::Format(format));
+        QVERIFY(!source.isNull());
+        source.setColorSpace(QColorSpace::DisplayP3);
+        source.setDevicePixelRatio(1.75); source.setOffset({-7,13});
+        source.setDotsPerMeterX(4500); source.setDotsPerMeterY(7300);
+        source.setText(QStringLiteral("Comment"),QStringLiteral("pixel edit preservation"));
+        const auto before=source.copy(); const auto key=source.cacheKey();
+        const auto verify=[&](const QImage &actual,const QImage &expected) {
+            QCOMPARE(actual,expected); QCOMPARE(actual.format(),expected.format());
+            QCOMPARE(actual.colorSpace(),source.colorSpace());
+            QCOMPARE(actual.devicePixelRatio(),source.devicePixelRatio()); QCOMPARE(actual.offset(),source.offset());
+            QCOMPARE(actual.dotsPerMeterX(),source.dotsPerMeterX()); QCOMPARE(actual.dotsPerMeterY(),source.dotsPerMeterY());
+            QCOMPARE(actual.text(QStringLiteral("Comment")),source.text(QStringLiteral("Comment")));
+        };
+        for (int channel : {std::numeric_limits<int>::min(),-1,0,1,2,3,std::numeric_limits<int>::max()}) {
+            verify(ix::negative(source,channel),ix::test::referenceNegative(source,channel));
+            verify(ix::channel(source,channel),ix::test::referenceChannel(source,channel));
+        }
+        for (int first=0;first<3;++first) for (int second=0;second<3;++second)
+            verify(ix::swapChannels(source,first,second),ix::test::referenceSwap(source,first,second));
+        QCOMPARE(source,before); QCOMPARE(source.cacheKey(),key);
+    }
+    void nativePixelEditsRespectPaddingAndOpaqueAlpha() {
+        constexpr int width=17,height=11,stride=80;
+        QByteArray buffer(height*stride,char(0x5a));
+        QImage source(reinterpret_cast<uchar *>(buffer.data()),width,height,stride,QImage::Format_RGB32);
+        // RGB32 ignores the stored alpha byte, including malformed external buffers.
+        for (int y=0;y<height;++y) {
+            auto *row=reinterpret_cast<QRgb *>(source.scanLine(y));
+            for (int x=0;x<width;++x) row[x]=qRgba(x*13,y*19,(x+y)*7,(x+y)%3 ? 0 : 127);
+        }
+        const auto before=QByteArray(buffer.constData(),buffer.size());
+        QCOMPARE(ix::negative(source),ix::test::referenceNegative(source));
+        QCOMPARE(ix::channel(source,3),ix::test::referenceChannel(source,3));
+        QCOMPARE(ix::swapChannels(source,0,2),ix::test::referenceSwap(source,0,2));
+        QCOMPARE(buffer,before);
+    }
+    void nativePixelEditsFitWithinBudget_data() {
+        QTest::addColumn<int>("operation");
+        QTest::newRow("negative") << 0; QTest::newRow("channel") << 1; QTest::newRow("swap") << 2;
+    }
+    void nativePixelEditsFitWithinBudget() {
+        QFETCH(int,operation);
+        QImage source(8193,4096,QImage::Format_RGB32); QVERIFY(!source.isNull()); source.fill(Qt::blue);
+        const auto key=source.cacheKey(); QImage result; QString error;
+        try {
+            result=operation==0 ? ix::negative(source) : operation==1 ? ix::channel(source,0) : ix::swapChannels(source,0,2);
+        } catch (const std::exception &failure) { error=QString::fromUtf8(failure.what()); }
+        QVERIFY2(error.isEmpty(),qPrintable(error));
+        QCOMPARE(result.size(),source.size());
+        const QColor expected=operation==0 ? Qt::yellow : operation==1 ? Qt::black : Qt::red;
+        QCOMPARE(result.pixelColor(0,0),expected); QCOMPARE(result.pixelColor(8192,4095),expected);
+        QCOMPARE(source.pixelColor(8192,4095),QColor(Qt::blue)); QCOMPARE(source.cacheKey(),key);
+    }
+    void nativePixelEditsRejectExcessiveBuffers() {
+        QImage source(8193,8192,QImage::Format_RGB32); QVERIFY(!source.isNull()); source.fill(Qt::blue);
+        QVERIFY_EXCEPTION_THROWN(ix::negative(source),std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(ix::channel(source,0),std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(ix::swapChannels(source,0,2),std::runtime_error);
+        QCOMPARE(source.pixelColor(8192,8191),QColor(Qt::blue));
     }
     void autoCropMatchesOriginalPixels_data() {
         QTest::addColumn<int>("format");

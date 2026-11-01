@@ -2,6 +2,7 @@
 #include "animation_fixture.h"
 #include "convolution_reference.h"
 #include "auto_crop_reference.h"
+#include "pixel_processing_reference.h"
 #include "core/apng_codec.h"
 #include "core/codec_registry.h"
 #include "core/file_operations.h"
@@ -295,6 +296,37 @@ QJsonObject profileInterfaceTheme(const QString &path) {
         "Six alternating light/dark samples, warm filesystem, uncached registry decoding; 30 cached viewport repaints per sample. "
         "Switch timing includes palette propagation/event processing in this small harness, not the whole application. "
         "Exact viewport/decoded pixels, unchanged source key and zoom checked outside timing. No native compositor timing or before/after baseline.")}};
+}
+QJsonObject profileNativePixelEdits() {
+    QJsonArray rows;
+    for (const auto format : {QImage::Format_RGB32,QImage::Format_ARGB32}) {
+        auto source=ix::test::filterPattern({6000,4000},format);
+        source.setColorSpace(QColorSpace::DisplayP3); source.setDevicePixelRatio(1.5); source.setOffset({7,-3});
+        source.setDotsPerMeterX(4500); source.setText(QStringLiteral("Comment"),QStringLiteral("pixel benchmark"));
+        const auto key=source.cacheKey();
+        for (int operation=0;operation<3;++operation) {
+            const auto edit=[&](bool reference) {
+                if (operation==0) return reference ? ix::test::referenceNegative(source) : ix::negative(source);
+                if (operation==1) return reference ? ix::test::referenceChannel(source,3) : ix::channel(source,3);
+                return reference ? ix::test::referenceSwap(source,0,2) : ix::swapChannels(source,0,2);
+            };
+            const auto expected=edit(true);
+            QJsonArray referenceTimes,currentTimes;
+            for (int sample=0;sample<3;++sample) for (const bool reference : {sample%2==0,sample%2!=0}) {
+                QElapsedTimer timer; timer.start(); const auto result=edit(reference);
+                const auto ms=timer.nsecsElapsed()/1e6;
+                if (result!=expected || result.format()!=expected.format() || result.colorSpace()!=source.colorSpace() ||
+                    result.devicePixelRatio()!=source.devicePixelRatio() || result.offset()!=source.offset() ||
+                    result.dotsPerMeterX()!=source.dotsPerMeterX() || result.text()!=source.text() || source.cacheKey()!=key)
+                    return {{QStringLiteral("error"),QStringLiteral("Pixel edits changed samples, properties or source")}};
+                (reference ? referenceTimes : currentTimes).append(ms);
+            }
+            rows.append(QJsonObject{{QStringLiteral("format"),int(format)},{QStringLiteral("operation"),operation},
+                {QStringLiteral("reference_ms"),referenceTimes},{QStringLiteral("current_ms"),currentTimes}});
+        }
+    }
+    return {{QStringLiteral("samples"),rows},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"),QStringLiteral("24 MP RGB32/ARGB32, three alternating calls per arm. Negative/all, alpha-channel display, red/blue swap. Includes allocation and working/output conversion; no decode or file IO. Exact pixels, properties and unchanged source checked outside timing. Compare the unchanged reference and production before/after in fresh processes.")}};
 }
 QJsonObject profileSharpen() {
     QJsonArray rows;
@@ -900,6 +932,11 @@ int main(int argc, char **argv) {
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
     if (app.arguments().contains(QStringLiteral("--profile-auto-crop"))) {
         const auto result=profileAutoCrop();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-native-pixel-edits"))) {
+        const auto result=profileNativePixelEdits();
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
         output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
     }
