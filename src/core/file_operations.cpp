@@ -159,6 +159,6 @@ FileOperations::OperationResult FileOperations::perform(const QString &kind, con
         if (catalogBatch_) catalogBatch_->state_->moves.append({from, to});
         else warning = ImageCatalog().relocate(from, to);
     }
-    return {warning, true, sourceRevision, targetRevision};
+    return {{}, true, sourceRevision, targetRevision, warning};
 }
 } // namespace ix

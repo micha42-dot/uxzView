@@ -90,6 +90,7 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
                 if (o.renameOnly) {
                     const auto result = operations.perform(QStringLiteral("move"), e.input, e.output);
                     e.error = result.error;
+                    e.warning = result.warning;
                     e.moved = result.applied;
                     e.sourceRevision = result.sourceRevision;
                     e.targetRevision = result.targetRevision;
@@ -132,7 +133,7 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
     if (catalogBatch) {
         const auto warning = catalogBatch->commit();
         if (!warning.isEmpty()) for (auto &entry : results)
-            if (entry.moved && entry.error.isEmpty()) entry.error = warning;
+            if (entry.moved) entry.warning = warning;
     }
     return results;
 }

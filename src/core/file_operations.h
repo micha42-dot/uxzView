@@ -29,6 +29,7 @@ class FileOperations {
         QString error;
         bool applied = false;
         QString sourceRevision = {}, targetRevision = {};
+        QString warning = {}; // Secondary metadata failure after an applied operation.
     };
     OperationResult perform(const QString &kind, const QString &source, const QString &target = {},
                             const QString &expectedSource = {});

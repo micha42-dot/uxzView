@@ -588,9 +588,10 @@ BatchFileChanges batchDialog(QWidget *p, const QStringList &initial) {
     QObject::connect(&watcher, &QFutureWatcherBase::finished, &d, [&] {
         for (const auto &e : watcher.future().takeResult()) {
             changes.add(e);
+            const auto detail = !e.error.isEmpty() ? localized(e.error) : localized(e.warning);
             log->appendPlainText((e.error.isEmpty() ? QStringLiteral("OK: ") : IX_TEXT("FEHLER: ")) +
                                  e.input + QStringLiteral(" → ") + e.output +
-                                 (e.error.isEmpty() ? QString() : QStringLiteral("\n  ") + e.error));
+                                 (detail.isEmpty() ? QString() : QStringLiteral("\n  ") + detail));
         }
         running = false;
         progress->setRange(0, 1);

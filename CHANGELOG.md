@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Separate catalog warnings from file-operation failures. Successful direct and
+  batch moves retain success status while displaying any metadata warning.
 - Reuse one settings reader when capturing color-management and RAW-preview
   preferences for an image-load request.
 - Load catalog snapshots and perform annotation IO off the GUI thread; retain

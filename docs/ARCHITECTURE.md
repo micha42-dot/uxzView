@@ -396,6 +396,8 @@ and JPEG XR require separate backends and are not advertised by this plugin.
 operations. It creates no operation records, backup repository or disk-Undo
 history. Its result carries applied state and copy/move revision snapshots;
 catalog-relocation warnings do not imply that the file move failed. A
+separate `warning` field carries them; `error` describes an incomplete requested
+operation. Classic batch preserves that distinction in its results and log. A
 process-local mutex serializes these operations. No image payload hashing is
 needed for a normal rename. Source revisions are rechecked after worker-side
 preflight, including native trash. The confirmation's source revision can be

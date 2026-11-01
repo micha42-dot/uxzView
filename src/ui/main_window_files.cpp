@@ -257,5 +257,7 @@ void MainWindow::fileOperation(const QString &op) {
     }
     refreshFiles(true);
     if (!result.operation.error.isEmpty()) showError(result.operation.error);
+    if (!result.operation.warning.isEmpty())
+        QMessageBox::warning(this, QStringLiteral("üxzView"), localized(result.operation.warning));
 }
 } // namespace ix

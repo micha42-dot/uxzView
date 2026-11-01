@@ -23,6 +23,7 @@ struct BatchEntry {
     QString input, output, error;
     bool moved = false;
     QString sourceRevision = {}, targetRevision = {};
+    QString warning = {};
 };
 struct BatchRelocation {
     QString path, sourceRevision, targetRevision;

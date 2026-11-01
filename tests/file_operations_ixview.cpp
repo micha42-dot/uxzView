@@ -288,8 +288,21 @@ class FileOperationTests : public QObject {
         options.renameOnly=true;options.namePattern=QStringLiteral("renamed");
         std::atomic_bool cancel=false;
         const auto results=ix::BatchProcessor::run(options,cancel);
-        QCOMPARE(results.size(),1);QVERIFY(results[0].moved);QVERIFY(!results[0].error.isEmpty());
+        QCOMPARE(results.size(),1);QVERIFY(results[0].moved);QVERIFY(results[0].error.isEmpty());
+        QVERIFY(!results[0].warning.isEmpty());
         QVERIFY(!QFileInfo::exists(source));QCOMPARE(get(results[0].output),QByteArray("original"));
+    }
+    void directMoveSeparatesCatalogWarningFromFailure() {
+        QTemporaryDir folder;
+        const auto prior=qApp->property("ixStorageData");
+        const auto restore=qScopeGuard([&] { qApp->setProperty("ixStorageData",prior); });
+        qApp->setProperty("ixStorageData",folder.path());
+        const auto source=folder.filePath(QStringLiteral("source")), target=folder.filePath(QStringLiteral("target"));
+        QVERIFY(put(source,"source bytes")); QVERIFY(put(folder.filePath(QStringLiteral("catalog.json")),"broken"));
+        const auto result=ix::FileOperations().perform(QStringLiteral("move"),source,target);
+        QVERIFY(result.applied); QVERIFY(result.error.isEmpty()); QVERIFY(!result.warning.isEmpty());
+        QVERIFY(!result.sourceRevision.isEmpty()); QCOMPARE(result.targetRevision,ix::imageFileKey(target));
+        QVERIFY(!QFileInfo::exists(source)); QCOMPARE(get(target),QByteArray("source bytes"));
     }
     void saveGuardCancelsAtomicReplacement_data() {
         QTest::addColumn<bool>("exists");QTest::newRow("create")<<false;QTest::newRow("replace")<<true;
