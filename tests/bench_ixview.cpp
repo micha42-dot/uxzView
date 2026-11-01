@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "animation_fixture.h"
 #include "convolution_reference.h"
+#include "auto_crop_reference.h"
 #include "core/apng_codec.h"
 #include "core/codec_registry.h"
 #include "core/file_operations.h"
@@ -31,6 +32,27 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QJsonObject profileAutoCrop() {
+    QJsonArray formats;
+    for (auto format : {QImage::Format_RGB32,QImage::Format_RGBA64}) {
+        QImage source(6000,4000,format); source.fill(QColor(17,37,53));
+        const QRect expected(37,51,6000-74,4000-102);
+        { QPainter painter(&source); painter.fillRect(expected,QColor(91,151,213)); }
+        QJsonArray oldTimes,newTimes;
+        for (int sample=0;sample<3;++sample)
+            for (bool reference : {sample%2==0,sample%2!=0}) {
+                QElapsedTimer timer; timer.start();
+                const auto rect=reference ? ix::test::autoCropReference(source,5) : ix::autoCropRect(source,5);
+                const double elapsed=timer.nsecsElapsed()/1e6;
+                if (rect!=expected) return {{QStringLiteral("error"),QStringLiteral("Crop bounds differ")}};
+                (reference ? oldTimes : newTimes).append(elapsed);
+            }
+        formats.append(QJsonObject{{QStringLiteral("format"),int(format)},
+            {QStringLiteral("reference_ms"),oldTimes},{QStringLiteral("scanline_ms"),newTimes}});
+    }
+    return {{QStringLiteral("formats"),formats},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"),QStringLiteral("24 MP in-memory image; three alternating calls per path/format; original scalar reference vs production scanlines, same crop bounds; excludes generation/decoding, no additional full image buffer.")}};
+}
 QJsonObject profileDirectoryFilters() {
     const auto base=QDir::current().filePath(QStringLiteral("build/audit-fixtures"));
     if (!QDir().mkpath(base)) return {{QStringLiteral("error"),QStringLiteral("Fixture directory failed")}};
@@ -876,6 +898,11 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-auto-crop"))) {
+        const auto result=profileAutoCrop();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-directory-filters"))) {
         const auto result=profileDirectoryFilters();
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;

@@ -186,6 +186,12 @@ default-amount batch sharpening and optional display sharpening.
 
 ## First-image presentation
 
+Automatic border cropping reads native straight RGB32/ARGB32/RGBX64/RGBA64
+scanlines without another image allocation. Tolerance retains QColor's 8-bit
+channel semantics. Premultiplied, palette and floating-point formats keep Qt's
+pixelColor path to preserve conversion/rounding behavior. Independent scalar
+comparisons and the opt-in `--profile-auto-crop` mode cover this boundary.
+
 `ImageDocument::sourceModified` is the last-write time observed on a successful
 read, retained with that loaded revision through cache/edit history. Status
 refreshes format this value without polling the filesystem. Reopening/reloading

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Scan native 32-/64-bit rows for automatic border cropping without a converted
+  full-image buffer. Preserve Qt pixel semantics for other formats.
 - Recreate missing root menus before adding features and ignore a missing crop
   submenu instead of dereferencing null menu pointers.
 - Reject invalid channel indices before swapping pixels instead of indexing

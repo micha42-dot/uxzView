@@ -3,6 +3,7 @@
 #include "core/file_operations.h"
 #include "core/preview_service.h"
 #include "convolution_reference.h"
+#include "auto_crop_reference.h"
 #include "ui/main_window.h"
 #include <QColorSpace>
 #include <QJsonDocument>
@@ -39,6 +40,27 @@ class QualityTests : public QObject {
         QCOMPARE(result.blue(), quint16(0x1234)); QCOMPARE(result.alpha(), quint16(0xdef0));
         QCOMPARE(ix::swapChannels(source, 1, 1), source);
         QCOMPARE(source.cacheKey(), key);
+    }
+    void autoCropMatchesOriginalPixels_data() {
+        QTest::addColumn<int>("format");
+        for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_RGBA64,
+            QImage::Format_RGBX64,QImage::Format_ARGB32_Premultiplied,QImage::Format_RGBA64_Premultiplied,
+            QImage::Format_RGBA32FPx4,QImage::Format_Grayscale16,QImage::Format_Indexed8})
+            QTest::newRow(QByteArray::number(int(format)).constData()) << int(format);
+    }
+    void autoCropMatchesOriginalPixels() {
+        QFETCH(int,format);
+        QImage high(11,9,QImage::Format_RGBA64);
+        high.fill(QColor::fromRgba64(0x2345,0x6789,0xabc1,0x7fff));
+        for (int y=2;y<7;++y) for (int x=3;x<9;++x)
+            high.setPixelColor(x,y,QColor::fromRgba64(0x3456,0x789a,0x4567,0x6789));
+        high.setPixelColor(1,1,QColor::fromRgba64(0x2345+257,0x6789,0xabc1,0x7fff));
+        const auto source=high.convertToFormat(QImage::Format(format));
+        QVERIFY(!source.isNull()); const auto key=source.cacheKey();
+        for (int tolerance : {-1,0,1,16,127,255,std::numeric_limits<int>::max()})
+            QCOMPARE(ix::autoCropRect(source,tolerance),ix::test::autoCropReference(source,tolerance));
+        QCOMPARE(source.cacheKey(),key);
+        QCOMPARE(ix::autoCropRect(QImage()),QRect());
     }
     void convolutionRetainsReferencePixels_data() {
         QTest::addColumn<int>("format");

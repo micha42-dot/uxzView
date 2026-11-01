@@ -394,18 +394,43 @@ QRect autoCropRect(const QImage &s, int tolerance) {
     if (s.isNull())
         return {};
     QColor bg = s.pixelColor(0, 0);
+    const int bgRed = bg.red(), bgGreen = bg.green(), bgBlue = bg.blue(), bgAlpha = bg.alpha();
     int left = s.width(), right = -1, top = s.height(), bottom = -1;
-    for (int y = 0; y < s.height(); ++y)
-        for (int x = 0; x < s.width(); ++x) {
-            auto c = s.pixelColor(x, y);
-            if (std::abs(c.red() - bg.red()) > tolerance || std::abs(c.green() - bg.green()) > tolerance ||
-                std::abs(c.blue() - bg.blue()) > tolerance || std::abs(c.alpha() - bg.alpha()) > tolerance) {
+    const auto different = [&](int red, int green, int blue, int alpha) {
+        return std::abs(red - bgRed) > tolerance || std::abs(green - bgGreen) > tolerance ||
+               std::abs(blue - bgBlue) > tolerance || std::abs(alpha - bgAlpha) > tolerance;
+    };
+    const auto scan = [&](auto rowAt, auto differs) {
+        for (int y = 0; y < s.height(); ++y) {
+            const auto *row = rowAt(y);
+            for (int x = 0; x < s.width(); ++x) if (differs(row[x])) {
                 left = std::min(left, x);
                 right = std::max(right, x);
                 top = std::min(top, y);
                 bottom = std::max(bottom, y);
             }
         }
+    };
+    if (s.format() == QImage::Format_RGB32 || s.format() == QImage::Format_ARGB32) {
+        const bool alpha = s.format() == QImage::Format_ARGB32;
+        scan([&](int y) { return reinterpret_cast<const QRgb *>(s.constScanLine(y)); },
+             [&](QRgb p) { return different(qRed(p), qGreen(p), qBlue(p), alpha ? qAlpha(p) : 255); });
+    } else if (s.format() == QImage::Format_RGBA64 || s.format() == QImage::Format_RGBX64) {
+        const bool alpha = s.format() == QImage::Format_RGBA64;
+        scan([&](int y) { return reinterpret_cast<const QRgba64 *>(s.constScanLine(y)); },
+             [&](QRgba64 p) { return different(p.red8(), p.green8(), p.blue8(), alpha ? p.alpha8() : 255); });
+    } else {
+        // Preserve Qt's exact unpremultiplication, palette and floating-point
+        // behavior rather than allocating/converting another full-size image.
+        for (int y = 0; y < s.height(); ++y)
+            for (int x = 0; x < s.width(); ++x) {
+                const auto c = s.pixelColor(x, y);
+                if (different(c.red(), c.green(), c.blue(), c.alpha())) {
+                    left = std::min(left, x); right = std::max(right, x);
+                    top = std::min(top, y); bottom = std::max(bottom, y);
+                }
+            }
+    }
     return right < left ? s.rect() : QRect(QPoint(left, top), QPoint(right, bottom));
 }
 QImage canvas(const QImage &s, int l, int r, int t, int b, QColor bg) {
