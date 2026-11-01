@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Include CMake-derived Windows product/version information with matching Unicode
+  translation metadata. Validate fixed/string versions through the Windows API
+  during release preparation without executing the inspected binary.
 - Store fitted-view and manual-zoom smoothing independently. Migrate the old
   shared preference to both choices and switch rendering policy without settings
   IO on each zoom or redundant repaint requests.

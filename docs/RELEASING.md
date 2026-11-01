@@ -14,9 +14,9 @@ Im Projektverzeichnis mit Windows x64 und Python 3.14+:
 # ./scripts/prepare_release.ps1
 ```
 
-Das Skript prüft zunächst SDK-Installer, Übersetzungen und Registry-Erzeugung offline. Es lädt beziehungsweise prüft die fünf festgelegten CC0-Kamera-RAWs, baut außerdem die separaten QR-/OCR-Werkzeugpakete und Sprachmodelle, baut Release mit aktivierten Tests und führt alle fünf CTest-Suiten aus. Anschließend erzeugt es die Formatmatrix, baut die portable Laufzeit frisch auf und wiederholt alle fünf Suiten mit ausschließlich Windows-Systemverzeichnissen im PATH. Die HEIF-/AVIF-Neubauten benötigen beim ersten Lauf ihre hashgeprüften Quellarchive und verwenden das gesperrte SDK. Danach ordnet der Ablauf unveränderte DLLs den SDK-Paketen und die zwei Neubauten ihren dokumentierten Quellen/Rezepten zu. Die Verfügbarkeit aller zugehörigen Quellpakete wird im MSYS2-Index geprüft. Netzwerk wird für fehlende Quellen/RAW-Fixtures und die abschließende Verfügbarkeitsprüfung benötigt. Quellen werden mit dem lokalen Compiler gebaut; heruntergeladene Testbilder werden ausschließlich dekodiert.
+Das Skript prüft zunächst SDK-Installer, Übersetzungen und Registry-Erzeugung offline. Es lädt beziehungsweise prüft die fünf festgelegten CC0-Kamera-RAWs, baut außerdem die separaten QR-/OCR-Werkzeugpakete und Sprachmodelle, baut Release mit aktivierten Tests und führt alle acht CTest-Suiten aus. Es prüft die Windows-Versionsressource, erzeugt die Formatmatrix, baut die portable Laufzeit frisch auf und wiederholt alle acht Suiten mit ausschließlich Windows-Systemverzeichnissen im PATH. Die HEIF-/AVIF-Neubauten benötigen beim ersten Lauf ihre hashgeprüften Quellarchive und verwenden das gesperrte SDK. Danach ordnet der Ablauf unveränderte DLLs den SDK-Paketen und die zwei Neubauten ihren dokumentierten Quellen/Rezepten zu. Die Verfügbarkeit aller zugehörigen Quellpakete wird im MSYS2-Index geprüft. Netzwerk wird für fehlende Quellen/RAW-Fixtures und die abschließende Verfügbarkeitsprüfung benötigt. Quellen werden mit dem lokalen Compiler gebaut; heruntergeladene Testbilder werden ausschließlich dekodiert.
 
-Unter `dist` entstehen bei Version 0.4.8:
+Unter `dist` entstehen:
 
 | Datei | Zweck |
 | --- | --- |
@@ -42,16 +42,75 @@ Alle fertigen Dateien liegen direkt unter `dist`, neben dem entpackten Programm 
 
 Prüfsumme unter Windows beispielsweise mit `Get-FileHash .\dist\uxzView-win64.zip -Algorithm SHA256` gegen `SHA256SUMS.txt` vergleichen. SHA-256 sichert Integrität; die Entwicklungsfassung ist noch nicht mit einem Windows-Code-Signing-Zertifikat signiert.
 
+## Windows-Identität, Signatur und Virenscanner
+
+`resources/windows/app.rc.in` enthält die Produktdaten und übernimmt die Version
+aus CMake. Der Sprach-/Codepage-Verweis muss zur String-Tabelle passen.
+`verify_windows_metadata.py` liest diese Verweise sowie feste und textuelle
+Versionen über die Windows-API; es startet die untersuchte EXE nicht:
+
+```powershell
+python scripts/verify_windows_metadata.py build/uxzView.exe
+```
+
+Für eine außerhalb des Quellbaums abgelegte Kopie kann `--version 0.5.0.0`
+explizit angegeben werden. Die Prüfung bestätigt Ressourcen-Konsistenz, keine
+Authenticode-Signatur und kein Scannerurteil.
+Die Verweisregeln beschreibt Microsoft bei
+[VerQueryValue](https://learn.microsoft.com/en-us/windows/win32/api/winver/nf-winver-verqueryvaluew).
+
+Der automatisierte Release-Ablauf signiert bisher nicht. Sobald ein eigenes
+Code-Signing-Zertifikat verfügbar ist, die eigenen fertigen Build-Ausgaben
+**vor Deployment, Herkunftszuordnung und Paketierung** signieren. Den
+Signierschritt nach dem Build und vor `deploy.py` einfügen; kein erneuter Build
+danach. Werkzeugpakete behalten ihre separat geprüften Payload-Hashes.
+Mit dem Windows-SDK-SignTool beispielsweise, mit tatsächlichem Zertifikat und
+dem vom Signaturanbieter dokumentierten Zeitstempeldienst:
+
+```powershell
+signtool sign /sha1 CERTIFICATE_THUMBPRINT /fd SHA256 /tr TIMESTAMP_URL /td SHA256 build/uxzView.exe
+signtool verify /pa /all /v build/uxzView.exe
+```
+
+Eigene mitgelieferte Module ebenso signieren und prüfen, wenn vorhanden:
+`build/ixextensions.dll`, `build/ixrawpreview.dll` und
+`build/imageformats/ixarchive.dll`. Schlüssel und Zertifikatpasswörter gehören
+nicht ins Repository oder in Befehlsprotokolle. Die Zertifikatsauswahl und
+SHA-256-/Zeitstempeloptionen folgen dem
+[SignTool-Vertrag](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool).
+Nach dem Signieren Deployment/portable Tests erneut ausführen und erst danach
+die endgültigen ZIP-Prüfsummen erzeugen. Ohne eingerichtetes Zertifikat bleibt
+der Download als unsigniert beschrieben. Eine gültige Signatur bescheinigt den
+Herausgeber und die Integrität; sie ersetzt keine Sicherheitsprüfung.
+
+Für einen gemeldeten Fund den vollständigen Fundnamen, den exakten Datei-SHA-256,
+Scanner-/Definitionsversion, Zeitpunkt und Herkunft aufbewahren. Neueste
+verfügbare Definitionen einspielen und den konkreten Release-Kandidaten sowie
+die entpackte Laufzeit prüfen. Scannerprotokolle und ihr tatsächliches Ergebnis
+aufbewahren; ein lokaler sauberer Scan bestätigt keine globale Freigabe.
+Die Windows-Produktressource erklärt den ursprünglichen Fund ebenfalls nicht.
+
+Eine mutmaßliche Fehlklassifizierung gezielt über
+[Microsofts Entwickler-Einreichung](https://www.microsoft.com/en-us/wdsi/filesubmission)
+oder [Bitdefenders Meldeformular](https://www.bitdefender.com/consumer/support/answer/29358/)
+prüfen lassen. Exakte Datei, Hash und reproduzierbaren Kontext zuordnen;
+Herstellerantwort/Submission-ID separat festhalten. Neue Scans und
+Herstellerkorrekturen anhand desselben Hashes verfolgen. Allgemeine Fundnamen
+belegen allein keine Fehlklassifizierung; eine automatische Übernahme durch
+andere Scanner ist nicht zugesichert. Uploads sind ein gesonderter,
+ausdrücklicher Veröffentlichungsschritt; keine persönlichen Profile mitsenden.
+Schutzfunktionen oder Ausnahmen sind kein Release-Fix.
+
 ## Auf GitHub einen Entwurf erzeugen
 
 Nach dem ersten Push und einer Prüfung des gewünschten Commits:
 
 ```powershell
-git tag -a v0.4.8 -m "üxzView 0.4.8"
-git push origin v0.4.8
+git tag -a v0.5.0 -m "üxzView 0.5.0"
+git push origin v0.5.0
 ```
 
-Dann **Actions → Prepare Windows release draft → Run workflow** auswählen und den vorhandenen Tag `v0.4.8` angeben. Tag, CMake-Version und ausgecheckter Commit müssen übereinstimmen. Der Workflow baut den Tag neu, prüft ihn und legt mit dem eingebauten `GITHUB_TOKEN` einen Release-Entwurf an. Ein zusätzliches persönliches Token ist nicht erforderlich. Nur dieser Job erhält `contents: write`; normale Build-Jobs erhalten `contents: read`. Ein Push oder Tag allein veröffentlicht nichts.
+Dann **Actions → Prepare Windows release draft → Run workflow** auswählen und den vorhandenen Tag `v0.5.0` angeben (Versionsnummern im Beispiel an das tatsächliche Release anpassen). Tag, CMake-Version und ausgecheckter Commit müssen übereinstimmen. Der Workflow baut den Tag neu, prüft ihn und legt mit dem eingebauten `GITHUB_TOKEN` einen Release-Entwurf an. Ein zusätzliches persönliches Token ist nicht erforderlich. Nur dieser Job erhält `contents: write`; normale Build-Jobs erhalten `contents: read`. Ein Push oder Tag allein veröffentlicht nichts.
 
 Den Entwurf unter Releases öffnen. Windows-ZIP frisch in ein leeres Verzeichnis entpacken und starten; Öffnen, Rahmenzoom, Pfeiltasten, Speichern, Vorschauen und Einstellungen sowie einen Batchlauf an Testkopien prüfen. Den tatsächlichen Testumfang im Text korrekt benennen, insbesondere Windows-10- und native Desktop-Tests. Alle fünf Download-Anhänge einschließlich Quellhinweisen und Prüfsummen beibehalten und erst dann **Publish release** wählen. Ein wiederholter Workflow für einen bereits vorhandenen Release schlägt fehl, statt dessen Dateien still zu ersetzen.
 

@@ -42,7 +42,7 @@ if(WIN32)
     enable_language(RC)
     configure_file(resources/windows/app.rc.in uxzView.rc @ONLY)
     if(MINGW)
-        # This icon-only resource needs no Qt includes/defines. Avoid windres'
+        # This icon/version resource needs no Qt includes/defines. Avoid windres'
         # broken quoting of full preprocessor paths and inherited include lists.
         get_filename_component(ix_rc_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
         get_filename_component(ix_rc_cpp "${CMAKE_CXX_COMPILER}" NAME)
