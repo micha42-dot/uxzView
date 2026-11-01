@@ -211,12 +211,20 @@ default-amount batch sharpening and optional display sharpening.
 
 ## First-image presentation
 
-Pixel transforms check source pixels plus overlapping RGBA64/output-conversion
+Pixel transforms check source pixels plus overlapping working/output-conversion
 buffers against a 512 MiB image-buffer budget before allocating. Convolution
 releases its input before final conversion; auto levels releases its histogram
 input before pixel output. RGBA64 source sharing is accounted once. This is an
 operation-local image-buffer estimate, not a global RAM cap; histogram tables,
 metadata, other documents/workers and allocator overhead remain additional.
+
+Negative/channel/swap operations use `perPixel32` only for straight RGB32/ARGB32.
+Byte-exact masks/extraction replace whole-image RGBA64 conversion; the combined
+source/output pixels need 8 rather than 16 bytes per pixel. Alpha, color space,
+DPI, text, device-pixel ratio and image offset retain their previous semantics.
+Premultiplied, indexed, HDR and higher-depth inputs retain the RGBA64 path.
+Grayscale/color-adjust arithmetic is unchanged: a generic per-pixel 32/64-bit
+adapter reduced buffers but slowed grayscale in the measured prototype.
 
 Automatic border cropping reads native straight RGB32/ARGB32/RGBX64/RGBA64
 scanlines without another image allocation. Tolerance retains QColor's 8-bit
@@ -254,6 +262,14 @@ An image-producing tool needs a documented result contract plus document-install
 Use existing transactional helpers, locks and path validation. Never replace corrupt state with an empty file silently. Never recursively copy a profile into its descendants. Deployment preserves personal state; Windows releases use a separate verified factory tool snapshot. Native archives currently exclude local tool stores. See [PORTABLE.md](PORTABLE.md) and [RELEASING.md](RELEASING.md).
 
 ## Platform presentation
+
+Appearance synchronizes existing framed Windows widgets through
+`applyNativeWindowTheme`. DWM attribute 20 falls back to 19 for older Windows 10,
+as in Qt 6.8. Theme, show and handle-change events queue one guarded reapplication
+after Qt's platform handler; widget/application lifetimes own delivery. The
+helper never creates a native handle or changes geometry/window flags. Image
+loads, title text updates and normal paints do not invoke this frame path.
+Other platforms retain their normal window-manager decoration.
 
 Windows fullscreen presentation and global hotkeys belong in `ui/platform_support.*`. The Windows transition cover uses an opaque native layered surface: upload the complete snapshot before showing it, fence presentation before native resizing, and retain it through final painting/presentation. A newly shown QWidget may not have painted yet, so DwmFlush alone does not establish content readiness. The cover owns its HWND, releases temporary bitmap/DC resources immediately after upload, and is destroyed on completion, replacement or owner destruction. It has no Qt backing store and receives no focus or mouse input. Arbitrary sleeps or removing compositor fences can conceal a race in one run and reintroduce flicker elsewhere. Changes require native DPI/window tests; offscreen tests cannot prove visual behavior on every GPU.
 

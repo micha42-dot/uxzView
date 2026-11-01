@@ -1,5 +1,17 @@
 # Performance in üxzView
 
+## Native 32-bit channel edits · 01.11.2026
+
+Negative, channel display and red/blue swapping use one native output buffer
+for RGB32/ARGB32, avoiding the full RGBA64 intermediate. In paired 24 MP
+component measurements, six samples per arm give **1.86–2.86×** gains; RGB32
+negative drops from **121.10 to 54.76 ms**. The estimated source/working/output
+image-buffer requirement halves from 16 to 8 bytes per pixel; this is not peak
+process RAM. Grayscale/color adjustments and nonnative formats keep their old
+paths. A generic adapter was slower for grayscale and was rejected. Exact
+sample/property comparisons, timing controls and scope are in the
+[Windows theme/pixel review](WINDOWS_THEME_PIXEL_REVIEW_2026-11-01.md).
+
 ## Automatic border cropping · 01.11.2026
 
 Native 32-/64-bit scanlines avoid repeated QColor conversion and a full-image

@@ -18,6 +18,14 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Native Windows-Titelleisten folgen dem gewählten Farbschema, auch bei späteren
+  Dialogen und neuen Fensterhandles; Kompatibilitätspfad für älteres Windows 10.
+  Nativ unter Windows 11 bei vier Skalierungen geprüft, Windows-10-Sichtprüfung
+  noch offen. Negativ/Kanalansicht/Kanaltausch für RGB32/ARGB32 benötigen einen
+  kleineren Bildpuffer und sind im 24-MP-Komponententest 1,86–2,86× schneller.
+  532 Qt-Fälle im Build und portablen Paket sowie 45 Python-Tests bestehen.
+  [Messwerte, Umsetzung und Grenzen](docs/WINDOWS_THEME_PIXEL_REVIEW_2026-11-01.md).
+
 - Zuverlässigkeitsprüfung: Kanal-/Menügrenzen, Bildpufferbudget, einmalige
   Katalogaktualisierung bei Batch-Umbenennungen, sichere POSIX-Zielpublikation
   und weniger blockierende GUI-Arbeit. Getrennte Glättung für Einpassen/Zoom,

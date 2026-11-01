@@ -7,10 +7,13 @@ portable checks pass after removing obsolete batch backup promises; no new
 native cross-platform, HDR or peak-process-memory coverage is implied.
 
 üxzView 0.5.0 has eight Qt test suites. The development build and portable runtime
-each pass **516 Qt cases** on Windows 11: 200 functional, 143 workflow, 57 quality,
-12 storage, 29 file-operation, 17 extension, 15 maintenance and 43 UI quality,
+each pass **532 Qt cases** on Windows 11: 200 functional, 143 workflow, 72 quality,
+12 storage, 29 file-operation, 17 extension, 15 maintenance and 44 UI quality,
 with no skips. All **45 Python tests** pass. The new navigation/smoothing cases
-also pass natively at 100/125/150/200 percent scaling. The
+also pass natively at 100/125/150/200 percent scaling, as does the native-title
+regression for theme/dialog/handle changes. The
+[Windows theme/pixel review](WINDOWS_THEME_PIXEL_REVIEW_2026-11-01.md) records the
+current buffer optimization, rejected prototype and Windows 10 test gap. The
 [1 November reliability review](RELIABILITY_REVIEW_2026-11-01.md) records each
 finding's disposition, the automatic-crop measurement, AV evidence and remaining
 risks, including one unexplained initial catalog-test failure. Counts include
