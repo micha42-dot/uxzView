@@ -98,11 +98,20 @@ QImage finish(const QImage &src, QImage dst) {
     inheritImageProperties(src, dst);
     if (imageChannelBits(src) <= 8)
         dst = dst.convertToFormat(src.hasAlphaChannel() ? QImage::Format_ARGB32 : QImage::Format_RGB32);
+    if (dst.isNull())
+        throw std::runtime_error("Speicher nicht verfügbar.");
     return dst;
+}
+void checkWorkingSet(const QImage &src, int extraBytesPerPixel) {
+    const qint64 pixels = qint64(src.width()) * src.height();
+    if (src.sizeInBytes() > ImageMemoryLimit ||
+        pixels > (ImageMemoryLimit - src.sizeInBytes()) / extraBytesPerPixel)
+        throw std::runtime_error(IX_TEXT("Bildbearbeitung überschreitet das Speicherlimit von 512 MiB.").toStdString());
 }
 template <class F> QImage perPixel(const QImage &src, F fn) {
     if (src.isNull())
         return {};
+    checkWorkingSet(src, 8 + (imageChannelBits(src) <= 8 ? 4 : 0));
     auto out = src.convertToFormat(QImage::Format_RGBA64);
     if (out.isNull())
         throw std::runtime_error("Speicher nicht verfügbar.");
@@ -288,11 +297,22 @@ QImage adjustColors(const QImage &s, const ColorAdjust &o) {
     });
 }
 QImage convolve(const QImage &s, const QVector<double> &k, int side, double div, double offset) {
+    if (s.isNull() || side <= 0 || qint64(side) * side > std::numeric_limits<int>::max() ||
+        k.size() != qint64(side) * side || div == 0)
+        throw std::runtime_error("Ungültiger Filter oder nicht genügend Speicher.");
+    const int convolutionBytes = (s.format() == QImage::Format_RGBA64 ? 0 : 8) + 8;
+    const int finalBytes = 8 + (imageChannelBits(s) <= 8 ? 4 : 0);
+    checkWorkingSet(s, std::max(convolutionBytes, finalBytes));
     auto input = s.convertToFormat(QImage::Format_RGBA64);
     QImage out(input.size(), input.format());
     int half = side / 2;
-    if (out.isNull() || k.size() != side * side || div == 0)
+    if (input.isNull() || out.isNull())
         throw std::runtime_error("Ungültiger Filter oder nicht genügend Speicher.");
+    const auto finishFilter = [&] {
+        // The final 8-bit conversion does not need the convolution input.
+        input = {};
+        return finish(s, std::move(out));
+    };
     constexpr std::array<double, 9> sharpen{0, -1, 0, -1, 5, -1, 0, -1, 0};
     if (side == 3 && div == 1 && offset == 0 && std::equal(k.cbegin(), k.cend(), sharpen.cbegin())) {
         // This integer kernel is exact in the RGBA64 working format. Its
@@ -315,7 +335,7 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
                     channel(p.blue(), up.blue(), left.blue(), right.blue(), down.blue()), p.alpha());
             }
         }
-        return finish(s, std::move(out));
+        return finishFilter();
     }
     for (int y = 0; y < input.height(); ++y) {
         auto *d = reinterpret_cast<QRgba64 *>(out.scanLine(y));
@@ -337,17 +357,20 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
                                        u16(b / div / 65535 + offset), p.alpha());
         }
     }
-    return finish(s, std::move(out));
+    return finishFilter();
 }
 QImage autoCorrect(const QImage &s) {
     if (s.isNull())
         return s;
+    checkWorkingSet(s, 8 + (imageChannelBits(s) <= 8 ? 4 : 0));
     // Percentile auto levels: isolated black/white pixels must not make a
     // low-contrast photograph look as though the command did nothing.
     std::vector<std::array<quint64, 3>> histogram(65536);
     quint64 count = 0;
     std::array<quint16, 3> lo{65535, 65535, 65535}, hi{0, 0, 0};
     auto input = s.convertToFormat(QImage::Format_RGBA64);
+    if (input.isNull())
+        throw std::runtime_error("Speicher nicht verfügbar.");
     for (int y = 0; y < input.height(); ++y) {
         auto *r = reinterpret_cast<const QRgba64 *>(input.constScanLine(y));
         for (int x = 0; x < input.width(); ++x) {
@@ -381,6 +404,7 @@ QImage autoCorrect(const QImage &s) {
             }
         }
     }
+    input = {}; // Histogram analysis is complete before allocating output pixels.
     return perPixel(s, [=](QRgba64 p) {
         if (!p.alpha())
             return p;

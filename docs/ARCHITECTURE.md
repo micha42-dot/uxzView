@@ -186,6 +186,13 @@ default-amount batch sharpening and optional display sharpening.
 
 ## First-image presentation
 
+Pixel transforms check source pixels plus overlapping RGBA64/output-conversion
+buffers against a 512 MiB image-buffer budget before allocating. Convolution
+releases its input before final conversion; auto levels releases its histogram
+input before pixel output. RGBA64 source sharing is accounted once. This is an
+operation-local image-buffer estimate, not a global RAM cap; histogram tables,
+metadata, other documents/workers and allocator overhead remain additional.
+
 Automatic border cropping reads native straight RGB32/ARGB32/RGBX64/RGBA64
 scanlines without another image allocation. Tolerance retains QColor's 8-bit
 channel semantics. Premultiplied, palette and floating-point formats keep Qt's

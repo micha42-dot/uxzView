@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bound pixel/filter image working sets to 512 MiB before allocation, release
+  convolution/histogram inputs before output conversion, and reject invalid
+  filter geometry without overflowing kernel-size arithmetic.
 - Scan native 32-/64-bit rows for automatic border cropping without a converted
   full-image buffer. Preserve Qt pixel semantics for other formats.
 - Recreate missing root menus before adding features and ignore a missing crop

@@ -1,4 +1,5 @@
 [
+["Bildbearbeitung überschreitet das Speicherlimit von 512 MiB.", "Image processing exceeds the 512 MiB memory limit.", "이미지 처리에 필요한 메모리가 512 MiB 제한을 초과합니다.", "画像処理に必要なメモリが512 MiBの上限を超えます。", "Le traitement de l’image dépasse la limite mémoire de 512 Mio."],
 ["&Datei", "&File", "파일(&F)", "ファイル(&F)", "&Fichier"],
 ["&Bearbeiten", "&Edit", "편집(&E)", "編集(&E)", "&Édition"],
 ["&Bild", "&Image", "이미지(&I)", "画像(&I)", "&Image"],

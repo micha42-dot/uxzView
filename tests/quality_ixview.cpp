@@ -62,6 +62,28 @@ class QualityTests : public QObject {
         QCOMPARE(source.cacheKey(),key);
         QCOMPARE(ix::autoCropRect(QImage()),QRect());
     }
+    void pixelWorkingSetsRejectExcessiveBuffers_data() {
+        QTest::addColumn<int>("format");
+        QTest::newRow("8-bit") << int(QImage::Format_RGB32);
+        QTest::newRow("16-bit") << int(QImage::Format_RGBA64);
+    }
+    void pixelWorkingSetsRejectExcessiveBuffers() {
+        QFETCH(int, format);
+        QImage source(8193, 4096, QImage::Format(format));
+        QVERIFY(!source.isNull()); source.fill(Qt::blue);
+        const auto key = source.cacheKey();
+        QVERIFY_EXCEPTION_THROWN(ix::grayscale(source), std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(ix::convolve(source, {1}, 1), std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(ix::autoCorrect(source), std::runtime_error);
+        QCOMPARE(source.cacheKey(), key);
+    }
+    void convolutionRejectsInvalidGeometryBeforeAllocation() {
+        QImage source(1, 1, QImage::Format_RGB32); source.fill(Qt::red);
+        for (int side : {std::numeric_limits<int>::min(), -1, 0, std::numeric_limits<int>::max()})
+            QVERIFY_EXCEPTION_THROWN(ix::convolve(source, {}, side), std::runtime_error);
+        QVERIFY_EXCEPTION_THROWN(ix::convolve(source, {1}, 1, 0), std::runtime_error);
+        QCOMPARE(source.pixelColor(0, 0), QColor(Qt::red));
+    }
     void convolutionRetainsReferencePixels_data() {
         QTest::addColumn<int>("format");
         QTest::addColumn<QSize>("size");
