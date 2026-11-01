@@ -11,7 +11,7 @@ custom_avif = build_avif()
 # Deployment is generated output. Start clean so removed plugins cannot linger.
 clean_runtime(dest, root)
 shutil.copy2(root/'build/uxzView.exe',dest/'uxzView.exe')
-for module in ['ixrawpreview.dll','ixextensions.dll']:
+for module in ['ixrawpreview.dll','ixextensions.dll','ixpdf.dll']:
     if (root/'build'/module).exists():shutil.copy2(root/'build'/module,dest/module)
 plugins=sdk/'share/qt6/plugins'
 # Explicit plugin selection keeps the distribution focused on image viewing.
@@ -22,7 +22,7 @@ for kind in ['platforms','styles','imageformats','printsupport','iconengines','t
             (dest/kind).mkdir(exist_ok=True)
             for name in ['qwindows.dll','qoffscreen.dll']:
                 shutil.copy2(source/name,dest/kind/name)
-        else: shutil.copytree(source,dest/kind,dirs_exist_ok=True)
+        else: shutil.copytree(source,dest/kind,dirs_exist_ok=True,ignore=shutil.ignore_patterns("qpdf*", "libqpdf*"))
 archive_plugin=root/'build/imageformats/ixarchive.dll'
 if archive_plugin.exists():shutil.copy2(archive_plugin,dest/'imageformats'/archive_plugin.name)
 heif=sdk/'lib/libheif'

@@ -24,11 +24,11 @@ Die Windows-Untergrenze entspricht der [Qt-6.11-Plattformmatrix](https://doc.qt.
 
 CMake ≥ 3.24, C++20-Compiler und Qt ≥ 6.8 mit Core, Gui, Widgets, Concurrent, PrintSupport und Svg. Qt Test und libtiff werden nur für `BUILD_TESTING=ON` benötigt. LittleCMS ist eine optionale Testabhängigkeit für unabhängige Farbreferenzen; ohne sie werden vier Fälle ausdrücklich übersprungen. libjpeg-turbo/TurboJPEG ist erforderlich. Exiv2 ist optional; fehlt es, meldet CMake dies und Metadaten-Erhaltung steht nicht zur Verfügung. `IX_ENABLE_METADATA=OFF` schaltet sie bewusst ab. Exiv2 0.27 und 0.28+ werden berücksichtigt.
 
-Qt Network erzeugt das optionale Modul `ixextensions`, LibRaw (threadsafe `raw_r`) das optionale Modul `ixrawpreview`. Beide werden zur Laufzeit erst bei Bedarf geladen. Die CMake-Installation nimmt diese Module samt zusätzlicher Laufzeitabhängigkeiten in den Deployment-Schritt auf; diese neuen Unix-Deploymentpfade sind hier noch nicht nativ verifiziert.
+Qt PDF erzeugt `ixpdf` für mehrseitige PDF-Dateien. Mit `-DIX_ENABLE_PDF=OFF` lässt es sich für reduzierte Builds ausschließen. Qt Network erzeugt das optionale Modul `ixextensions`, LibRaw (threadsafe `raw_r`) das optionale Modul `ixrawpreview`. Alle drei werden zur Laufzeit erst bei Bedarf geladen. Die CMake-Installation nimmt diese Module samt zusätzlicher Laufzeitabhängigkeiten in den Deployment-Schritt auf; diese neuen Unix-Deploymentpfade sind hier noch nicht nativ verifiziert.
 
-`-DIX_REQUIRE_FULL_FEATURES=ON` verlangt Exiv2, LibRaw und Qt Network bereits beim Konfigurieren. Desktop-CI und Windows-Release-Vorbereitung verwenden diese Prüfung, damit eine fehlende Development-Bibliothek nicht unbemerkt eine eingeschränkte Fassung erzeugt. Für bewusst reduzierte Builds bleibt die Option standardmäßig aus. Unter PowerShell aktiviert `./scripts/build.ps1 -Test -RequireFullFeatures` dieselbe Prüfung.
+`-DIX_REQUIRE_FULL_FEATURES=ON` verlangt Exiv2, LibRaw, Qt Network und Qt PDF bereits beim Konfigurieren. Desktop-CI und Windows-Release-Vorbereitung verwenden diese Prüfung, damit eine fehlende Development-Bibliothek nicht unbemerkt eine eingeschränkte Fassung erzeugt. Für bewusst reduzierte Builds bleibt die Option standardmäßig aus. Unter PowerShell aktiviert `./scripts/build.ps1 -Test -RequireFullFeatures` dieselbe Prüfung.
 
-Nach der Installation prüft `python3 scripts/verify_native_modules.py --stage dist/native` beide Zusatzmodule samt Einstiegspunkten über den Betriebssystem-Lader. Auf macOS führt der Prüfer dafür die App mit `--probe-modules` aus, damit die Bundle-Ladepfade zum richtigen Programm gehören. Die Unix-CI entfernt vorher SDK-Bibliothekspfade. Das prüft die ladbaren Module zusätzlich zum PNG-Starttest, ohne Erweiterungsdialoge oder Werkzeuge auszuführen. Auf Windows prüft derselbe Aufruf ohne `--stage` das portable Verzeichnis `dist/uxzView`.
+Nach der Installation prüft `python3 scripts/verify_native_modules.py --stage dist/native` alle drei Zusatzmodule samt Einstiegspunkten über den Betriebssystem-Lader. Auf macOS führt der Prüfer dafür die App mit `--probe-modules` aus, damit die Bundle-Ladepfade zum richtigen Programm gehören. Die Unix-CI entfernt vorher SDK-Bibliothekspfade. Das prüft die ladbaren Module zusätzlich zum PNG-Starttest, ohne Erweiterungsdialoge oder Werkzeuge auszuführen. Auf Windows prüft derselbe Aufruf ohne `--stage` das portable Verzeichnis `dist/uxzView`.
 
 TurboJPEG wird zuerst über sein CMake-Paket, dann über pkg-config und schließlich über Header/Bibliothek gesucht. Exiv2 unterstützt beide verbreiteten CMake-Targetnamen sowie pkg-config. Es werden keine Abhängigkeiten während einer normalen CMake-Konfiguration aus dem Netz geladen.
 
@@ -80,10 +80,10 @@ Qt 6.8.3 lokal installieren und bauen (diese Qt-Version verwendet auch die Unix-
 python3 -m venv .deps/aqt-env
 .deps/aqt-env/bin/python -m pip install aqtinstall==3.3.0
 .deps/aqt-env/bin/python -m aqt install-qt linux desktop 6.8.3 linux_gcc_64 \
-  --outputdir .deps/Qt --modules qtimageformats \
+  --outputdir .deps/Qt --modules qtimageformats qtpdf \
   --archives qtbase qtsvg qttools qttranslations icu qtwayland
 export PATH="$PWD/.deps/Qt/6.8.3/gcc_64/bin:$PATH"
-bash scripts/build.sh "-DCMAKE_PREFIX_PATH=$PWD/.deps/Qt/6.8.3/gcc_64"
+bash scripts/build.sh "-DCMAKE_PREFIX_PATH=$PWD/.deps/Qt/6.8.3/gcc_64" -DIX_REQUIRE_FULL_FEATURES=ON
 ./build/native/uxzView
 ```
 
@@ -102,10 +102,16 @@ Die Installation enthält `bin/uxzView`, einen `.desktop`-Eintrag und das eigene
 Beispiel für macOS 15+ mit Xcode Command Line Tools und Homebrew. Einmalig `xcode-select --install` ausführen, falls noch kein Apple-Compiler vorhanden ist. Homebrew passend zur Prozessorarchitektur installieren: arm64 auf Apple Silicon, x86_64 auf Intel. Im nativen Terminal des jeweiligen Macs:
 
 ```sh
-brew install cmake ninja pkg-config qt jpeg-turbo exiv2 libtiff libraw little-cms2
+brew install cmake ninja pkg-config jpeg-turbo exiv2 libtiff libraw little-cms2
+python3 -m venv .deps/aqt-env
+.deps/aqt-env/bin/python -m pip install aqtinstall==3.3.0
+.deps/aqt-env/bin/python -m aqt install-qt mac desktop 6.8.3 clang_64 \
+  --outputdir .deps/Qt --modules qtimageformats qtpdf \
+  --archives qtbase qtsvg qttools qttranslations
+export PATH="$PWD/.deps/Qt/6.8.3/macos/bin:$PATH"
 bash scripts/build.sh \
-  "-DCMAKE_PREFIX_PATH=$(brew --prefix qt);$(brew --prefix jpeg-turbo);$(brew --prefix exiv2);$(brew --prefix libtiff)" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+  "-DCMAKE_PREFIX_PATH=$PWD/.deps/Qt/6.8.3/macos;$(brew --prefix);$(brew --prefix jpeg-turbo);$(brew --prefix exiv2);$(brew --prefix libtiff)" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DIX_REQUIRE_FULL_FEATURES=ON
 open build/native/uxzView.app
 ```
 
@@ -121,7 +127,7 @@ cmake -S . -B build/minimal -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build/minimal --parallel 4
 ```
 
-`-DIX_ENABLE_METADATA=OFF` baut ohne Exiv2-Funktionen. Qt Network und LibRaw werden automatisch erkannt; ihr Fehlen reduziert den Funktionsumfang. Ein Vollausbau benötigt beide. Der gesperrte Windows-SDK enthält alle Komponenten.
+`-DIX_ENABLE_METADATA=OFF` baut ohne Exiv2-Funktionen. Qt Network, Qt PDF und LibRaw werden automatisch erkannt; ihr Fehlen reduziert den Funktionsumfang. Ein Vollausbau benötigt alle drei. Der gesperrte Windows-SDK enthält alle Komponenten. Bei einem anderen Qt-SDK müssen Qt PDF und die übrigen Qt-Module zu dessen Version und Architektur passen; mit einem frischen Build-Ordner konfigurieren.
 
 | Meldung / Problem | Abhilfe |
 | --- | --- |

@@ -7,5 +7,5 @@ Exec=uxzView %f
 Icon=org.ixview.IxView
 Terminal=false
 Categories=Graphics;Viewer;
-MimeType=image/jpeg;image/png;image/gif;image/tiff;image/bmp;image/webp;image/svg+xml;
+MimeType=application/pdf;image/jpeg;image/png;image/gif;image/tiff;image/bmp;image/webp;image/svg+xml;
 StartupWMClass=IxView

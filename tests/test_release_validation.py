@@ -55,7 +55,7 @@ class ReleaseRuntimeTests(unittest.TestCase):
         (self.root / 'scripts').mkdir()
         lock = self.root / 'scripts/sdk-lock.json'
         lock.write_bytes(b'{}')
-        for name in ('uxzView.exe', 'ixextensions.dll', 'ixrawpreview.dll'):
+        for name in ('uxzView.exe', 'ixextensions.dll', 'ixrawpreview.dll', 'ixpdf.dll'):
             (self.root / 'build' / name).write_bytes(b'current-build-' + name.encode())
             (self.runtime / name).write_bytes((self.root / 'build' / name).read_bytes())
         (self.runtime / 'runtime-manifest.json').write_text(json.dumps({'unresolved': []}))

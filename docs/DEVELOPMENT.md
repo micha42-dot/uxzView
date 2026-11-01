@@ -6,6 +6,7 @@ Build from [PLATFORMS.md](PLATFORMS.md) and read [ARCHITECTURE.md](ARCHITECTURE.
 
 | Change | Start here | Regression evidence |
 | --- | --- | --- |
+| PDF | `modules/pdf_reader.cpp`, `cmake/PdfPluginIsolation.cmake` | Lazy loading, bounded pages/thumbnails, multiple page sizes, invalid input and source-preserving image export. |
 | Decode/metadata/color | `core/image_loading.*`, `codec_registry.*`, `metadata.*`, `processing.*` | Small fixtures, precision/ICC/alpha comparisons, quality suite. |
 | View/selection/fullscreen | `ui/image_view.*`, `platform_support.*` | Pixel/fit checks and native DPI/window tests. |
 | Appearance/dialogs | `ui/appearance.*`, `dialog_layout.h`, [UI_STYLE.md](UI_STYLE.md) | Live theme changes retain pixels/selection/zoom; multilingual/DPI dialog reachability. |

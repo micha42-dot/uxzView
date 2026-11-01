@@ -6,6 +6,8 @@
 #include "convolution_reference.h"
 #include "auto_crop_reference.h"
 #include "pixel_processing_reference.h"
+#include "pdf_fixture.h"
+#include <QtConcurrent>
 #include "ui/main_window.h"
 #include <QColorSpace>
 #include <QJsonDocument>
@@ -14,6 +16,9 @@
 #include <QtWidgets>
 #include <limits>
 #include <stdexcept>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 #ifdef IX_QUALITY_LCMS
 #include <lcms2.h>
 #endif
@@ -21,6 +26,72 @@ class QualityTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_{QStringLiteral(IX_QUALITY_OUTPUT "/run-quality-XXXXXX")};
   private slots:
+    void pdfRemainsLazyDuringImageBrowsing() {
+        ix::CodecRegistry registry;
+        if (!registry.extensions().contains(QStringLiteral("pdf"))) return;
+#ifdef Q_OS_WIN
+        QVERIFY(GetModuleHandleW(L"Qt6Pdf.dll") == nullptr);
+        QVERIFY(GetModuleHandleW(L"ixpdf.dll") == nullptr);
+#endif
+        QVERIFY(registry.openFilter().contains(QStringLiteral("*.pdf")));
+        const auto imagePath = temporary_.filePath(QStringLiteral("before-pdf.png"));
+        QImage image(12,8,QImage::Format_RGB32); image.fill(Qt::red); QVERIFY(image.save(imagePath));
+        QVERIFY(registry.read(imagePath).ok());
+#ifdef Q_OS_WIN
+        QVERIFY(GetModuleHandleW(L"Qt6Pdf.dll") == nullptr);
+#endif
+        const auto pdfPath = temporary_.filePath(QStringLiteral("preview.pdf"));
+        QVERIFY(ix::test::writePdfFixture(pdfPath));
+        const auto preview = ix::loadPreview(pdfPath, {32,24});
+        QCOMPARE(preview.size(),QSize(32,24)); QCOMPARE(preview.pixelColor(16,12),QColor(Qt::red));
+#ifdef Q_OS_WIN
+        QVERIFY(GetModuleHandleW(L"Qt6Pdf.dll") != nullptr);
+#endif
+    }
+    void pdfRendersPagesAndPreservesSource() {
+        ix::CodecRegistry registry;
+        if (!registry.extensions().contains(QStringLiteral("pdf"))) return; // Deliberately reduced builds.
+        const auto path=temporary_.filePath(QStringLiteral("pages.pdf"));
+        QVERIFY(ix::test::writePdfFixture(path)); const auto digest=ix::sha256File(path);
+        const auto first=registry.read(path,0), second=registry.read(path,1);
+        QVERIFY2(first.ok(),qPrintable(first.error)); QVERIFY2(second.ok(),qPrintable(second.error));
+        QCOMPARE(first.document.format,QByteArray("pdf")); QCOMPARE(first.document.pageCount,2);
+        QCOMPARE(first.document.pixels.size(),QSize(160,120)); QCOMPARE(second.document.pixels.size(),QSize(120,200));
+        QCOMPARE(first.document.pixels.pixelColor(80,60),QColor(Qt::red));
+        QCOMPARE(second.document.pixels.pixelColor(60,100),QColor(Qt::blue));
+        QCOMPARE(second.document.pixels.pixelColor(1,1),QColor(Qt::white));
+        QVERIFY(std::abs(first.document.dpiX()-144)<.1); QVERIFY(!first.document.animated);
+        QCOMPARE(first.document.text.value(QStringLiteral("Title")),QStringLiteral("uxzView PDF fixture"));
+        QVERIFY(first.document.metadataWarning.isEmpty()); QVERIFY(!ix::CodecRegistry::canWrite("pdf"));
+        QVERIFY(registry.openFilter().contains(QStringLiteral("*.pdf")));
+        QVERIFY(!registry.read(path,-1).ok()); QVERIFY(!registry.read(path,2).ok());
+        QVERIFY(!registry.save(first.document,path,"pdf",95,true).isEmpty());
+        const auto exported=temporary_.filePath(QStringLiteral("pdf-page.png"));
+        QVERIFY(registry.save(second.document,exported,"png",95,true).isEmpty());
+        const auto restored=registry.read(exported); QVERIFY(restored.ok());
+        QCOMPARE(restored.document.pixels.size(),second.document.pixels.size());
+        QCOMPARE(restored.document.pixels.pixelColor(60,100),QColor(Qt::blue));
+        QCOMPARE(ix::sha256File(path),digest);
+    }
+    void pdfRejectsMalformedAndOversizedPages() {
+        ix::CodecRegistry registry; if (!registry.extensions().contains(QStringLiteral("pdf"))) return;
+        const auto huge=temporary_.filePath(QStringLiteral("huge.pdf"));
+        QVERIFY(ix::test::writePdfFixture(huge,100000,100000));
+        const auto result=registry.read(huge);
+        QVERIFY(!result.ok()); QVERIFY(result.error.contains(QStringLiteral("Speicherlimit")));
+        const auto malformed=temporary_.filePath(QStringLiteral("broken.pdf"));
+        QFile file(malformed); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("%PDF-1.7\ninvalid\n"); file.close();
+        QVERIFY(!registry.read(malformed).ok());
+    }
+    void pdfReadersOwnIndependentWorkerDocuments() {
+        ix::CodecRegistry registry; if (!registry.extensions().contains(QStringLiteral("pdf"))) return;
+        const auto path=temporary_.filePath(QStringLiteral("parallel.pdf")); QVERIFY(ix::test::writePdfFixture(path));
+        auto first=QtConcurrent::run([registry,path] { return registry.read(path,0); });
+        auto second=QtConcurrent::run([registry,path] { return registry.read(path,1); });
+        QVERIFY(first.result().ok()); QVERIFY(second.result().ok());
+        QCOMPARE(first.result().document.pixels.size(),QSize(160,120));
+        QCOMPARE(second.result().document.pixels.size(),QSize(120,200));
+    }
     void initTestCase() {
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewQualityTests"));

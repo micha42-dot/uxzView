@@ -11,6 +11,7 @@ class ImageView : public QAbstractScrollArea {
     explicit ImageView(QWidget *parent = nullptr);
     static Fit fullscreenFit();
     void setImage(QImage image);
+    void setUnavailable(bool value);
     const QImage &image() const {
         return image_;
     }
@@ -68,6 +69,7 @@ class ImageView : public QAbstractScrollArea {
 
   private:
     QImage image_;
+    bool unavailable_ = false;
     // A viewport-sized raster avoids resampling the full original on every
     // expose/selection repaint. Original pixels and all overlays stay separate.
     QImage displayCache_;

@@ -89,6 +89,15 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
     if (isRawImage(path))
         return {};
 #endif
+#ifdef IX_PDF_MODULE
+    if (QFileInfo(path).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) == 0) {
+        static QLibrary module(optionalModulePath(QStringLiteral(IX_PDF_MODULE)));
+        using Read = QImage (*)(const QString &, QSize);
+        static const auto read = reinterpret_cast<Read>(module.resolve("ixReadPdfPreview"));
+        if (read) image = read(path, bounds);
+        if (image.isNull()) return {};
+    }
+#endif
     if (image.isNull()) {
         QImageReader reader(path);
         reader.setAutoTransform(true);

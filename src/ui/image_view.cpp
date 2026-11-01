@@ -44,6 +44,11 @@ void ImageView::setImage(QImage image) {
     viewport()->update();
     emit selectionChanged({});
 }
+void ImageView::setUnavailable(bool value) {
+    if (unavailable_ == value) return;
+    unavailable_ = value;
+    viewport()->update();
+}
 void ImageView::setZoom(double v) {
     fit_ = Fit::Original;
     zoom_ = std::clamp(v, .001, 64.0);
@@ -196,7 +201,7 @@ QRect ImageView::informationOverlayRect() const {
 void ImageView::paintEvent(QPaintEvent *event) {
     QPainter p(viewport());
     if (image_.isNull()) {
-        p.fillRect(viewport()->rect(), background);
+        p.fillRect(viewport()->rect(), unavailable_ ? QColor(Qt::black) : background);
         return;
     }
     QPointF start = origin();
@@ -367,7 +372,7 @@ void ImageView::zoomToSelection() {
     centerOn(QPointF(selected.x() + selected.width() / 2.0, selected.y() + selected.height() / 2.0));
 }
 void ImageView::mousePressEvent(QMouseEvent *e) {
-    if (image_.isNull())
+    if (image_.isNull() && !unavailable_)
         return;
     setFocus(Qt::MouseFocusReason);
     const auto point = e->position().toPoint();
@@ -376,6 +381,7 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
     clickButton_ = e->button();
     clickDragged_ = false;
     panStart_ = point;
+    if (image_.isNull()) { e->accept(); return; }
     if (e->button() == Qt::LeftButton) {
         if (insideImage(point) && !fullscreenClick_ && (!aspectRatio_.isValid() || e->modifiers().testFlag(Qt::ControlModifier)) &&
             !selection_.isEmpty() && selection_.contains(imagePoint(point))) {
@@ -506,7 +512,7 @@ void ImageView::wheelEvent(QWheelEvent *e) {
     e->accept();
 }
 bool ImageView::handleKey(QKeyEvent *e) {
-    if (image_.isNull())
+    if (image_.isNull() && !unavailable_)
         return false;
     const auto mods =
         e->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);

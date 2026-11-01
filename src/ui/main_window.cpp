@@ -169,10 +169,15 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
         activity_.finish();
         setCursor(Qt::ArrowCursor);
         auto r = worker_.future().takeResult();
+        auto request = std::exchange(activeOpen_, std::nullopt);
         if (rawPreviewShown_ && !r.error.isEmpty())
             view_->setImage(document_.pixels);
         rawPreviewShown_ = false;
         if (!r.error.isEmpty()) {
+            if (request) {
+                handleLoadFailure(r.error, std::move(*request));
+                return;
+            }
             pendingNavigation_ = 0;
             showError(r.error);
             slideshow_.stop();
@@ -256,7 +261,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
         refreshState();
         if (!watchedFolder_.isEmpty() && pendingNavigation_ == 0 && !activity_.busy() && !QApplication::activeModalWidget() &&
             !document_.modified && !snapshot.latest.isEmpty() && snapshot.latest != document_.path) {
-            openPath(snapshot.latest, 0, false);
+            openFolderPath(snapshot.latest, true, false);
             return;
         }
         if (!activity_.busy() && pendingNavigation_) {
@@ -274,7 +279,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
             return;
         }
         auto request = std::exchange(deferredOpen_, std::nullopt);
-        openPath(request->path, request->page, request->checkChanges);
+        openRequested(std::move(*request));
     });
     QSettings settings;
     if (settings.value(QStringLiteral("window/rememberGeometry"), true).toBool())
@@ -806,7 +811,9 @@ void MainWindow::updateRecent(const QString &key, const QString &path) {
     updateRecentSetting(s, key, path);
 }
 void MainWindow::showError(const QString &error) {
-    QMessageBox::warning(this, QStringLiteral("üxzView"), localized(error));
+    QMessageBox message(QMessageBox::Warning, QStringLiteral("üxzView"), localized(error), QMessageBox::Ok, this);
+    message.setTextFormat(Qt::PlainText);
+    message.exec();
 }
 void MainWindow::beginWork(std::function<WorkResult()> fn, WorkMode mode) {
     if (activity_.busy())
@@ -827,15 +834,23 @@ void MainWindow::beginWork(std::function<WorkResult()> fn, WorkMode mode) {
     }));
 }
 void MainWindow::openPath(QString path, int pageIndex, bool checkChanges) {
+    openRequested({std::move(path), pageIndex, checkChanges});
+}
+void MainWindow::openRequested(DeferredOpen request) {
+    const auto pageIndex = request.page;
+    const auto checkChanges = request.checkChanges;
+    auto path = request.path;
     // Keep the requested name alive across dialogs and directory-index updates.
     if (path.isEmpty())
         return;
+    path = QFileInfo(path).absoluteFilePath();
+    request.path = path;
     // A new explicit choice supersedes queued steps from the previous folder.
     // Automatic animation frames (checkChanges=false) must retain those steps.
     if (checkChanges)
         pendingNavigation_ = 0;
     if (activity_.busy() || QApplication::activeModalWidget()) {
-        deferredOpen_ = DeferredOpen{path, pageIndex, checkChanges};
+        deferredOpen_ = std::move(request);
         deferredOpenTimer_.start();
         return;
     }
@@ -858,6 +873,7 @@ void MainWindow::openPath(QString path, int pageIndex, bool checkChanges) {
     bool same = path == document_.path;
     const int generation = ++loadGeneration_;
     QPointer<MainWindow> self(this);
+    activeOpen_ = std::move(request);
     beginWork(
         [=] {
             const ImageLoadRequest request{path, pageIndex, manage, sharp, rawPreview};
@@ -875,6 +891,46 @@ void MainWindow::openPath(QString path, int pageIndex, bool checkChanges) {
         },
         same && pageIndex != document_.page && !document_.modified ? WorkMode::Page : WorkMode::Load);
 }
+void MainWindow::handleLoadFailure(const QString &error, DeferredOpen request) {
+    stopAnimation();
+    // A newer explicit open retains priority over a failed old request.
+    if (deferredOpen_) { refreshState(); return; }
+    if (request.navigation && unreadableFiles_ == UnreadableFiles::Skip) {
+        auto traversal = std::move(*request.navigation);
+        if (pendingNavigation_) {
+            const auto step = std::exchange(pendingNavigation_, 0);
+            auto next = FolderTraversal::start(traversal.files(), traversal.index(), step,
+                QSettings().value(QStringLiteral("navigation/wrap"), true).toBool(), document_.path);
+            if (next) {
+                openRequested({next->path(), 0, false, std::move(next)});
+                return;
+            }
+        } else if (traversal.advance()) {
+            const auto next = traversal.path();
+            openRequested({next, 0, false, std::move(traversal)});
+            return;
+        }
+        slideshow_.stop();
+        refreshState(); updateStatus();
+        return;
+    }
+    if (!request.navigation || unreadableFiles_ != UnreadableFiles::Black) pendingNavigation_ = 0;
+    if (!request.navigation || unreadableFiles_ != UnreadableFiles::Black) slideshow_.stop();
+    if (request.navigation) {
+        ImageDocument unavailable;
+        unavailable.path = request.path;
+        unavailable.fileBytes = QFileInfo(request.path).size();
+        installDocument(std::move(unavailable));
+    }
+    if (!request.navigation || unreadableFiles_ != UnreadableFiles::Black)
+        showError(IX_TEXT("Datei kann nicht gelesen werden:\n%1\n\n%2").arg(request.path, localized(error)));
+    refreshState();
+    if (pendingNavigation_ != 0 && !deferredOpen_)
+        QTimer::singleShot(0, this, [this] {
+            if (!deferredOpen_ && pendingNavigation_ != 0)
+                navigate(std::exchange(pendingNavigation_, 0));
+        });
+}
 void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHistory) {
     const bool profileLoad = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
     QElapsedTimer loadTimer;
@@ -891,6 +947,7 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
         lastSelection_ = {};
     }
     document_ = std::move(d);
+    view_->setUnavailable(document_.empty() && !document_.path.isEmpty());
     double z = view_->zoom();
     auto fit = view_->fit();
     auto browsingFit = view_->browsingFit();
@@ -951,7 +1008,9 @@ void MainWindow::refreshFiles(bool force) {
     QSettings settings;
     int sorting = settings.value(QStringLiteral("navigation/sort"), 0).toInt();
     bool reverse = settings.value(QStringLiteral("navigation/reverse"), false).toBool();
-    const bool same = directory == indexedDirectory_ && sorting == indexedSort_ && reverse == indexedReverse_;
+    const bool allFiles = unreadableFiles_ != UnreadableFiles::Skip;
+    const bool same = directory == indexedDirectory_ && sorting == indexedSort_ &&
+                      reverse == indexedReverse_ && allFiles == indexedAllFiles_;
     if (!force && same) {
         fileIndex_ = filePositions_.value(document_.path, -1);
         updatePreviews();
@@ -965,13 +1024,14 @@ void MainWindow::refreshFiles(bool force) {
     indexedDirectory_ = directory;
     indexedSort_ = sorting;
     indexedReverse_ = reverse;
+    indexedAllFiles_ = allFiles;
     if (!directoryWatcher_.directories().isEmpty())
         directoryWatcher_.removePaths(directoryWatcher_.directories());
     if (!directoryWatcher_.addPath(directory))
         qWarning() << "Cannot monitor image directory; use Refresh to rescan:" << directory;
     indexReady_ = false;
     const bool latest = !watchedFolder_.isEmpty();
-    directoryIndex_->request({directory, {}, sorting, reverse, latest, true});
+    directoryIndex_->request({directory, {}, sorting, reverse, latest, true, allFiles});
 }
 void MainWindow::navigate(int direction) {
     if (activity_.busy()) {
@@ -986,11 +1046,9 @@ void MainWindow::navigate(int direction) {
     if (files_.isEmpty())
         return;
     direction = std::clamp(direction + std::exchange(pendingNavigation_, 0), -10000, 10000);
-    int index = fileIndex_ + direction;
-    if (QSettings().value(QStringLiteral("navigation/wrap"), true).toBool())
-        index = (index % files_.size() + files_.size()) % files_.size();
-    if (index >= 0 && index < files_.size() && files_.at(index) != document_.path)
-        openPath(files_.at(index));
+    auto traversal = FolderTraversal::start(files_, fileIndex_, direction,
+        QSettings().value(QStringLiteral("navigation/wrap"), true).toBool(), document_.path);
+    if (traversal) openRequested({traversal->path(), 0, true, std::move(traversal)});
 }
 void MainWindow::page(int direction) {
     if (activity_.busy() || QApplication::activeModalWidget())
@@ -1072,7 +1130,12 @@ void MainWindow::refreshState() {
             continue;
         bool enabled = globalCommands.contains(key) || !document_.empty();
         if (pathCommands.contains(key))
+            enabled = !document_.path.isEmpty() && (!document_.empty() || key == QStringLiteral("reopen"));
+        if (key == QStringLiteral("next") || key == QStringLiteral("previous") ||
+            key == QStringLiteral("first") || key == QStringLiteral("last") || key == QStringLiteral("random"))
             enabled = !document_.path.isEmpty();
+        if (key == QStringLiteral("fullscreen"))
+            enabled = !document_.empty() || !document_.path.isEmpty();
         if (selectionCommands.contains(key))
             enabled = enabled && !view_->selection().isEmpty();
         if (key == QStringLiteral("undo"))
@@ -1124,6 +1187,11 @@ void MainWindow::updateStatus() {
         status_[0]->clear();
         for (int i = 1; i < status_.size(); ++i)
             status_[i]->clear();
+        if (!document_.path.isEmpty()) {
+            status_[0]->setText(IX_TEXT("Datei nicht lesbar"));
+            status_[1]->setText(fileIndex_ < 0 ? QString() : QStringLiteral("%1 / %2").arg(fileIndex_+1).arg(files_.size()));
+            status_[3]->setText(uiLocale().formattedDataSize(document_.fileBytes));
+        }
         return;
     }
     status_[0]->setText(QStringLiteral("%1 x %2 x %3 BPP")
@@ -1220,6 +1288,7 @@ void MainWindow::changeEvent(QEvent *event) {
 }
 void MainWindow::applySettings(bool applyFit) {
     QSettings s;
+    unreadableFiles_ = unreadableFilesMode(s.value(QStringLiteral("navigation/unreadableFiles"), 0).toInt());
     applyInterfaceTheme(s.value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
     view_->setDisplayCacheEnabled(s.value(QStringLiteral("performance/imageCacheMiB"), 192).toInt() > 0);
     ImageLoadCache::configure(s.value(QStringLiteral("performance/imageCacheMiB"), 192).toInt(),
@@ -1387,7 +1456,13 @@ void MainWindow::advanceSlideshow() {
             fullscreen();
         slideshowFullscreen_ = false;
     } else if (!next.path.isEmpty())
-        openPath(next.path);
+        openFolderPath(next.path, settings.value(QStringLiteral("slideshow/repeat"), true).toBool());
+}
+void MainWindow::openFolderPath(QString path, bool wrap, bool checkChanges) {
+    const auto index = filePositions_.value(path, -1);
+    if (index < 0) { openPath(std::move(path), 0, checkChanges); return; }
+    auto traversal = FolderTraversal::start(files_, index-1, 1, wrap, document_.path);
+    if (traversal) openRequested({std::move(path), 0, checkChanges, std::move(traversal)});
 }
 void MainWindow::startSlideshow(bool dialog) {
     if (slideshow_.active()) {
@@ -1423,7 +1498,7 @@ void MainWindow::startSlideshow(bool dialog) {
 }
 void MainWindow::dispatch(const QString &cmd) {
     if (cmd == QStringLiteral("next") || cmd == QStringLiteral("previous")) {
-        if (!QApplication::activeModalWidget() && (!document_.empty() || activity_.workerActive()))
+        if (!QApplication::activeModalWidget() && (!document_.path.isEmpty() || !document_.empty() || activity_.workerActive()))
             navigate(cmd == QStringLiteral("next") ? 1 : -1);
         return;
     }
@@ -1458,6 +1533,7 @@ void MainWindow::dispatch(const QString &cmd) {
         const auto fit = before.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt();
         const auto sort = before.value(QStringLiteral("navigation/sort"), 0).toInt();
         const auto reverse = before.value(QStringLiteral("navigation/reverse"), false).toBool();
+        const auto unreadable = unreadableFiles_;
         const auto manage = before.value(QStringLiteral("color/manage"), true).toBool();
         const auto sharpen = displaySharpen_;
         const auto fullscreenFitBefore = ImageView::fullscreenFit();
@@ -1473,7 +1549,8 @@ void MainWindow::dispatch(const QString &cmd) {
             const auto currentWindowFit = isFullScreen() ? windowBrowsingFit_ : view_->browsingFit();
             applySettings(fit != requestedFit || int(currentWindowFit) != requestedFit);
             if (sort != after.value(QStringLiteral("navigation/sort"), 0).toInt() ||
-                reverse != after.value(QStringLiteral("navigation/reverse"), false).toBool())
+                reverse != after.value(QStringLiteral("navigation/reverse"), false).toBool() ||
+                unreadable != unreadableFiles_)
                 refreshFiles(true);
             if (manage != after.value(QStringLiteral("color/manage"), true).toBool() || sharpen != displaySharpen_)
                 displayCurrent();
@@ -1625,12 +1702,25 @@ void MainWindow::dispatch(const QString &cmd) {
             openPath(document_.path);
         return;
     }
-    if (document_.empty())
+    if (cmd == QStringLiteral("first") || cmd == QStringLiteral("last") || cmd == QStringLiteral("random")) {
+        if (!files_.isEmpty()) {
+            const auto index = cmd == QStringLiteral("first") ? 0
+                : cmd == QStringLiteral("last") ? files_.size() - 1
+                                                : QRandomGenerator::global()->bounded(files_.size());
+            if (files_.at(index) != document_.path)
+                openFolderPath(files_.at(index), QSettings().value(QStringLiteral("navigation/wrap"), true).toBool());
+        }
         return;
+    }
     if (cmd == QStringLiteral("reopen")) {
         openPath(document_.path);
         return;
     }
+    if (cmd == QStringLiteral("fullscreen")) {
+        fullscreen();
+        return;
+    }
+    if (document_.empty()) return;
     if (cmd == QStringLiteral("save") || cmd == QStringLiteral("saveAs") ||
         cmd == QStringLiteral("saveSelection")) {
         saveImage(cmd == QStringLiteral("saveSelection"), cmd != QStringLiteral("save"));
@@ -1997,16 +2087,7 @@ void MainWindow::dispatch(const QString &cmd) {
         histogramDialog(this, document_.pixels);
         return;
     }
-    if (cmd == QStringLiteral("first") || cmd == QStringLiteral("last") || cmd == QStringLiteral("random")) {
-        if (!files_.isEmpty()) {
-            const auto index = cmd == QStringLiteral("first") ? 0
-                : cmd == QStringLiteral("last") ? files_.size() - 1
-                                                : QRandomGenerator::global()->bounded(files_.size());
-            if (files_.at(index) != document_.path)
-                openPath(files_.at(index));
-        }
-        return;
-    }
+
     if (cmd == QStringLiteral("zoomIn")) {
         view_->setZoom(view_->zoom() * 1.25);
         return;
@@ -2053,10 +2134,6 @@ void MainWindow::dispatch(const QString &cmd) {
         displaySharpen_ = actions_[cmd]->isChecked();
         QSettings().setValue(QStringLiteral("view/sharpenDisplay"), displaySharpen_);
         displayCurrent();
-        return;
-    }
-    if (cmd == QStringLiteral("fullscreen")) {
-        fullscreen();
         return;
     }
     if (cmd == QStringLiteral("animation")) {

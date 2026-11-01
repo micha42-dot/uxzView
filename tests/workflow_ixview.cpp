@@ -12,6 +12,8 @@
 #include "core/preview_service.h"
 #include "ui/main_window.h"
 #include "ui/file_navigation.h"
+#include "ui/folder_traversal.h"
+#include "pdf_fixture.h"
 #include "ui/appearance.h"
 #include "ui/interface_language.h"
 #include "ui/dialogs.h"
@@ -55,6 +57,146 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void folderTraversalIsBoundedAndOwnsSnapshot() {
+        QStringList files{QStringLiteral("a"),QStringLiteral("b"),QStringLiteral("c")};
+        auto forward=ix::FolderTraversal::start(files,0,1,true,QStringLiteral("a")); QVERIFY(forward);
+        files.clear();
+        QCOMPARE(forward->path(),QStringLiteral("b")); QVERIFY(forward->advance());
+        QCOMPARE(forward->path(),QStringLiteral("c")); QVERIFY(!forward->advance());
+        auto all=ix::FolderTraversal::start(forward->files(),-1,1,true,QString()); QVERIFY(all);
+        int attempts=1; while (all->advance()) ++attempts; QCOMPARE(attempts,3);
+        auto reverse=ix::FolderTraversal::start(forward->files(),0,-1,true,QStringLiteral("a")); QVERIFY(reverse);
+        QCOMPARE(reverse->path(),QStringLiteral("c")); QVERIFY(reverse->advance());
+        QCOMPARE(reverse->path(),QStringLiteral("b")); QVERIFY(!reverse->advance());
+        QVERIFY(!ix::FolderTraversal::start({},0,1,true,{}));
+        QVERIFY(!ix::FolderTraversal::start(forward->files(),0,-1,false,{}));
+        QVERIFY(!ix::FolderTraversal::start(forward->files(),2,1,false,{}));
+        QCOMPARE(int(ix::unreadableFilesMode(99)),int(ix::UnreadableFiles::Skip));
+    }
+    void unreadableFolderPolicy_data() {
+        QTest::addColumn<int>("mode"); QTest::addColumn<bool>("reverse");
+        for (int mode=0;mode<3;++mode) for (bool reverse : {false,true})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(mode).arg(reverse))) << mode << reverse;
+    }
+    void unreadableFolderPolicy() {
+        QFETCH(int,mode); QFETCH(bool,reverse);
+        QSettings settings; QVariantMap previous;
+        for (const auto &key:settings.allKeys()) previous.insert(key,settings.value(key));
+        const auto restore=qScopeGuard([&] { settings.clear(); for(auto i=previous.cbegin();i!=previous.cend();++i) settings.setValue(i.key(),i.value()); });
+        settings.setValue(QStringLiteral("navigation/unreadableFiles"),mode);
+        settings.setValue(QStringLiteral("navigation/sort"),0); settings.setValue(QStringLiteral("navigation/reverse"),false);
+        settings.setValue(QStringLiteral("navigation/wrap"),true); settings.setValue(QStringLiteral("view/background"),QColor(Qt::green));
+        const auto folder=QStringLiteral("unreadable-%1-%2/").arg(mode).arg(reverse);
+        const auto first=photo(folder+QStringLiteral("1.png"),Qt::red), last=photo(folder+QStringLiteral("4.png"),Qt::blue);
+        const auto bad=temporary_.filePath(folder+QStringLiteral("2.png")), text=temporary_.filePath(folder+QStringLiteral("3.txt"));
+        for(const auto &path:{bad,text}) { QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("not an image"); }
+        ix::MainWindow window; window.resize(700,500); window.show();
+        auto *index=window.findChild<ix::DirectoryIndexService *>(); QVERIFY(index);
+        QSignalSpy ready(index,&ix::DirectoryIndexService::ready);
+        window.openPath(reverse ? last : first); QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        const auto snapshot=ready.last().first().value<ix::DirectorySnapshot>();
+        QCOMPARE(snapshot.files.size(),mode==0 ? 3 : 4);
+        QStringList messages; bool plain=true;
+        QTimer timer;
+        connect(&timer,&QTimer::timeout,&window,[&] {
+            if(auto *message=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                messages.append(message->text()); plain &= message->textFormat()==Qt::PlainText; message->accept();
+            }
+        });
+        timer.start(10);
+        const auto command=reverse ? QStringLiteral("previous") : QStringLiteral("next");
+        window.dispatch(command);
+        const auto destination=reverse ? first : last;
+        if(mode==0) {
+            QTRY_VERIFY(!window.isBusy() && window.document().path==destination);
+            QVERIFY(messages.isEmpty());
+        } else {
+            const QStringList failures=reverse ? QStringList{text,bad} : QStringList{bad,text};
+            auto *view=window.findChild<ix::ImageView *>(); QVERIFY(view);
+            for(int i=0;i<failures.size();++i) {
+                QTRY_VERIFY(!window.isBusy() && window.document().path==failures[i]);
+                QVERIFY(window.document().empty()); QVERIFY(!window.document().modified);
+                auto *save = window.findChild<QAction *>(QStringLiteral("save")); QVERIFY(save); QVERIFY(!save->isEnabled());
+                QCOMPARE(view->screenshot().pixelColor(0,0),QColor(Qt::black));
+                QVERIFY(window.windowTitle().contains(QFileInfo(failures[i]).fileName()));
+                if(mode==1) { QCOMPARE(messages.size(),i+1); QVERIFY(messages[i].contains(failures[i])); }
+                else QVERIFY(messages.isEmpty());
+                if (i == 0) {
+                    const QPointF center = view->viewport()->rect().center();
+                    QWheelEvent wheel(center, view->viewport()->mapToGlobal(center.toPoint()), {},
+                        QPoint(0, reverse ? 120 : -120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+                    QCoreApplication::sendEvent(view->viewport(), &wheel);
+                } else QTest::keyClick(view->viewport(), reverse ? Qt::Key_Left : Qt::Key_Right);
+            }
+            QTRY_VERIFY(!window.isBusy() && window.document().path==destination);
+            QCOMPARE(view->screenshot().pixelColor(0,0),QColor(Qt::green));
+        }
+        QVERIFY(plain); timer.stop();
+    }
+    void skipUnreadableStopsAndRetriesChangedFiles() {
+        QSettings settings; const auto previous=settings.value(QStringLiteral("navigation/unreadableFiles"));
+        const auto restore=qScopeGuard([&] { settings.setValue(QStringLiteral("navigation/unreadableFiles"),previous); });
+        settings.setValue(QStringLiteral("navigation/unreadableFiles"),0);
+        const auto first=photo(QStringLiteral("bounded-unreadable/1.png"),Qt::red);
+        const auto second=temporary_.filePath(QStringLiteral("bounded-unreadable/2.png"));
+        const auto third=temporary_.filePath(QStringLiteral("bounded-unreadable/3.png"));
+        for(const auto &path:{second,third}) { QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("broken"); }
+        ix::MainWindow window; auto *index=window.findChild<ix::DirectoryIndexService *>();
+        QSignalSpy ready(index,&ix::DirectoryIndexService::ready);
+        window.openPath(first); QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        const auto key=window.document().pixels.cacheKey(); int messages=0;
+        QTimer timer; connect(&timer,&QTimer::timeout,&window,[&] {
+            if(auto *message=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) { ++messages; message->accept(); }
+        }); timer.start(10);
+        window.dispatch(QStringLiteral("next")); QTRY_VERIFY(!window.isBusy());
+        QCOMPARE(window.document().path,first); QCOMPARE(window.document().pixels.cacheKey(),key); QCOMPARE(messages,0);
+        QVERIFY(!photo(QStringLiteral("bounded-unreadable/3.png"),Qt::blue).isEmpty());
+        window.dispatch(QStringLiteral("next")); QTRY_VERIFY(!window.isBusy() && window.document().path==third);
+        QCOMPARE(messages,0);
+    }
+    void explicitUnreadableOpenNamesFileAndKeepsEdits() {
+        const auto first=photo(QStringLiteral("explicit-unreadable/first.png"),Qt::red);
+        const auto bad=temporary_.filePath(QStringLiteral("explicit-unreadable/ä %2.txt"));
+        QFile file(bad); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("text"); file.close();
+        ix::MainWindow window; window.openPath(first); QTRY_VERIFY(!window.isBusy());
+        window.dispatch(QStringLiteral("grayscale")); QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        const auto pixels=window.document().pixels;
+        QString messageText; bool plain=false; QTimer timer;
+        connect(&timer,&QTimer::timeout,&window,[&] {
+            if(auto *message=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                messageText=message->text(); plain=message->textFormat()==Qt::PlainText; message->accept();
+            }
+        }); timer.start(10);
+        window.openPath(bad); QTRY_VERIFY(!window.isBusy() && !messageText.isEmpty());
+        QVERIFY(messageText.contains(bad)); QVERIFY(plain);
+        QCOMPARE(window.document().path,first); QCOMPARE(window.document().pixels,pixels); QVERIFY(window.document().modified);
+    }
+    void unreadablePolicySettingsSaveAndCancel() {
+        QSettings settings; QVariantMap previous;
+        for (const auto &key : settings.allKeys()) previous.insert(key, settings.value(key));
+        const auto restore=qScopeGuard([&] { settings.clear(); for (auto i=previous.cbegin();i!=previous.cend();++i) settings.setValue(i.key(),i.value()); });
+        settings.remove(QStringLiteral("navigation/unreadableFiles"));
+        ix::SettingsDialog cancelled;
+        auto *combo=cancelled.findChild<QComboBox *>(QStringLiteral("navigation/unreadableFiles")); QVERIFY(combo);
+        QCOMPARE(combo->currentData().toInt(),0); combo->setCurrentIndex(2); cancelled.reject();
+        QVERIFY(!settings.contains(QStringLiteral("navigation/unreadableFiles")));
+        ix::SettingsDialog accepted;
+        accepted.findChild<QComboBox *>(QStringLiteral("navigation/unreadableFiles"))->setCurrentIndex(2);
+        QMetaObject::invokeMethod(&accepted,"accept",Qt::DirectConnection);
+        QCOMPARE(settings.value(QStringLiteral("navigation/unreadableFiles")).toInt(),2);
+    }
+    void pdfPageNavigationUsesActualPageSizes() {
+        if(!ix::CodecRegistry().extensions().contains(QStringLiteral("pdf"))) return;
+        const auto path=temporary_.filePath(QStringLiteral("workflow.pdf")); QVERIFY(ix::test::writePdfFixture(path));
+        ix::MainWindow window; window.openPath(path); QTRY_VERIFY(!window.isBusy() && window.document().pageCount==2);
+        QCOMPARE(window.document().pixels.size(),QSize(160,120));
+        auto *next=window.findChild<QAction *>(QStringLiteral("nextPage")); QVERIFY(next); next->trigger();
+        QTRY_VERIFY(!window.isBusy() && window.document().page==1);
+        QCOMPARE(window.document().pixels.size(),QSize(120,200));
+        auto *previous=window.findChild<QAction *>(QStringLiteral("previousPage")); QVERIFY(previous); previous->trigger();
+        QTRY_VERIFY(!window.isBusy() && window.document().page==0);
+        QCOMPARE(window.document().pixels.size(),QSize(160,120));
+    }
     void fitAndZoomSmoothingAreIndependent_data() {
         QTest::addColumn<bool>("legacy");
         QTest::newRow("legacy-smooth") << true;

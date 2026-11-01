@@ -13,7 +13,7 @@ import sys
 import subprocess
 
 ENTRIES = {'ixrawpreview': ('ixReadRawPreviewSized',),
-           'ixextensions': ('ixOpenExtensionManager', 'ixOpenFunctionExtensionManager')}
+           'ixextensions': ('ixOpenExtensionManager', 'ixOpenFunctionExtensionManager'), 'ixpdf': ('ixReadPdf', 'ixReadPdfPreview')}
 
 
 def verify_modules(stage, system=sys.platform, loader=None, runner=subprocess.run):

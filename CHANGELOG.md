@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Read multi-page PDFs through a lazy Qt PDF/PDFium module, with page navigation,
+  white page backgrounds, bounded thumbnails and image export. Add PDF file
+  associations; keep PDF writing and password-protected documents unsupported.
+- Add Navigation settings for unreadable folder entries: skip (default), show a
+  full-path error or continue on a black display. Keep navigation active on black
+  entries, bound skip retries and retain edits after failed explicit opens.
+
 - Process negative, channel-display and channel-swap edits directly in native
   RGB32/ARGB32 output buffers. Retain exact pixels, alpha and image properties;
   halve their source/working/output image-buffer estimate from 16 to 8 bytes

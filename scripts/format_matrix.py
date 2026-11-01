@@ -33,6 +33,12 @@ for item in formats:
   read='Ja (Kamera-Fixture getestet)'
   metadata='16-Bit/ICC und PNG-Pixeltransport getestet; MakerNotes nicht vollständig'
   status='Reale Kamera-Fixture bestanden; weitere Varianten ungeprüft'
+ if name=='PDF' and 'PASS   : QualityTests::pdfRendersPagesAndPreservesSource()' in quality:
+  read='Ja (mehrseitige PDF-Fixture getestet)'
+  multi='Ja, verschiedene Seitengrößen; Export einzelne Seite'
+  animation='Nein'
+  metadata='Titel, Autor und Raster-DPI; keine Text-/Formularbearbeitung'
+  status='Lesen, Vorschau, Seitennavigation, PNG-Export und Speichergrenzen getestet'
  if name=='EXR' and 'PASS   : QualityTests::hdrExportPreservesExtendedValues()' in quality:
   status+='; erweiterte HDR-/Alpha-Werte geprüft'
  if name=='HEIC' and 'PASS   : QualityTests::heicColorAndAlphaRoundTrip()' in quality:
@@ -41,6 +47,6 @@ for item in formats:
  if name=='ICNS':status='Schreiben gesperrt: Encoder ändert Bildgröße'
  rows.append('| '+' | '.join([name+' ('+', '.join(exts)+')',read,write,multi,animation,metadata,item['backend'],status])+' |')
 rows+=['','Besondere Grenzen: GIF/APNG werden ausschließlich als Einzelbild exportiert. Ein animierter oder mehrseitiger Encoder ist noch nicht implementiert. SVG wird rasterisiert. RAW wird durch das KImageFormats/LibRaw-Modul entwickelt; Kamera-/Sensorvarianten, Demosaicing-Details, HDR und RAW-Metadaten sind noch nicht umfassend validiert. PCX/PSD/Krita/XCF usw. sind flache Ansichten, kein Ebeneneditor. ICO/CUR-Mehrbildvarianten und ICNS-Größenwahl benötigen zusätzliche Tests. Bekannte Exportverluste werden angezeigt; Metadaten über 128 MiB Quelldateigröße werden derzeit nicht vollständig eingelesen.','']
-rows += ['ZIP/CBZ: optionales KArchive-Plugin, im Windows-Paket enthalten. Bilder werden ohne Extraktion natürlich nach vollständigem Pfad sortiert. Unterordner werden gelesen; versteckte Einträge, __MACOSX, Archivdateien und sonstige Nicht-Bilder werden ausgelassen. Nur die erste Seite bzw. der erste Frame jedes eingebetteten Bildes wird angezeigt. Begrenzung: normales einteiliges ZIP, höchstens 2 GiB Archivgröße, 10.000 Einträge und 10.000 implizite Verzeichnisse, 8 MiB Zentralverzeichnis, 32 Pfadsegmente und 128 MiB pro komprimiertem/entpacktem Eintrag. ZIP64, Verschlüsselung, selbstentpackende Archive, Traversalpfade und doppelte Namen werden abgewiesen. Kein Schreiben von Archiven, keine CBR/RAR-Unterstützung. PDF/JPEG XR sind weiterhin nicht enthalten.', '']
+rows += ['ZIP/CBZ: optionales KArchive-Plugin, im Windows-Paket enthalten. Bilder werden ohne Extraktion natürlich nach vollständigem Pfad sortiert. Unterordner werden gelesen; versteckte Einträge, __MACOSX, Archivdateien und sonstige Nicht-Bilder werden ausgelassen. Nur die erste Seite bzw. der erste Frame jedes eingebetteten Bildes wird angezeigt. Begrenzung: normales einteiliges ZIP, höchstens 2 GiB Archivgröße, 10.000 Einträge und 10.000 implizite Verzeichnisse, 8 MiB Zentralverzeichnis, 32 Pfadsegmente und 128 MiB pro komprimiertem/entpacktem Eintrag. ZIP64, Verschlüsselung, selbstentpackende Archive, Traversalpfade und doppelte Namen werden abgewiesen. Kein Schreiben von Archiven, keine CBR/RAR-Unterstützung. PDF: mehrseitiges Lesen über Qt PDF/PDFium, weißer Seitenhintergrund, 144 DPI. Kein PDF-Schreiben, Textauswahl, Formularausfüllen oder Kennwortdialog. JPEG XR ist weiterhin nicht enthalten.', '']
 (root/'docs/FORMAT_COMPATIBILITY.md').write_text('\n'.join(rows),encoding='utf-8',newline='\n')
 print(f'Matrix: {len(formats)} Laufzeitformate, {len(roundtrips)} Encoder-Rundläufe')

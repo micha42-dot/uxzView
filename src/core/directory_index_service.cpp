@@ -22,8 +22,8 @@ DirectoryIndexService::DirectoryIndexService(QObject *parent, Scanner scanner)
     if (!scanner_)
         scanner_ = [](const DirectoryRequest &request, const std::atomic_bool *cancel) {
             if (cancel && cancel->load()) return DirectorySnapshot{};
-            const auto extensions = request.discoverImageFormats ? CodecRegistry().extensions()
-                                                                 : request.extensions;
+            const auto extensions = request.includeAllFiles ? QStringList{}
+                : request.discoverImageFormats ? CodecRegistry().extensions() : request.extensions;
             return scanDirectory(request.directory, extensions, request.sorting,
                                  request.reverse, cancel, request.findLatest);
         };

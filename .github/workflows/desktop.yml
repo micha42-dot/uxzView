@@ -114,7 +114,7 @@ jobs:
           host: ${{ matrix.host }}
           target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: qtimageformats
+          modules: qtimageformats qtpdf
           archives: ${{ matrix.qt_archives }}
           cache: true
       - name: Configure

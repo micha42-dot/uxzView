@@ -7,6 +7,7 @@
 #include "core/preview_service.h"
 #include "image_view.h"
 #include "fullscreen_info.h"
+#include "folder_traversal.h"
 #include <QtWidgets>
 #include <QtConcurrent>
 #include <QTextLayout>
@@ -197,6 +198,14 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
                      IX_TEXT("Änderungsdatum"), IX_TEXT("Dateigröße")});
     sort_->setCurrentIndex(std::clamp(settings.value(QStringLiteral("navigation/sort"), 0).toInt(), 0, 3));
     navigation->addRow(IX_TEXT("Dateien sortieren nach:"), sort_);
+    unreadableFiles_ = new QComboBox;
+    unreadableFiles_->setObjectName(QStringLiteral("navigation/unreadableFiles"));
+    unreadableFiles_->addItem(IX_TEXT("Überspringen"), int(UnreadableFiles::Skip));
+    unreadableFiles_->addItem(IX_TEXT("Meldung mit Dateiname"), int(UnreadableFiles::Message));
+    unreadableFiles_->addItem(IX_TEXT("Schwarze Anzeige"), int(UnreadableFiles::Black));
+    unreadableFiles_->setCurrentIndex(int(unreadableFilesMode(
+        settings.value(QStringLiteral("navigation/unreadableFiles"), 0).toInt())));
+    navigation->addRow(IX_TEXT("Unlesbare Dateien:"), unreadableFiles_);
     check(navigation, QStringLiteral("navigation/reverse"), IX_TEXT("Absteigend sortieren"), false);
     check(navigation, QStringLiteral("navigation/wrap"),
           IX_TEXT("Nach dem letzten Bild wieder beim ersten beginnen"), true);
@@ -377,6 +386,7 @@ void SettingsDialog::accept() {
     values.insert(QStringLiteral("fullscreen/fit"), fullscreenFit_->currentData());
     values.insert(QStringLiteral("fullscreen/screen"), fullscreenScreen_->currentData());
     values.insert(QStringLiteral("navigation/sort"), sort_->currentIndex());
+    values.insert(QStringLiteral("navigation/unreadableFiles"), unreadableFiles_->currentData());
     values.insert(QStringLiteral("toolbar/iconSize"), iconSize_->currentData());
     values.insert(QStringLiteral("preview/background"), previewBackground_->currentData());
     values.insert(QStringLiteral("slideshow/seconds"), seconds_->value());

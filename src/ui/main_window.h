@@ -5,6 +5,7 @@
 #include "core/batch_processor.h"
 #include "core/document_history.h"
 #include "document_activity.h"
+#include "folder_traversal.h"
 #include "image_view.h"
 #include "fullscreen_info.h"
 #include "slideshow_controller.h"
@@ -73,6 +74,8 @@ class MainWindow : public QMainWindow {
     QString indexedDirectory_;
     int indexedSort_ = -1;
     bool indexedReverse_ = false, indexReady_ = false;
+    bool indexedAllFiles_ = false;
+    UnreadableFiles unreadableFiles_ = UnreadableFiles::Skip;
     void buildExtraFeatures();
     void updatePreviews();
     void reconcileFilePath(const BatchFileChanges &changes = {});
@@ -112,8 +115,13 @@ class MainWindow : public QMainWindow {
         QString path;
         int page;
         bool checkChanges;
+        std::optional<FolderTraversal> navigation = std::nullopt;
     };
     std::optional<DeferredOpen> deferredOpen_;
+    std::optional<DeferredOpen> activeOpen_;
+    void openRequested(DeferredOpen request);
+    void handleLoadFailure(const QString &error, DeferredOpen request);
+    void openFolderPath(QString path, bool wrap, bool checkChanges = true);
     int animationLoops_ = 0;
     bool animationPlaying_ = false, animationEnded_ = false;
     QFileSystemWatcher hotfolder_;

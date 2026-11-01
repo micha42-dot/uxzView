@@ -19,6 +19,7 @@ struct DirectoryRequest {
     // Discover plugin keys on the worker instead of delaying the first paint.
     // Otherwise use extensions verbatim, including an intentionally empty list.
     bool discoverImageFormats = false;
+    bool includeAllFiles = false;
 };
 
 // GUI-thread owner of one cancellable scan and at most one pending request.

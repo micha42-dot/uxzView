@@ -2,6 +2,11 @@
   "platform": "Windows x64 UCRT",
   "packages": [
     {
+      "file": "mingw-w64-ucrt-x86_64-qt6-pdf-6.11.2-1-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-qt6-pdf-6.11.2-1-any.pkg.tar.zst",
+      "sha256": "717e139d79511423c538e60254bc52595c1c347a2735ccab29c0d852b8ddea0a"
+    },
+    {
       "file": "mingw-w64-ucrt-x86_64-aom-3.15.2-1-any.pkg.tar.zst",
       "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-aom-3.15.2-1-any.pkg.tar.zst",
       "sha256": "e81f01d419f262e31275771fad18f93617f7b321deeb416e5ac39d70f295b286"

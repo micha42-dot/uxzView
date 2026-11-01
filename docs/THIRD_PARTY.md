@@ -37,3 +37,11 @@ Das Programmsymbol basiert auf dem von Michael Förtsch bereitgestellten Pixel-L
 ## Optional recognition tools
 
 ZXing-C++ 3.0.0 and Tesseract 5.5.3 use Apache-2.0; Leptonica 1.85.0 uses its BSD-style license. The pinned tessdata_fast models include their Apache-2.0 license. The Windows package includes these engines/models unpacked under `tools`; separate `.ixtool` assets remain available for reinstallation. The QR fixture in `tests/extensions_ixview.cpp` derives from ZXing-C++ QREncoderTest (Copyright 2008 ZXing authors, Apache-2.0). Each pack includes applicable license texts and source URLs/hashes; Windows engine packs additionally record the compiler-runtime source packages. See `scripts/tool-sources-lock.json` and [tool extensions](TOOL_EXTENSIONS.md).
+
+## PDF reading
+
+Qt PDF/PDFium is bundled as a lazy runtime dependency. Only Qt PDF core and the
+project reader module are deployed, without Qt PDF Quick/Widgets or a browser
+process. Qt PDF and bundled PDFium/font/image components retain their own license
+texts under `licenses/qt6-pdf`; exact binary/source origins are recorded in
+`dependency-sources.json` and `SOURCES.md`. See [Qt PDF licensing](https://doc.qt.io/qt-6.8/qtpdf-licensing.html).

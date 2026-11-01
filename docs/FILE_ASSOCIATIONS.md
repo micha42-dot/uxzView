@@ -4,7 +4,7 @@
 
 The portable package includes `register-windows.bat`, `register-windows.ps1` and `unregister-windows.bat` beside `uxzView.exe`. Registration is per user and does not need elevation. The batch file automatically uses the executable beside it; its `IXVIEW_EXE` line can instead point to a different installation.
 
-Registration adds the `IxView.Image` ProgID, `Applications\uxzView.exe`, supported image extensions, application capabilities and `RegisteredApplications` under `HKEY_CURRENT_USER\Software`. Executable paths and the image argument are quoted separately, including paths with spaces or non-ASCII characters. It notifies Explorer after importing the generated registry file.
+Registration adds the `IxView.Image` ProgID, `Applications\uxzView.exe`, supported image/PDF extensions, application capabilities and `RegisteredApplications` under `HKEY_CURRENT_USER\Software`. Executable paths and the image argument are quoted separately, including paths with spaces or non-ASCII characters. It notifies Explorer after importing the generated registry file.
 
 The script registers üxzView as a candidate; it does not change Windows' protected `UserChoice` keys or take over existing defaults. After registration, choose üxzView in **Settings → Apps → Default apps** or **Open with → Choose another app**. The batch file opens Default apps after successful registration. Supported formats still depend on the codecs included in the build.
 

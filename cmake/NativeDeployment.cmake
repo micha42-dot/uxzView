@@ -2,7 +2,7 @@
 # Quoted generator-expression arguments for qt_deploy_runtime_dependencies.
 function(ix_deployment_module_arguments output)
     set(arguments "")
-    foreach(module ixrawpreview ixextensions)
+    foreach(module ixrawpreview ixextensions ixpdf)
         if(NOT TARGET ${module})
             continue()
         endif()

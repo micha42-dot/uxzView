@@ -15,6 +15,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QMap>
+#include <QLibrary>
 #include <mutex>
 namespace ix {
 bool isRawFormat(const QByteArray &format) {
@@ -24,6 +25,24 @@ bool isRawFormat(const QByteArray &format) {
     return formats.contains(format.toLower());
 }
 namespace {
+#ifdef IX_PDF_MODULE
+ImageResult readPdf(const QString &path, int page) {
+    static QLibrary module(optionalModulePath(QStringLiteral(IX_PDF_MODULE)));
+    using Read = ImageResult (*)(const QString &, int);
+    static const auto read = reinterpret_cast<Read>(module.resolve("ixReadPdf"));
+    auto result = read ? read(path, page) : ImageResult{{}, QStringLiteral("PDF-Modul ist nicht verfügbar.")};
+    result.error = localized(result.error);
+    return result;
+}
+class PdfCodec final : public ImageCodec {
+  public:
+    bool accepts(const QString &path) const override { return QFileInfo(path).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) == 0; }
+    ImageResult read(const QString &path, int page) const override { return readPdf(path, page); }
+    QList<FormatCapability> capabilities() const override {
+        return {{QStringLiteral("PDF"), {QStringLiteral("pdf")}, PluginStore::formatEnabled("pdf"), false, QStringLiteral("Qt PDF / PDFium")}};
+    }
+};
+#endif
 QString backend(const QByteArray &f) {
     if (f == "cbz" || f == "zip")
         return QStringLiteral("üxzView / KArchive");
@@ -82,6 +101,11 @@ class QtCodec final : public ImageCodec {
             out.error = IX_TEXT("Dieses Format wurde in der Plugin-Verwaltung deaktiviert.");
             return out;
         }
+#ifdef IX_PDF_MODULE
+        if (detectedFormat == "pdf") return readPdf(path, page);
+#else
+        if (detectedFormat == "pdf") return {{}, IX_TEXT("PDF-Modul ist nicht verfügbar.")};
+#endif
         // Query the directory count before size(): the TIFF plugin may open a
         // second libtiff handle on the same device when counting pages. Reading
         // size first leaves that device past its header in some Qt versions.
@@ -156,7 +180,7 @@ class QtCodec final : public ImageCodec {
         }();
         QStringList result;
         for (const auto &key : keys)
-            if (PluginStore::formatEnabled(key.toLatin1()))
+            if (key != QStringLiteral("pdf") && PluginStore::formatEnabled(key.toLatin1()))
                 result.append(key);
         return result;
     }
@@ -165,6 +189,7 @@ class QtCodec final : public ImageCodec {
             QMap<QByteArray, FormatCapability> formats;
             for (const auto &ext : QImageReader::supportedImageFormats()) {
                 auto key = normalized(ext);
+                if (key == "pdf") continue; // The bounded PDF codec owns this capability.
                 auto &f = formats[key];
                 f.name = QString::fromLatin1(key).toUpper();
                 f.extensions.append(QString::fromLatin1(ext));
@@ -173,6 +198,7 @@ class QtCodec final : public ImageCodec {
             }
             for (const auto &ext : QImageWriter::supportedImageFormats()) {
                 auto key = normalized(ext);
+                if (key == "pdf") continue;
                 auto &f = formats[key];
                 f.name = QString::fromLatin1(key).toUpper();
                 if (!f.extensions.contains(QString::fromLatin1(ext)))
@@ -195,6 +221,9 @@ CodecRegistry::CodecRegistry() {
     std::call_once(allocation, [] { QImageReader::setAllocationLimit(512); });
     add(std::make_shared<QtCodec>());
     add(std::make_shared<ApngCodec>());
+#ifdef IX_PDF_MODULE
+    add(std::make_shared<PdfCodec>());
+#endif
 }
 void CodecRegistry::add(std::shared_ptr<ImageCodec> c) {
     codecs_.prepend(std::move(c));
@@ -218,7 +247,7 @@ ImageResult CodecRegistry::read(const QString &p, int page) const {
 bool CodecRegistry::canWrite(const QByteArray &f) {
     if (!PluginStore::formatEnabled(normalized(f)))
         return false;
-    if (normalized(f) == "icns")
+    if (normalized(f) == "icns" || normalized(f) == "pdf")
         return false;
     static const auto writers = QImageWriter::supportedImageFormats();
     for (const auto &x : writers)

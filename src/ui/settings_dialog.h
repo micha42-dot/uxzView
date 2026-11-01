@@ -26,6 +26,7 @@ class SettingsDialog : public QDialog {
     QMap<QString, QCheckBox *> checks_;
     QMap<QString, QSpinBox *> integers_;
     QComboBox *fit_, *sort_, *iconSize_, *language_, *previewBackground_, *theme_, *fullscreenFit_, *fullscreenScreen_;
+    QComboBox *unreadableFiles_;
     QListWidget *categories_;
     QStackedWidget *pages_;
     QKeySequenceEdit *captureShortcut_;

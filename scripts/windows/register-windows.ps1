@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $ExecutablePath) { $ExecutablePath = Join-Path $PSScriptRoot 'uxzView.exe' }
 $displayName = [string][char]0x00fc + 'xzView'
-$extensions = '.jpg','.jpeg','.jpe','.png','.gif','.bmp','.dib','.tif','.tiff','.webp','.svg','.svgz','.ico','.avif','.heic','.heif','.jxl','.dng','.cr2','.cr3','.nef','.arw','.orf','.raf','.rw2'
+$extensions = '.pdf','.jpg','.jpeg','.jpe','.png','.gif','.bmp','.dib','.tif','.tiff','.webp','.svg','.svgz','.ico','.avif','.heic','.heif','.jxl','.dng','.cr2','.cr3','.nef','.arw','.orf','.raf','.rw2'
 function RegString([string]$Value) { '"' + $Value.Replace('\','\\').Replace('"','\"') + '"' }
 $lines = [Collections.Generic.List[string]]::new()
 $lines.Add('Windows Registry Editor Version 5.00')

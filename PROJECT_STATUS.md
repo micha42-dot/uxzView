@@ -18,6 +18,12 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Mehrseitige PDFs mit separat geladenem Renderer, Seitenwechsel und Bildexport.
+  Unlesbare Ordnereinträge: überspringen (Standard), Meldung mit Dateiname oder
+  schwarze Anzeige mit fortgesetzter Navigation. 549 Qt-Fälle im Build und
+  portablen Paket sowie 46 Python-Tests bestehen.
+  [Umsetzung, Nachweise und Grenzen](docs/PDF_NAVIGATION_REVIEW_2026-11-01.md).
+
 - Native Windows-Titelleisten folgen dem gewählten Farbschema, auch bei späteren
   Dialogen und neuen Fensterhandles; Kompatibilitätspfad für älteres Windows 10.
   Nativ unter Windows 11 bei vier Skalierungen geprüft, Windows-10-Sichtprüfung

@@ -21,6 +21,8 @@
 - System trash and undo/redo for image edits.
 - Configurable screenshots and keyboard shortcuts.
 - JPEG, PNG, WebP, TIFF, GIF, APNG, PSD composite images, SVG, RAW and additional plugin-provided formats.
+- Multi-page PDF reading with page navigation and image export.
+- Configurable handling of unreadable files: skip, show a named error or continue with a black display.
 - Multi-page images, animation playback, 16-bit image data and ICC/EXIF/IPTC/XMP support where supported by the format.
 - ZIP/CBZ image collections through the optional archive format plugin.
 - Offline QR/barcode reading and text recognition from the image or a right-clicked selection, with removable tools and OCR languages.
@@ -38,7 +40,7 @@ Portable mode is available under **Options → Settings → Storage locations** 
 
 ## Build from source
 
-Requirements: a C++20 compiler, CMake 3.24+, Qt 6.8+ and libjpeg-turbo. The Windows SDK bootstrap installs the project's pinned dependencies locally.
+Requirements: a C++20 compiler, CMake 3.24+, Qt 6.8+ (including Qt PDF for PDF reading) and libjpeg-turbo. The Windows SDK bootstrap installs the project's pinned dependencies locally.
 
 ### Windows
 

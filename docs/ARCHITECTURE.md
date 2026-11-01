@@ -11,6 +11,7 @@ flowchart TD
     App -. lazy .-> Manager[ixextensions: manager UI and network]
     Manager --> Core
     Core -. lazy .-> Raw[ixrawpreview: embedded RAW previews]
+    Core -. lazy .-> PDF[ixpdf: Qt PDF / PDFium page rasterization]
     UI -. explicit job .-> Tools[Separate OCR / QR processes]
 ```
 
@@ -43,6 +44,21 @@ discovery for operations that need it, such as export formats and format details
 `ui/image_file_dialog.*` configures image-opening dialogs before `exec`: concise
 filter labels, generic directory icons and a bounded initial widget size. Native
 dialog availability remains controlled by Qt and the platform.
+
+PDF pages are rasterized by the worker-owned `QPdfDocument` in `ixpdf`, at 144 DPI
+with a white canvas and an operation-local pixel budget. Core/GUI targets do not
+link Qt PDF. Thumbnail requests use a separate bounded-size export. The generic
+Qt `qpdf` image handler is excluded from curated build/deployment plugins because
+format enumeration otherwise eagerly loads PDFium. Build isolation copies plugins
+without modifying the SDK; CTest overrides SDK plugin environment paths.
+
+`ui/folder_traversal.h` owns an implicitly shared directory snapshot and a bounded
+cursor. Failed folder loads advance within that snapshot, never rescan per failure
+or cache a permanent rejection. The default policy indexes supported suffixes;
+message/black policies index all regular files. Black entries have a path but no
+image pixels: the view paints black, navigation remains active and pixel actions
+are disabled. Explicit opens retain the previous document and show a named error.
+Deferred explicit choices take priority over automatic skip continuations.
 
 `MainWindow` currently coordinates the active document, commands, history and asynchronous completion. `DocumentActivity` is the single GUI-thread gate for loading/editing, saving, file transactions and delayed capture. Saving and file operations hold it across nested dialog event loops. Mutating commands must acquire the appropriate phase; queued opens/navigation run after the transaction finishes. `WorkMode` tells completion how to install a result and update history. Changing it while its worker runs is unsafe.
 

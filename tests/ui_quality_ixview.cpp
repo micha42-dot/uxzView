@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/localization.h"
 #include "core/directory_index.h"
+#include "core/directory_index_service.h"
 #include "core/image_catalog.h"
 #include "ui/appearance.h"
 #include "ui/dialogs.h"
@@ -63,6 +64,55 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void blackEntryCanLeaveFullscreen() {
+        QSettings settings; QVariantMap previous;
+        for (const auto &key : settings.allKeys()) previous.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto i = previous.cbegin(); i != previous.cend(); ++i) settings.setValue(i.key(), i.value());
+        });
+        settings.setValue(QStringLiteral("navigation/unreadableFiles"), 2);
+        settings.setValue(QStringLiteral("navigation/sort"), 0);
+        settings.setValue(QStringLiteral("navigation/reverse"), false);
+        QTemporaryDir folder; QVERIFY(folder.isValid());
+        const auto first = folder.filePath(QStringLiteral("1.png"));
+        const auto bad = folder.filePath(QStringLiteral("2.txt"));
+        QImage image(16,12,QImage::Format_RGB32); image.fill(Qt::red); QVERIFY(image.save(first));
+        QFile file(bad); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("unreadable"); file.close();
+        ix::MainWindow window; window.show();
+        auto *index = window.findChild<ix::DirectoryIndexService *>(); QVERIFY(index);
+        QSignalSpy ready(index, &ix::DirectoryIndexService::ready);
+        window.openPath(first); QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        window.dispatch(QStringLiteral("fullscreen")); QTRY_VERIFY(window.isFullScreen());
+        window.dispatch(QStringLiteral("next"));
+        QTRY_VERIFY(!window.isBusy() && window.document().path == bad);
+        QVERIFY(window.document().empty());
+        auto *fullscreen = window.findChild<QAction *>(QStringLiteral("fullscreen"));
+        QVERIFY(fullscreen); QVERIFY(fullscreen->isEnabled());
+        QTest::keyClick(&window, Qt::Key_Return);
+        QTRY_VERIFY(!window.isFullScreen());
+        QCOMPARE(window.document().path, bad);
+        window.dispatch(QStringLiteral("previous"));
+        QTRY_VERIFY(!window.isBusy() && window.document().path == first);
+    }
+    void blackEntryKeepsFullscreenMouseNavigation() {
+        ix::ImageView view;
+        view.setUnavailable(true);
+        view.showFullScreen();
+        QTRY_VERIFY(view.isFullScreen());
+        QSignalSpy navigation(&view, &ix::ImageView::navigate);
+        const auto center = view.viewport()->rect().center();
+        QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QTest::mouseClick(view.viewport(), Qt::RightButton, Qt::NoModifier, center);
+        QCOMPARE(navigation.size(), 2);
+        QCOMPARE(navigation[0][0].toInt(), -1);
+        QCOMPARE(navigation[1][0].toInt(), 1);
+        QVERIFY(view.image().isNull());
+        QVERIFY(view.selection().isEmpty());
+        view.setUnavailable(false);
+        QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QCOMPARE(navigation.size(), 2);
+    }
     void nativeTitleBarsFollowThemeAndHandleChanges() {
         const auto restore = qScopeGuard([] {
             ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
@@ -370,8 +420,8 @@ class UiQualityTests : public QObject {
         const auto result = ix::scanDirectory(directory.path(), {QStringLiteral("png"), QStringLiteral("jpg")}, 0, false);
         QCOMPARE(result.files.size(), 3);
         QVERIFY(result.files.contains(directory.filePath(QStringLiteral("fake.png"))));
-        // Filename filtering is intentionally cheap. A corrupt supported file
-        // remains a decoder error, never silently classified as a text file.
+        // Indexing checks suffixes only. Corrupt supported files are resolved
+        // later by the configured unreadable-file navigation policy.
         for (const auto &path : result.files)
             QVERIFY(QStringList({QStringLiteral("png"), QStringLiteral("jpg")}).contains(QFileInfo(path).suffix().toLower()));
     }

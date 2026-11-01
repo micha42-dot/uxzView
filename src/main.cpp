@@ -92,6 +92,9 @@ int main(int argc, char **argv) {
 #ifdef IX_RAW_PREVIEW_MODULE
         probe(QStringLiteral("ixrawpreview"), QStringLiteral(IX_RAW_PREVIEW_MODULE), {"ixReadRawPreviewSized"});
 #endif
+#ifdef IX_PDF_MODULE
+        probe(QStringLiteral("ixpdf"), QStringLiteral(IX_PDF_MODULE), {"ixReadPdf", "ixReadPdfPreview"});
+#endif
 #ifdef IX_EXTENSIONS_MODULE
         probe(QStringLiteral("ixextensions"), QStringLiteral(IX_EXTENSIONS_MODULE),
               {"ixOpenExtensionManager", "ixOpenFunctionExtensionManager"});

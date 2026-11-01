@@ -14,7 +14,15 @@
 | Speicherorte | Portabelmodus nach Neustart, Datenordner anzeigen/öffnen, vorhandenes Benutzerprofil auf Wunsch als portable Kopie übernehmen |
 | Leistung | Bild-/Miniaturcachebudget einschließlich Abschalten, eingebettete RAW-Vorschauen, anfängliche Zahl paralleler Batchdateien, Caches leeren |
 
-Beim Bildwechsel und Schließen werden ungespeicherte Bearbeitungen standardmäßig ohne Nachfrage verworfen. Unter **Navigation → Beim Bildwechsel und Schließen nach ungespeicherten Änderungen fragen** lässt sich die Abfrage mit Speichern, Verwerfen und Abbrechen einschalten. Die Einstellung gilt auch beim Seitenwechsel in mehrseitigen Bildern und beim Schließen über Escape oder „Beenden“. Escape im Vollbild wechselt weiterhin zunächst zurück ins Fenster; dabei bleiben Bearbeitungen erhalten. Gespeicherte Originaldateien werden durch das Verwerfen nicht verändert. Schlägt das Öffnen des nächsten Bildes fehl, bleibt die bisherige Bearbeitung erhalten.
+Beim Bildwechsel und Schließen werden ungespeicherte Bearbeitungen standardmäßig ohne Nachfrage verworfen. Unter **Navigation → Beim Bildwechsel und Schließen nach ungespeicherten Änderungen fragen** lässt sich die Abfrage mit Speichern, Verwerfen und Abbrechen einschalten. Die Einstellung gilt auch beim Seitenwechsel in mehrseitigen Bildern und beim Schließen über Escape oder „Beenden“. Escape im Vollbild wechselt weiterhin zunächst zurück ins Fenster; dabei bleiben Bearbeitungen erhalten. Gespeicherte Originaldateien werden durch das Verwerfen nicht verändert. Bei einem fehlgeschlagenen ausdrücklichen Öffnen oder einer erfolglosen Suche nach dem nächsten lesbaren Bild bleibt die bisherige Bearbeitung erhalten.
+
+**Navigation → Unlesbare Dateien** gilt für das Durchblättern von Ordnern:
+
+- **Überspringen** (Standard): Dateien mit unbekannter Endung werden nicht indiziert; beschädigte oder nicht unterstützte Bilddateien werden beim Laden übersprungen. Ein Durchlauf ist begrenzt, auch wenn alle übrigen Dateien defekt sind.
+- **Meldung mit Dateiname**: Alle normalen Dateien werden berücksichtigt. Bei einem Fehler erscheinen vollständiger Dateipfad und Ursache; danach kann weitergeblättert werden.
+- **Schwarze Anzeige**: Dieselben Dateien werden berücksichtigt; unlesbare Einträge erscheinen ohne Popup als schwarze Fläche. Dateiname und Position bleiben sichtbar, Bearbeiten und Speichern sind gesperrt. Maus und Tastatur blättern weiter.
+
+Die Änderung gilt nach „OK“ unmittelbar. Ein ausdrücklich über „Öffnen“ gewählter unlesbarer Pfad meldet unabhängig von dieser Einstellung einen Fehler mit Dateiname. Fehlversuche werden nicht dauerhaft gesperrt: Eine inzwischen reparierte Datei wird erneut gelesen.
 
 Wählt ein Navigationsbefehl wieder das bereits angezeigte Bild oder dieselbe
 Seite, bleiben Bearbeitung und Undo erhalten; eine Speicherabfrage entfällt.

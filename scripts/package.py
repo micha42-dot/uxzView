@@ -13,7 +13,7 @@ from dependency_sources import OWN_DLLS
 
 
 def validate_own_runtime(runtime):
-    for name in ('uxzView.exe', 'ixrawpreview.dll', 'ixextensions.dll', 'imageformats/ixarchive.dll'):
+    for name in ('uxzView.exe', 'ixrawpreview.dll', 'ixextensions.dll', 'ixpdf.dll', 'imageformats/ixarchive.dll'):
         built = ROOT / 'build' / name
         deployed = runtime / name
         if name == 'uxzView.exe' and not built.is_file():
@@ -73,8 +73,8 @@ def package(release=False):
     runtime_bytes = sum(path.stat().st_size for _, path in files)
     viewer_bytes = sum(path.stat().st_size for relative, path in files if not relative.startswith("tools/"))
     tool_bytes = runtime_bytes - viewer_bytes
-    if viewer_bytes > 160_000_000 or tool_bytes > 25_000_000:
-        raise RuntimeError(f'Windows size budget exceeded (viewer 160 MB, tools 25 MB): {viewer_bytes}, {tool_bytes} bytes')
+    if viewer_bytes > 170_000_000 or tool_bytes > 25_000_000:
+        raise RuntimeError(f'Windows size budget exceeded (viewer/PDF 170 MB, tools 25 MB): {viewer_bytes}, {tool_bytes} bytes')
     if release:
         validate_release(runtime)
     else:

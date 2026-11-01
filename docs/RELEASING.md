@@ -73,7 +73,7 @@ signtool verify /pa /all /v build/uxzView.exe
 ```
 
 Eigene mitgelieferte Module ebenso signieren und prüfen, wenn vorhanden:
-`build/ixextensions.dll`, `build/ixrawpreview.dll` und
+`build/ixextensions.dll`, `build/ixrawpreview.dll`, `build/ixpdf.dll` und
 `build/imageformats/ixarchive.dll`. Schlüssel und Zertifikatpasswörter gehören
 nicht ins Repository oder in Befehlsprotokolle. Die Zertifikatsauswahl und
 SHA-256-/Zeitstempeloptionen folgen dem
@@ -124,4 +124,4 @@ Der Ablauf entspricht dem dokumentierten [Erstellen von Release-Entwürfen mit G
 
 Beide Werkzeuge und alle fünf OCR-Sprachen liegen einsatzbereit unter `dist/uxzView/tools` und sind im Windows-ZIP enthalten. `dist/tools/` enthält zusätzlich die einzelnen `.ixtool`-Downloads zur erneuten Installation. Der Katalog `uxzView-tools.json` und `uxzView-tools-SHA256SUMS.txt` gehören dazu. Dies ist ein getrennt installierbares Funktionspaket, keine zweite Kopie der App. Der Release-Workflow hängt diese Dateien als zusätzliche Assets an den Entwurf. Für einen HTTPS-Katalog seine tatsächliche Adresse in der Erweiterungsverwaltung eintragen. Details und Quellen: [TOOL_EXTENSIONS.md](TOOL_EXTENSIONS.md).
 
-Die Paketierung verwendet den hashgeprüften Werkzeug-Snapshot `build/bundled-tools`, nicht den persönlichen Zustand unter `dist/uxzView/tools`. Deployment erhält dortige Deaktivierungen, Entfernungen und zusätzliche Pakete. Auslieferungsbudget: 160 MB für den Betrachter, zusätzlich 25 MB für die enthaltenen Erkennungswerkzeuge und Sprachmodelle.
+Die Paketierung verwendet den hashgeprüften Werkzeug-Snapshot `build/bundled-tools`, nicht den persönlichen Zustand unter `dist/uxzView/tools`. Deployment erhält dortige Deaktivierungen, Entfernungen und zusätzliche Pakete. Auslieferungsbudget: 170 MB für den Betrachter, zusätzlich 25 MB für die enthaltenen Erkennungswerkzeuge und Sprachmodelle.
