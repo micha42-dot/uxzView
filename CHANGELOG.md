@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Publish POSIX moves without replacing an occupied destination, including
+  cross-volume staging; avoid Qt 6.8's unsafe raw-rename fallback on unsupported
+  filesystems. Fail safely if no no-replace primitive is available.
 - Apply classic batch rename annotations in one ordered, atomic catalog update,
   including completed moves on cancellation. Serialize process-local file work
   through that flush; retain latest unrelated annotations and revision snapshots.

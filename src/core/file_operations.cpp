@@ -7,12 +7,66 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMutex>
+#include <QTemporaryDir>
+#ifdef Q_OS_UNIX
+#include <cerrno>
+#include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
+#ifdef Q_OS_LINUX
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
+#endif
 namespace ix {
 namespace {
 QRecursiveMutex operationMutex;
 bool occupied(const QString &path) {
     const QFileInfo info(path);
     return info.exists() || info.isSymLink();
+}
+#ifdef Q_OS_UNIX
+bool renameNoReplace(const QString &from, const QString &to, int &error) {
+    const auto source = QFile::encodeName(from), target = QFile::encodeName(to);
+#if defined(Q_OS_LINUX) && defined(SYS_renameat2)
+    if (::syscall(SYS_renameat2, AT_FDCWD, source.constData(), AT_FDCWD, target.constData(), RENAME_NOREPLACE) == 0)
+        return true;
+    error = errno;
+    if (error != ENOSYS && error != EINVAL && error != EOPNOTSUPP) return false;
+#elif defined(Q_OS_MACOS)
+    if (::renameatx_np(AT_FDCWD, source.constData(), AT_FDCWD, target.constData(), RENAME_EXCL) == 0)
+        return true;
+    error = errno;
+    if (error != ENOTSUP && error != EINVAL) return false;
+#endif
+    // Unlike Qt 6.8's final fallback, never call overwriting POSIX rename().
+    // link() publishes only an absent name. An unlink failure leaves both names
+    // and an error rather than risking removal of a concurrently replaced name.
+    if (::link(source.constData(), target.constData()) != 0) { error = errno; return false; }
+    if (::unlink(source.constData()) == 0) return true;
+    error = errno;
+    return false;
+}
+#endif
+bool moveNoReplace(const QString &from, const QString &to, const QString &revision) {
+#ifdef Q_OS_UNIX
+    int error = 0;
+    if (renameNoReplace(from, to, error)) return true;
+    if (error != EXDEV) return false;
+    // Copy into a private directory on the destination filesystem, then publish
+    // the complete file using the same no-replace primitive. Qt retains its
+    // platform copy optimizations and permission handling inside that directory.
+    QTemporaryDir staging(QFileInfo(to).absolutePath() + QStringLiteral("/.uxzview-move-XXXXXX"));
+    if (!staging.isValid()) return false;
+    const auto staged = staging.filePath(QStringLiteral("image"));
+    if (!QFile::copy(from, staged) || imageFileKey(from) != revision) return false;
+    if (!renameNoReplace(staged, to, error)) return false;
+    if (imageFileKey(from) != revision) return false;
+    return QFile::remove(from);
+#else
+    Q_UNUSED(revision);
+    return QFile::rename(from, to);
+#endif
 }
 }
 struct FileOperations::CatalogBatch::State {
@@ -95,8 +149,8 @@ FileOperations::OperationResult FileOperations::perform(const QString &kind, con
     if (changed())
         return {IX_TEXT("Die Datei wurde während des Lesens verändert. Bitte erneut öffnen.")};
     // No history, private backup or full-content hashing. Native rename is
-    // normally metadata-only; Qt handles cross-volume copies when necessary.
-    const bool applied = kind == QStringLiteral("copy") ? QFile::copy(from, to) : QFile::rename(from, to);
+    // normally metadata-only; cross-volume moves stage on the target volume.
+    const bool applied = kind == QStringLiteral("copy") ? QFile::copy(from, to) : moveNoReplace(from, to, sourceRevision);
     if (!applied)
         return {IX_TEXT("Dateioperation fehlgeschlagen.")};
     const auto targetRevision = imageFileKey(to);

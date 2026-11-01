@@ -378,6 +378,15 @@ carried into the worker; an observed replacement then prevents the operation.
 Native trash failures never fall back to permanent deletion. Restoration uses
 the operating system. Pixel Undo/Redo remains owned by DocumentHistory.
 
+POSIX moves use native no-replace rename (Linux renameat2, macOS renameatx_np)
+or link/unlink; they never fall back to overwriting raw rename. Cross-volume
+copies stage in a private target-volume directory and publish with that same
+primitive before removing the unchanged source. Filesystems without either
+safe primitive fail closed. Source-removal failures can leave both names and
+return an error; do not delete a possibly replaced target to conceal that state.
+Windows retains QFile's native behavior. These checks are not a cross-process
+source-revision compare-and-swap. Native Linux/macOS validation remains required.
+
 Classic batch uses the transient `BatchFileChanges` summary. Two hash maps track
 original file identity and current path, so reusing a freed path does not join
 unrelated files into a rename chain. Each applied entry updates this summary in

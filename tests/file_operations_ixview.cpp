@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QStorageInfo>
 #include <QtTest>
 namespace {
 bool put(const QString &path, const QByteArray &bytes) {
@@ -115,6 +116,43 @@ class FileOperationTests : public QObject {
         QCOMPARE(get(source), QByteArray("replaced during confirmation"));
         QVERIFY(!QFileInfo::exists(target));
     }
+    void lateDestinationsAreNeverOverwritten_data() {
+        QTest::addColumn<QString>("kind"); QTest::addColumn<bool>("directory");
+        for (const auto &kind : {QStringLiteral("copy"),QStringLiteral("move")}) {
+            QTest::newRow((kind+QStringLiteral("-file")).toLatin1().constData()) << kind << false;
+            QTest::newRow((kind+QStringLiteral("-directory")).toLatin1().constData()) << kind << true;
+        }
+    }
+    void lateDestinationsAreNeverOverwritten() {
+        QFETCH(QString,kind); QFETCH(bool,directory);
+        QTemporaryDir folder;
+        const auto source=folder.filePath(QStringLiteral("source")), target=folder.filePath(QStringLiteral("target"));
+        QVERIFY(put(source,"original source")); bool prepared=false;
+        ix::FileOperations operations({}, [&] {
+            prepared = directory ? QDir().mkpath(target) : put(target,"other writer");
+            if (directory) prepared = prepared && put(target+QStringLiteral("/keep"),"keep");
+            return QString();
+        });
+        const auto result=operations.perform(kind,source,target);
+        QVERIFY(prepared); QVERIFY(!result.applied); QVERIFY(!result.error.isEmpty());
+        QCOMPARE(get(source),QByteArray("original source"));
+        QCOMPARE(get(directory ? target+QStringLiteral("/keep") : target),
+                 directory ? QByteArray("keep") : QByteArray("other writer"));
+    }
+#ifdef Q_OS_LINUX
+    void crossVolumeMovePublishesCompleteFile() {
+        QTemporaryDir sourceFolder, targetFolder(QStringLiteral("/dev/shm/uxzview-move-XXXXXX"));
+        if (!sourceFolder.isValid() || !targetFolder.isValid() ||
+            QStorageInfo(sourceFolder.path()).device() == QStorageInfo(targetFolder.path()).device())
+            QSKIP("Two writable local filesystems are required for this native Linux check.");
+        const auto source=sourceFolder.filePath(QStringLiteral("source")), target=targetFolder.filePath(QStringLiteral("target"));
+        const QByteArray bytes(3*1024*1024,'x'); QVERIFY(put(source,bytes));
+        const auto result=ix::FileOperations().perform(QStringLiteral("move"),source,target);
+        QVERIFY2(result.applied,qPrintable(result.error));
+        QVERIFY(!QFileInfo::exists(source)); QCOMPARE(get(target),bytes);
+        QCOMPARE(QDir(targetFolder.path()).entryList(QDir::Dirs|QDir::Hidden|QDir::NoDotAndDotDot).size(),0);
+    }
+#endif
     void classicBatchRelocatesCatalogOnce() {
         QTemporaryDir folder;
         const auto prior = qApp->property("ixStorageData");
