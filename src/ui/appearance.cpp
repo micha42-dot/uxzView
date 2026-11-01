@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "appearance.h"
+#include "platform_support.h"
 #include <QApplication>
+#include <QEvent>
 #include <QPalette>
 #include <QPointer>
 #include <QStyleFactory>
@@ -8,6 +10,10 @@
 #include <QStyle>
 #include <QProxyStyle>
 #include <QStyleOptionMenuItem>
+#include <QTimer>
+#include <QVariant>
+#include <QWidget>
+#include <QWindow>
 #include <utility>
 
 namespace ix {
@@ -75,6 +81,10 @@ class Appearance final : public QObject {
             QApplication::setStyle(new MenuCheckmarkStyle(style));
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
                 [this](Qt::ColorScheme) { if (mode_ == QStringLiteral("system")) update(); });
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() == QStringLiteral("windows"))
+            qApp->installEventFilter(this);
+#endif
     }
     void apply(QString mode) {
         if (mode != QStringLiteral("light") && mode != QStringLiteral("dark"))
@@ -88,14 +98,52 @@ class Appearance final : public QObject {
     }
   private:
     QString mode_;
-    bool initialized_ = false, fallbackDark_ = false;
+    bool initialized_ = false, fallbackDark_ = false, dark_ = false;
+    void synchronizeFrame(QWidget *window) {
+        if (!window || !window->isWindow() || !window->internalWinId() ||
+            window->windowFlags().testFlag(Qt::FramelessWindowHint) ||
+            window->windowType() == Qt::Popup || window->windowType() == Qt::ToolTip) return;
+        const QPointer<QWidget> owner(window);
+        applyNativeWindowTheme(window, dark_);
+        // Qt's platform handler can update the border after our event filter.
+        // Reapply once after that event, coalesced and owned by the widget.
+        if (!owner || owner->property("ixFrameThemePending").toBool()) return;
+        owner->setProperty("ixFrameThemePending", true);
+        if (!owner) return;
+        QTimer::singleShot(0, owner, [appearance = QPointer<Appearance>(this), owner] {
+            if (!appearance || !owner) return;
+            owner->setProperty("ixFrameThemePending", false);
+            if (owner) applyNativeWindowTheme(owner, appearance->dark_);
+        });
+    }
+    bool eventFilter(QObject *object, QEvent *event) override {
+        if (!initialized_) return false;
+        switch (event->type()) {
+        case QEvent::Show:
+        case QEvent::WinIdChange:
+        case QEvent::PaletteChange:
+        case QEvent::ApplicationPaletteChange:
+        case QEvent::ThemeChange:
+            if (auto *widget = qobject_cast<QWidget *>(object))
+                synchronizeFrame(widget);
+            else if (auto *window = qobject_cast<QWindow *>(object); window && window->handle())
+                synchronizeFrame(QWidget::find(window->winId()));
+            break;
+        default: break;
+        }
+        return false;
+    }
     void update() {
         const auto scheme = QGuiApplication::styleHints()->colorScheme();
-        const bool dark = mode_ == QStringLiteral("dark") || (mode_ == QStringLiteral("system") &&
+        dark_ = mode_ == QStringLiteral("dark") || (mode_ == QStringLiteral("system") &&
             (scheme == Qt::ColorScheme::Dark || (scheme == Qt::ColorScheme::Unknown && fallbackDark_)));
-        const auto palette = colors(dark);
+        const auto palette = colors(dark_);
         if (QApplication::palette() != palette)
             QApplication::setPalette(palette);
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() == QStringLiteral("windows"))
+            for (auto *window : QApplication::topLevelWidgets()) synchronizeFrame(window);
+#endif
     }
 };
 } // namespace

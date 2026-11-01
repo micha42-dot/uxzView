@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Apply the selected appearance to native Windows title bars, including older
+  Windows 10's DWM fallback, late-created dialogs and recreated window handles.
+  Keep frame updates independent of image loads and window geometry.
 - Include CMake-derived Windows product/version information with matching Unicode
   translation metadata. Validate fixed/string versions through the Windows API
   during release preparation without executing the inspected binary.

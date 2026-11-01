@@ -425,4 +425,31 @@ void configureDesktopAppearance() {
         QApplication::setStyle(style);
     configureUiFont();
 }
+bool applyNativeWindowTheme(QWidget *window, bool dark) {
+#ifdef Q_OS_WIN
+    if (!window || QGuiApplication::platformName() != QStringLiteral("windows") ||
+        !window->isWindow() || !window->internalWinId() ||
+        window->windowFlags().testFlag(Qt::FramelessWindowHint) ||
+        window->windowType() == Qt::Popup || window->windowType() == Qt::ToolTip)
+        return false;
+    using Set = HRESULT (WINAPI *)(HWND, DWORD, LPCVOID, DWORD);
+    static const HMODULE module = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    static const auto set = module ? std::bit_cast<Set>(GetProcAddress(module, "DwmSetWindowAttribute")) : nullptr;
+    if (!set) return false;
+    const auto handle = reinterpret_cast<HWND>(window->internalWinId());
+    const bool visible = window->isVisible();
+    const BOOL enabled = dark ? TRUE : FALSE;
+    // Same compatibility fallback as Qt 6.8's QWindowsWindow: older Windows 10
+    // uses attribute 19; newer Windows uses 20. Ignore unsupported attributes.
+    const bool applied = SUCCEEDED(set(handle, 20, &enabled, sizeof(enabled))) ||
+                         SUCCEEDED(set(handle, 19, &enabled, sizeof(enabled)));
+    if (applied && visible)
+        RedrawWindow(handle, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_NOCHILDREN);
+    return applied;
+#else
+    Q_UNUSED(window);
+    Q_UNUSED(dark);
+    return false;
+#endif
+}
 } // namespace ix

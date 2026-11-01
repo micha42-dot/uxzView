@@ -12,6 +12,7 @@
 #include "ui/settings_dialog.h"
 #include "ui/library_dialog.h"
 #include "ui/worker_wait.h"
+#include "ui/platform_support.h"
 #include <QLockFile>
 #include <QSemaphore>
 #include <QAccessible>
@@ -19,6 +20,10 @@
 #include <QtTest>
 #include <QtWidgets>
 #include <cmath>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#include <bit>
+#endif
 
 namespace {
 double luminance(QColor color) {
@@ -58,6 +63,60 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void nativeTitleBarsFollowThemeAndHandleChanges() {
+        const auto restore = qScopeGuard([] {
+            ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+        });
+        QWidget untouched;
+        QVERIFY(!untouched.internalWinId());
+        QVERIFY(!ix::applyNativeWindowTheme(&untouched, true));
+        QVERIFY(!untouched.internalWinId()); // The helper must not create a native surface.
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() == QStringLiteral("windows")) {
+            using Get = HRESULT (WINAPI *)(HWND, DWORD, PVOID, DWORD);
+            const auto module = GetModuleHandleW(L"dwmapi.dll");
+            const auto get = module ? std::bit_cast<Get>(GetProcAddress(module, "DwmGetWindowAttribute")) : nullptr;
+            QVERIFY(get);
+            const auto darkFrame = [get](QWidget &window) {
+                BOOL value = FALSE;
+                const auto handle = reinterpret_cast<HWND>(window.internalWinId());
+                if (FAILED(get(handle, 20, &value, sizeof(value))) &&
+                    FAILED(get(handle, 19, &value, sizeof(value)))) return -1;
+                return value ? 1 : 0;
+            };
+            ix::applyInterfaceTheme(QStringLiteral("light"));
+            QWidget window;
+            window.setWindowTitle(QStringLiteral("Title bar regression"));
+            window.resize(320,160); window.show();
+            QTRY_COMPARE(darkFrame(window),0);
+            const auto geometry = window.geometry();
+            const auto handle = window.internalWinId();
+            for (const auto &mode : {QStringLiteral("dark"),QStringLiteral("light"),QStringLiteral("dark")}) {
+                ix::applyInterfaceTheme(mode);
+                QCoreApplication::processEvents();
+                QTRY_COMPARE(darkFrame(window),mode==QStringLiteral("dark") ? 1 : 0);
+                QCOMPARE(window.internalWinId(),handle);
+                QCOMPARE(window.geometry(),geometry);
+            }
+            QDialog dialog(&window); dialog.resize(200,100); dialog.show();
+            QTRY_COMPARE(darkFrame(dialog),1);
+            ix::applyInterfaceTheme(QStringLiteral("light"));
+            QCoreApplication::processEvents();
+            QTRY_COMPARE(darkFrame(window),0); QTRY_COMPARE(darkFrame(dialog),0);
+            dialog.hide();
+            window.hide();
+            window.setWindowFlag(Qt::FramelessWindowHint,true);
+            window.show();
+            QVERIFY(!ix::applyNativeWindowTheme(&window,true));
+            window.hide(); window.setWindowFlag(Qt::FramelessWindowHint,false);
+            ix::applyInterfaceTheme(QStringLiteral("dark")); window.show();
+            QTRY_COMPARE(darkFrame(window),1);
+            return;
+        }
+#endif
+        untouched.show();
+        QVERIFY(!ix::applyNativeWindowTheme(&untouched,true));
+    }
     void workerWaitKeepsGuiTimersAlive() {
         QSemaphore release;
         QFutureWatcher<int> watcher;
