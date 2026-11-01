@@ -3689,6 +3689,42 @@ class IxTests : public QObject {
         QCOMPARE(codec->reads, 2);
         ix::ImageLoadCache::clear();
     }
+    void metadataDpiBoundsPreserveInputAndHighResolutions() {
+#ifdef IX_TEST_EXIV2
+        const auto source=dir(QStringLiteral("dpi-source.jpg")), target=dir(QStringLiteral("dpi-target.jpg"));
+        const auto pixels=pattern(32,24); QVERIFY(pixels.save(source));
+        auto native=Exiv2::ImageFactory::open(source.toStdString()); native->readMetadata();
+        native->exifData()["Exif.Image.Make"]="Test camera"; native->writeMetadata();
+        QString warning; const auto metadata=ix::readMetadata(source,warning); QVERIFY(metadata && metadata->hasExif);
+        QFile input(source); QVERIFY(input.open(QIODevice::ReadOnly)); const auto encoded=input.readAll(); input.close();
+        const auto originalHash=ix::sha256File(source);
+        for (double invalid : {std::numeric_limits<double>::infinity(),std::numeric_limits<double>::max(),
+                               double(std::numeric_limits<uint32_t>::max())+1})
+            for (bool horizontal : {false,true}) {
+                QString error;
+                const auto output=ix::attachMetadata(encoded,*metadata,pixels.size(),horizontal ? invalid : 96,
+                                                      horizontal ? 96 : invalid,true,error);
+                QVERIFY(output.isEmpty()); QVERIFY(!error.isEmpty());
+            }
+        QString error;
+        QVERIFY(!ix::attachMetadata(encoded,*metadata,pixels.size(),96,96,true,error).isEmpty()); QVERIFY(error.isEmpty());
+        const QByteArray original("existing destination");
+        QFile existing(target); QVERIFY(existing.open(QIODevice::WriteOnly));
+        QCOMPARE(existing.write(original),qint64(original.size())); existing.close();
+        ix::ImageDocument document; document.pixels=pixels; document.path=source;
+        document.metadata=metadata; document.sourceHasExif=true; document.modified=true;
+        document.pixels.setDotsPerMeterX(std::numeric_limits<int>::max());
+        document.pixels.setDotsPerMeterY(std::numeric_limits<int>::max());
+        const auto saved=ix::CodecRegistry().save(document,target,"jpeg",95,true);
+        QVERIFY2(saved.isEmpty(),qPrintable(saved));
+        auto result=Exiv2::ImageFactory::open(target.toStdString()); result->readMetadata();
+        QVERIFY(std::abs(double(result->exifData()["Exif.Image.XResolution"].toFloat())-document.dpiX())<8);
+        QVERIFY(std::abs(double(result->exifData()["Exif.Image.YResolution"].toFloat())-document.dpiY())<8);
+        QCOMPARE(ix::sha256File(source),originalHash);
+#else
+        QSKIP("Exiv2 not built");
+#endif
+    }
     void selectionExportRemovesOriginalExifThumbnail() {
 #ifdef IX_TEST_EXIV2
         const auto source = dir(QStringLiteral("thumbnail-source.jpg"));

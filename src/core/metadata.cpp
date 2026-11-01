@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "metadata.h"
+#include "localization.h"
 #include <QFile>
 #include <QMutex>
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 #include <limits>
 #ifdef IX_HAVE_EXIV2
 #include <exiv2/exiv2.hpp>
@@ -236,8 +238,19 @@ QByteArray attachMetadata(QByteArray encoded, const Metadata &md, QSize size, do
             exif["Exif.Photo.PixelXDimension"] = uint32_t(size.width());
             exif["Exif.Photo.PixelYDimension"] = uint32_t(size.height());
             if (dpiX > 0 && dpiY > 0) {
-                exif["Exif.Image.XResolution"] = Exiv2::URational(uint32_t(dpiX * 1000), 1000);
-                exif["Exif.Image.YResolution"] = Exiv2::URational(uint32_t(dpiY * 1000), 1000);
+                constexpr double maximum = std::numeric_limits<uint32_t>::max();
+                if (!std::isfinite(dpiX) || !std::isfinite(dpiY) || dpiX > maximum || dpiY > maximum) {
+                    error = IX_TEXT("Auflösung ist für EXIF zu groß.");
+                    return {};
+                }
+                const auto rational = [](double dpi) {
+                    constexpr double limit = std::numeric_limits<uint32_t>::max();
+                    uint32_t denominator = 1000;
+                    while (denominator > 1 && dpi > limit / denominator) denominator /= 10;
+                    return Exiv2::URational(uint32_t(std::min(limit, dpi * denominator)), denominator);
+                };
+                exif["Exif.Image.XResolution"] = rational(dpiX);
+                exif["Exif.Image.YResolution"] = rational(dpiY);
                 exif["Exif.Image.ResolutionUnit"] = uint16_t(2);
             }
             if (modified)

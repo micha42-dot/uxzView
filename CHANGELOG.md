@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reject EXIF resolution values outside the finite unsigned-rational range
+  before conversion; adapt the denominator for valid high-DPI values rather
+  than overflowing a fixed milli-DPI numerator.
 - Separate catalog warnings from file-operation failures. Successful direct and
   batch moves retain success status while displaying any metadata warning.
 - Reuse one settings reader when capturing color-management and RAW-preview
