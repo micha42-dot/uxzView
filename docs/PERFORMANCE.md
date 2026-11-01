@@ -1,5 +1,16 @@
 # Performance in üxzView
 
+## Automatic border cropping · 01.11.2026
+
+Native 32-/64-bit scanlines avoid repeated QColor conversion and a full-image
+temporary. On a generated 24 MP image already in memory, three alternating
+calls per path/format give medians of **907.03 → 87.06 ms (RGB32)** and
+**534.31 → 122.12 ms (RGBA64)** against the scalar reference, with identical
+crop bounds. This measures the crop component and excludes generation, decode
+and IO; it does not establish whole-viewer or peak-process-RAM gains. The
+[reliability review](RELIABILITY_REVIEW_2026-11-01.md) includes the command,
+format-semantics checks and memory-budget scope.
+
 ## Directory extension filtering · 31.10.2026
 
 The [directory filter review](DIRECTORY_FILTER_REVIEW_2026-10-31.md) measures

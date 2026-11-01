@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.5.0 · Stand: 31.10.2026**
+**Version 0.5.0 · Stand: 01.11.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -17,6 +17,16 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Zuverlässigkeitsprüfung: Kanal-/Menügrenzen, Bildpufferbudget, einmalige
+  Katalogaktualisierung bei Batch-Umbenennungen, sichere POSIX-Zielpublikation
+  und weniger blockierende GUI-Arbeit. Getrennte Glättung für Einpassen/Zoom,
+  robuste Löschziele und manuelle Navigation vor Hotfolder-Automatik.
+  516 Qt-Fälle im Build und portablen Paket sowie alle 45 Python-Tests bestehen;
+  neue Navigationsfälle auch nativ bei vier Skalierungen. Windows-Versionsdaten
+  sind konsistent, lokale Defender-Scans ohne Fund. Signierung,
+  Herstellerklärung und native Linux-/macOS-Prüfung bleiben offen.
+  [Befunde, Messung und Grenzen](docs/RELIABILITY_REVIEW_2026-11-01.md).
 
 - Ordnerfilter prüfen einfache Formatendungen direkt, statt jeden Dateinamen
   gegen die gesamte Musterliste zu prüfen. Sonderfälle behalten Qt-Matching;
