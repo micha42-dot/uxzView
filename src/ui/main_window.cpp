@@ -253,7 +253,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
         updatePreviews();
         updateStatus();
         refreshState();
-        if (!watchedFolder_.isEmpty() && !activity_.busy() && !QApplication::activeModalWidget() &&
+        if (!watchedFolder_.isEmpty() && pendingNavigation_ == 0 && !activity_.busy() && !QApplication::activeModalWidget() &&
             !document_.modified && !snapshot.latest.isEmpty() && snapshot.latest != document_.path) {
             openPath(snapshot.latest, 0, false);
             return;

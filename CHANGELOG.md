@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Resolve post-delete navigation against the source path when its snapshot index
+  is stale; skip duplicate source entries. Queued manual navigation takes priority
+  over hotfolder auto-opening when a new directory snapshot arrives.
 - Guard late OS file-open callbacks with the window lifetime; consume completed
   preview/save results and keep GUI paints alive during required file-worker joins.
   Report failed folder watches instead of showing hotfolder mode as active.

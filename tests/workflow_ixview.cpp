@@ -11,6 +11,7 @@
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "ui/main_window.h"
+#include "ui/file_navigation.h"
 #include "ui/appearance.h"
 #include "ui/interface_language.h"
 #include "ui/dialogs.h"
@@ -54,6 +55,55 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void postDeleteNavigation_data() {
+        QTest::addColumn<QStringList>("files");
+        QTest::addColumn<int>("index");
+        QTest::addColumn<QString>("source");
+        QTest::addColumn<QString>("expected");
+        const QString a = QStringLiteral("/a.png"), b = QStringLiteral("/b.png"), c = QStringLiteral("/c.png");
+        QTest::newRow("empty") << QStringList{} << -1 << a << QString();
+        QTest::newRow("next") << QStringList{a,b,c} << 0 << a << b;
+        QTest::newRow("wrap") << QStringList{a,b,c} << 2 << c << a;
+        QTest::newRow("unknown-index") << QStringList{a,b,c} << -1 << a << b;
+        QTest::newRow("stale-index") << QStringList{a,b,c} << 0 << b << c;
+        QTest::newRow("source-absent") << QStringList{b} << -1 << a << b;
+        QTest::newRow("only-source") << QStringList{a} << -1 << a << QString();
+        QTest::newRow("duplicates") << QStringList{a,a,b} << 0 << a << b;
+        QTest::newRow("all-duplicates") << QStringList{a,a} << 0 << a << QString();
+        QTest::newRow("clean-path") << QStringList{QStringLiteral("/dir/../a.png"),b} << -1 << a << b;
+#ifdef Q_OS_WIN
+        QTest::newRow("windows-case") << QStringList{QStringLiteral("/A.PNG"),b} << -1 << a << b;
+#endif
+    }
+    void postDeleteNavigation() {
+        QFETCH(QStringList, files); QFETCH(int, index); QFETCH(QString, source); QFETCH(QString, expected);
+        QCOMPARE(ix::nextPathAfterRemoval(files, index, source), expected);
+    }
+    void hotfolderPreservesQueuedManualNavigation() {
+        const auto first = photo(QStringLiteral("hotfolder-priority/1.png"), Qt::red);
+        const auto second = photo(QStringLiteral("hotfolder-priority/2.png"), Qt::green);
+        const auto third = photo(QStringLiteral("hotfolder-priority/3.png"), Qt::blue);
+        QVERIFY(!first.isEmpty() && !second.isEmpty() && !third.isEmpty());
+        ix::MainWindow window;
+        auto *service = window.findChild<ix::DirectoryIndexService *>(); QVERIFY(service);
+        QSignalSpy ready(service, &ix::DirectoryIndexService::ready);
+        window.openPath(first);
+        QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        window.dispatch(QStringLiteral("hotfolder"));
+        window.dispatch(QStringLiteral("refresh"));
+        service->cancel(); // Deliver a controlled snapshot after the reload.
+        window.dispatch(QStringLiteral("next"));
+        QTRY_VERIFY(!window.isBusy() && !service->isBusy());
+        QCoreApplication::processEvents();
+        ix::DirectorySnapshot snapshot;
+        snapshot.directory = QFileInfo(first).absolutePath();
+        snapshot.files = {first, second, third};
+        snapshot.positions = {{first,0}, {second,1}, {third,2}};
+        snapshot.latest = third;
+        emit service->ready(snapshot);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == second);
+        QCOMPARE(window.document().pixels.pixelColor(0,0), QColor(Qt::green));
+    }
     void hotfolderRegistrationFailureRetainsImage() {
         const auto path = photo(QStringLiteral("missing-watch/photo.png"), Qt::red);
         QVERIFY(!path.isEmpty());

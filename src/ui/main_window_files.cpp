@@ -4,6 +4,7 @@
 #include "core/preview_service.h"
 #include "main_window.h"
 #include "worker_wait.h"
+#include "file_navigation.h"
 #include <QScopeGuard>
 #include <QtConcurrent>
 #include <QtWidgets>
@@ -172,9 +173,7 @@ void MainWindow::fileOperation(const QString &op) {
                 IX_TEXT("Datei in den Papierkorb des Betriebssystems verschieben?\n%1").arg(source)) !=
             QMessageBox::Yes)
             return;
-        QString next;
-        if (files_.size() > 1)
-            next = files_.at((fileIndex_ + 1) % files_.size());
+        const auto next = nextPathAfterRemoval(files_, fileIndex_, source);
         QProgressDialog progress(IX_TEXT("Datei wird in den Systempapierkorb verschoben …"), {}, 0, 0,
                                  this);
         progress.setCancelButton(nullptr);
