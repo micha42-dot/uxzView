@@ -9,6 +9,8 @@
 #include <QSettings>
 #include <QtTest>
 #include <QtWidgets>
+#include <limits>
+#include <stdexcept>
 #ifdef IX_QUALITY_LCMS
 #include <lcms2.h>
 #endif
@@ -23,6 +25,20 @@ class QualityTests : public QObject {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
         ix::ImageLoadCache::configure(0, 16, true);
+    }
+    void swapChannelsRejectsInvalidIndices() {
+        QImage source(1, 1, QImage::Format_RGBA64);
+        reinterpret_cast<QRgba64 *>(source.scanLine(0))[0] = QRgba64::fromRgba64(0x1234, 0x5678, 0x9abc, 0xdef0);
+        const auto key = source.cacheKey();
+        for (int invalid : {std::numeric_limits<int>::min(), -1, 3, std::numeric_limits<int>::max()}) {
+            QVERIFY_EXCEPTION_THROWN(ix::swapChannels(source, invalid, 0), std::out_of_range);
+            QVERIFY_EXCEPTION_THROWN(ix::swapChannels(source, 0, invalid), std::out_of_range);
+        }
+        const auto result = ix::swapChannels(source, 0, 2).pixelColor(0, 0).rgba64();
+        QCOMPARE(result.red(), quint16(0x9abc)); QCOMPARE(result.green(), quint16(0x5678));
+        QCOMPARE(result.blue(), quint16(0x1234)); QCOMPARE(result.alpha(), quint16(0xdef0));
+        QCOMPARE(ix::swapChannels(source, 1, 1), source);
+        QCOMPARE(source.cacheKey(), key);
     }
     void convolutionRetainsReferencePixels_data() {
         QTest::addColumn<int>("format");

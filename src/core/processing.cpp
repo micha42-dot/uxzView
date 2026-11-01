@@ -267,6 +267,8 @@ QImage channel(const QImage &s, int c) {
     });
 }
 QImage swapChannels(const QImage &s, int a, int b) {
+    if (a < 0 || a > 2 || b < 0 || b > 2)
+        throw std::out_of_range("Farbkanal muss zwischen 0 und 2 liegen.");
     return perPixel(s, [=](QRgba64 p) {
         std::array<quint16, 3> v{p.red(), p.green(), p.blue()};
         std::swap(v[a], v[b]);

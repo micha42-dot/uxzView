@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject invalid channel indices before swapping pixels instead of indexing
+  outside the RGB channel array.
 ## 0.5.0
 
 - Filter ordinary image extensions through a per-scan suffix set instead of
