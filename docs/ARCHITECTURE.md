@@ -485,3 +485,15 @@ iterates keys without changing unrelated LRU order and charges key storage.
 One bounded epoch rejects older in-flight insertions while retaining cached
 neighbors. Unrelated APNG sessions also survive. Conservative global clears
 remain for global preferences and some external-source/batch reconciliation.
+
+## Large-image RAM contract
+
+`core/memory_policy.*` initializes an immutable process budget before decoding.
+It probes physical RAM per OS, supports a manual MiB setting, bounds 32-bit
+addressing and sets Qt's non-atomic reader limit once. Settings changes require
+restart. Decoder and operation guards use this budget. Cache/history costs use
+an independent signed-int saturation bound. PDF receives its budget explicitly.
+8-bit resize retains RGBA64 intermediate precision per horizontal row and uses a
+bounded row cache; the final image is native 32-bit. GUI estimates and worker
+preflight share the same calculation. Display caches remain unsuitable for
+Save/Export. Details and phase status: [large images](LARGE_IMAGES.md).

@@ -12,8 +12,8 @@ double ImageDocument::dpiY() const {
     return pixels.dotsPerMeterY() > 0 ? pixels.dotsPerMeterY() * 0.0254 : 96.0;
 }
 bool safeSize(QSize size, int bpp) {
-    return size.width() > 0 && size.height() > 0 && size.width() <= 100000 && size.height() <= 100000 &&
-           qint64(size.width()) * size.height() <= ImageMemoryLimit / bpp;
+    return bpp > 0 && size.width() > 0 && size.height() > 0 && size.width() <= ImageAxisLimit && size.height() <= ImageAxisLimit &&
+           qint64(size.width()) * size.height() <= imageMemoryLimit() / bpp;
 }
 int imageChannelBits(const QImage &image) {
     const auto format = image.pixelFormat();

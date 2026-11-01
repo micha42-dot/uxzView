@@ -18,6 +18,10 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Speicherphase 1: automatisches/manuelles RAM-Budget, großere geprüfte
+  Dimensionen und zeilenbasiertes Resize mit exakter Referenzprüfung. Der Dialog
+  zeigt seine gültige Maximalgröße. [Vertrag und Stand](docs/LARGE_IMAGES.md).
+
 - Graustufen für native 8-Bit-Bilder: pixelgenau, halber Bildpufferbedarf und im
   24-MP-Komponententest etwa 3× schneller. Windows-Paket rund 7,66 MB kleiner,
   14 DLLs weniger; alle Formatfähigkeiten erhalten. 551 Qt-Fälle und 46 Python-
@@ -286,7 +290,7 @@ Fünf echte CR2-/NEF-/ARW-/PEF-/DNG-Dateien, vier unabhängige LittleCMS-Referen
 
 1. Native Windows-10-/Linux-/macOS-Läufe, breitere RAW-/OCR-/Barcode-Stichproben, kalibrierte Monitorprofile, HDR-Desktop und Mehrmonitorverhalten prüfen. Wayland-Screenshots benötigen noch die Portal-Anbindung. Muttersprachliche Prüfung der Übersetzungen steht aus.
 2. Die Auftragssteuerung der Ordnerindizierung ist ausgelagert. Laden, Navigation, Speichern und Dateiverwaltung aus dem weiterhin großen Hauptfenster weiter schrittweise entflechten. Erst darauf aufbauend gerichtetes Vorladen mit Abbruch und ohne doppelte Decodierung ergänzen.
-3. Ein gemeinsames RAM-Budget für aktive Decoder, Undo, Caches, Anzeige und Export schaffen. Die einzelnen Budgets sind keine Gesamtgrenze. Kein gekachelter Gigapixel-Decoder; bestehende Größen-/Allokationsgrenzen bleiben bestehen.
+3. Ein gemeinsames RAM-Budget für aktive Decoder, Undo, Caches, Anzeige und Export schaffen. Die einzelnen Budgets sind keine Gesamtgrenze. Dynamisches RAM-Budget und zeilenbasiertes 8-Bit-Resize sind umgesetzt; dateibasierte Pixelpuffer und riesige Decoderpfade folgen in der Speicherphase. Siehe [Großbilder](docs/LARGE_IMAGES.md).
 4. Automatische Wiederherstellung von `pending`-/`undoPending`-Dateioperationen nach einem Absturz ergänzen. Revisionstest und Dateisystemmutation sind gegenüber anderen Programmen nicht atomar. Große JSON-Kataloge und synchrone Formatpaket-Installation benötigen weitere Arbeit.
 5. Paketgröße bleibt erheblich: rund 179,3 MB entpackt, davon etwa 24 MB Erkennungswerkzeuge. Weitere Einsparungen erfordern geprüfte optionale Formatpakete oder einen kleineren Qt-/ICU-Build.
 

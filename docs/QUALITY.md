@@ -6,7 +6,11 @@ crop and pixel-Undo proof with an unchanged source hash. The full core and
 portable checks pass after removing obsolete batch backup promises; no new
 native cross-platform, HDR or peak-process-memory coverage is implied.
 
-üxzView 0.5.0 has eight Qt test suites. The development build and portable runtime
+Phase 1 of the [large-image work](LARGE_IMAGES.md) passes 560 Qt cases and 46
+Python tests in the development build. The packaged resource baseline below
+remains available while the storage phase is implemented.
+
+The 0.5.0 resource baseline has eight Qt test suites. Its build and portable runtime
 each pass **551 Qt cases** on Windows 11: 200 functional, 154 workflow, 78 quality,
 12 storage, 29 file-operation, 17 extension, 15 maintenance and 46 UI quality,
 with no skips. All **46 Python tests** pass. The new navigation/smoothing cases

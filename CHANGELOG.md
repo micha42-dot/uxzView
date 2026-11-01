@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Select image-buffer RAM limits at startup from physical RAM (automatic half-RAM,
+  512 MiB to 8 GiB) or performance/memoryLimitMiB. Bound 32-bit builds, align Qt's
+  decoder limit and expose --memory-info. Changes take effect after restart.
+- Resample 8-bit images with bounded row conversion/filtering and native output,
+  preserving legacy rounding. Show and validate the resize operation's live maximum
+  and increase the budget-checked geometry ceiling to one million pixels per axis.
+
 - Process native RGB32/ARGB32 grayscale in one output buffer with exact legacy
   rounding, including floating-point ties. Preserve every 8-bit RGB color and
   image properties while halving its image-buffer working set.

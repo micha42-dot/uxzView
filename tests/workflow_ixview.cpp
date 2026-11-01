@@ -1,3 +1,4 @@
+#include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
 #include "animation_fixture.h"
@@ -924,6 +925,7 @@ class WorkflowTests : public QObject {
     }
 
     void initTestCase() {
+        ix::initializeImageMemoryLimit(512);
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewWorkflowTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
@@ -1771,8 +1773,10 @@ class WorkflowTests : public QObject {
         pixels.fill(Qt::blue);
         ix::ResizeOptions options;
         options.size = pixels.size();
-        // Source, 16-bit input, intermediate, output and final conversion
-        // exceed 512 MiB; reject before allocating those extra buffers.
+        // Row-based 8-bit resizing fits; sharpening still needs its additional
+        // full-frame buffers and must reject before allocating them.
+        QCOMPARE(ix::resample(pixels, options), pixels);
+        options.sharpen = true;
         QVERIFY_EXCEPTION_THROWN(ix::resample(pixels, options), std::runtime_error);
     }
     void saveKeepsTargetChangedDuringLossWarning_data() {

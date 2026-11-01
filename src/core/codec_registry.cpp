@@ -28,9 +28,9 @@ namespace {
 #ifdef IX_PDF_MODULE
 ImageResult readPdf(const QString &path, int page) {
     static QLibrary module(optionalModulePath(QStringLiteral(IX_PDF_MODULE)));
-    using Read = ImageResult (*)(const QString &, int);
+    using Read = ImageResult (*)(const QString &, int, qint64);
     static const auto read = reinterpret_cast<Read>(module.resolve("ixReadPdf"));
-    auto result = read ? read(path, page) : ImageResult{{}, QStringLiteral("PDF-Modul ist nicht verfügbar.")};
+    auto result = read ? read(path, page, imageMemoryLimit()) : ImageResult{{}, QStringLiteral("PDF-Modul ist nicht verfügbar.")};
     result.error = localized(result.error);
     return result;
 }
@@ -112,7 +112,7 @@ class QtCodec final : public ImageCodec {
         const int count = reader.imageCount();
         auto dimensions = reader.size();
         if (dimensions.isValid() && !safeSize(dimensions)) {
-            out.error = IX_TEXT("Bild überschreitet das Speicherlimit (512 MiB / 100.000 Pixel pro Achse).");
+            out.error = imageSizeLimitError(reader.size());
             return out;
         }
         if (page < 0 || (count > 0 && page >= count)) {
@@ -217,8 +217,7 @@ class QtCodec final : public ImageCodec {
 };
 } // namespace
 CodecRegistry::CodecRegistry() {
-    static std::once_flag allocation;
-    std::call_once(allocation, [] { QImageReader::setAllocationLimit(512); });
+    initializeImageMemoryLimit();
     add(std::make_shared<QtCodec>());
     add(std::make_shared<ApngCodec>());
 #ifdef IX_PDF_MODULE

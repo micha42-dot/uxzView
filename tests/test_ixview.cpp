@@ -1,3 +1,4 @@
+#include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "animation_fixture.h"
@@ -136,6 +137,7 @@ class IxTests : public QObject {
     }
   private slots:
     void initTestCase() {
+        ix::initializeImageMemoryLimit(512);
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
@@ -2507,7 +2509,7 @@ class IxTests : public QObject {
     }
     void memoryGuards() {
         QVERIFY(!ix::safeSize({0, 10}));
-        QVERIFY(!ix::safeSize({100001, 1}));
+        QVERIFY(!ix::safeSize({ix::ImageAxisLimit + 1, 1}));
         QVERIFY(!ix::safeSize({100000, 100000}));
         QVERIFY(ix::safeSize({4000, 3000}));
         ix::ResizeOptions o;

@@ -1,3 +1,4 @@
+#include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/file_operations.h"
 #include "core/file_revision.h"
@@ -23,6 +24,7 @@ class FileOperationTests : public QObject {
     QTemporaryDir temporary_;
   private slots:
     void initTestCase() {
+        ix::initializeImageMemoryLimit(512);
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewFileOperationTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));

@@ -8,7 +8,7 @@
 #include <QtWidgets>
 namespace ix {
 ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
-    : QDialog(parent), model_(original, dpi) {
+    : QDialog(parent), model_(original, dpi), sourceSize_(original) {
     setWindowTitle(IX_TEXT("Größe ändern"));
     setObjectName(QStringLiteral("resizeDialog"));
     auto *outer = dialogLayout(this);
@@ -61,6 +61,7 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     absolute_->setChecked(true);
     absoluteGroup_->layout()->addWidget(absolute_);
     width_ = spin(QStringLiteral("width")); height_ = spin(QStringLiteral("height"));
+    width_->setMaximum(ImageAxisLimit); height_->setMaximum(ImageAxisLimit);
     dimensions(absoluteGroup_, width_, height_);
     width_->setKeyboardTracking(true);
     height_->setKeyboardTracking(true);
@@ -181,10 +182,12 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     method->layout()->addWidget(gamma_);
     right->addStretch();
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    buttons->setObjectName(QStringLiteral("resizeButtons"));
     buttons->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));
     outer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &ResizeDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(sharpen_, &QCheckBox::toggled, this, [this] { updateEstimate(); });
     resize(std::min(900, screen()->availableGeometry().width() - 48),
            std::min(640, screen()->availableGeometry().height() - 64));
     auto bind = [this](QDoubleSpinBox *box, auto fn) {
@@ -222,6 +225,11 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
     width_->setFocus();
     width_->selectAll();
 }
+ResizeDialog::ResizeDialog(const QImage &original, double dpi, QWidget *parent)
+    : ResizeDialog(original.size(), dpi, parent) {
+    sourceFormat_ = original.format(); sourceBytes_ = original.sizeInBytes();
+    updateEstimate();
+}
 void ResizeDialog::sync(QDoubleSpinBox *editing) {
     syncing_ = true;
     int dec = model_.unit() == ResizeModel::Unit::Pixel ? 0 : 2;
@@ -234,8 +242,7 @@ void ResizeDialog::sync(QDoubleSpinBox *editing) {
     if (megapixel_->isChecked())
         mp_->setValue(double(model_.size().width()) * model_.size().height() / 1e6);
     dpi_->setValue(model_.dpi());
-    result_->setText(
-        IX_TEXT("Neue Größe:     %1 x %2 Pixel").arg(model_.size().width()).arg(model_.size().height()));
+    updateEstimate();
     syncing_ = false;
 }
 void ResizeDialog::updateMode() {
@@ -251,6 +258,15 @@ void ResizeDialog::updateMode() {
     fast_->setEnabled(smooth);
     gamma_->setEnabled(smooth);
     sharpen_->setEnabled(smooth);
+    updateEstimate();
+}
+void ResizeDialog::updateEstimate() {
+    const auto maximum = maximumResizeSize(sourceSize_, sourceFormat_, options(), sourceBytes_);
+    result_->setText(IX_TEXT("Neue Größe: %1 × %2 Pixel\nMaximal: %3 × %4 Pixel")
+        .arg(model_.size().width()).arg(model_.size().height()).arg(std::max(0, maximum.width())).arg(std::max(0, maximum.height())));
+    if (auto *buttons = findChild<QDialogButtonBox *>(QStringLiteral("resizeButtons")))
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(
+            estimatedResizeBytes(sourceSize_, sourceFormat_, options(), sourceBytes_) <= imageMemoryLimit());
 }
 ResizeOptions ResizeDialog::options() const {
     ResizeOptions o;
@@ -264,9 +280,9 @@ ResizeOptions ResizeDialog::options() const {
     return o;
 }
 void ResizeDialog::accept() {
-    if (!safeSize(model_.size())) {
+    if (estimatedResizeBytes(sourceSize_, sourceFormat_, options(), sourceBytes_) > imageMemoryLimit()) {
         QMessageBox::warning(this, IX_TEXT("Größe ändern"),
-                             IX_TEXT("Die gewünschte Größe überschreitet das Speicherlimit von 512 MiB."));
+                             resizeSizeLimitError(sourceSize_, sourceFormat_, options(), sourceBytes_));
         return;
     }
     QStringList presets;

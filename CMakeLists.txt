@@ -19,7 +19,7 @@ qt_standard_project_setup()
 include(cmake/Dependencies.cmake)
 option(IX_REQUIRE_FULL_FEATURES "Fail if metadata, RAW previews, PDF or the extension manager are unavailable" OFF)
 add_library(ixcore STATIC
-    src/core/image_document.cpp src/core/image_memory.cpp src/core/document_history.cpp
+    src/core/image_document.cpp src/core/memory_policy.cpp src/core/image_memory.cpp src/core/document_history.cpp
     src/core/codec_registry.cpp src/core/processing.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
     src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp

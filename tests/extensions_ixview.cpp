@@ -1,3 +1,4 @@
+#include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/app_storage.h"
 #include "core/directory_commit.h"
@@ -90,7 +91,8 @@ class ExtensionTests : public QObject {
         }
     }
   private slots:
-    void initTestCase() { QVERIFY(temporary_.isValid()); QCoreApplication::setOrganizationName(QStringLiteral("IxView")); QCoreApplication::setApplicationName(QStringLiteral("IxView")); }
+    void initTestCase() {
+        ix::initializeImageMemoryLimit(512); QVERIFY(temporary_.isValid()); QCoreApplication::setOrganizationName(QStringLiteral("IxView")); QCoreApplication::setApplicationName(QStringLiteral("IxView")); }
     void init() {
         const auto name = QByteArray(QTest::currentTestFunction());
         if ((name.startsWith("real") || name == "managerSectionsInstallAndDisable") && realCatalog().isEmpty()) {

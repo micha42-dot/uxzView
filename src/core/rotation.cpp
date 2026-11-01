@@ -63,8 +63,8 @@ RotationResult rotateImage(const QImage &source, const RotationOptions &o) {
         o.keepCanvas ? source.size() : transform.mapRect(QRectF(source.rect())).toAlignedRect().size();
     if (!safeSize(size, std::max(8, source.depth() / 8)) ||
         qint64(size.width()) * size.height() * std::max(8, source.depth() / 8) * 3 + source.sizeInBytes() >
-            ImageMemoryLimit)
-        throw std::runtime_error("Rotation überschreitet das Speicherlimit von 512 MiB.");
+            imageMemoryLimit())
+        throw std::runtime_error(imageSizeLimitError(size, std::max(8, source.depth() / 8) * 3).toStdString());
     const auto format = imageWorkingFormat(source, source.hasAlphaChannel());
     const auto input = source.convertToFormat(format);
     if (input.isNull())

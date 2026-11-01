@@ -26,12 +26,12 @@ QCache<CacheKey, QImage> previews(16 * 1024 * 1024);
 QCache<CacheKey, ImageDocument> documents(192 * 1024 * 1024);
 quint64 cacheEpoch = 0; // Protected by cacheMutex, like both caches.
 std::atomic_bool rawPreviewsEnabled = true;
-constexpr qint64 CacheCostLimit = ImageMemoryLimit + 1; // Reject beyond the largest 512 MiB budget.
+constexpr qint64 CacheCostLimit = ImageCostLimit;
 qint64 addCost(qint64 first, qint64 second) {
     return std::min(CacheCostLimit, first + second);
 }
 qint64 stringCost(const QString &text) {
-    return std::min<qint64>(std::max(text.size(), text.capacity()), ImageMemoryLimit / 2) * 2;
+    return std::min<qint64>(std::max(text.size(), text.capacity()), ImageCostLimit / 2) * 2;
 }
 } // namespace
 bool isRawImage(const QString &path) {
@@ -92,9 +92,9 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
 #ifdef IX_PDF_MODULE
     if (QFileInfo(path).suffix().compare(QStringLiteral("pdf"), Qt::CaseInsensitive) == 0) {
         static QLibrary module(optionalModulePath(QStringLiteral(IX_PDF_MODULE)));
-        using Read = QImage (*)(const QString &, QSize);
+        using Read = QImage (*)(const QString &, QSize, qint64);
         static const auto read = reinterpret_cast<Read>(module.resolve("ixReadPdfPreview"));
-        if (read) image = read(path, bounds);
+        if (read) image = read(path, bounds, imageMemoryLimit());
         if (image.isNull()) return {};
     }
 #endif

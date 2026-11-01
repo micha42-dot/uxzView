@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "resize_model.h"
+#include "memory_policy.h"
 #include <algorithm>
 #include <cmath>
 namespace ix {
@@ -8,7 +9,7 @@ namespace {
 int dim(double v) {
     if (!std::isfinite(v))
         return 1;
-    return int(std::clamp(std::round(v), 1.0, 100000.0));
+    return int(std::clamp(std::round(v), 1.0, double(ImageAxisLimit)));
 }
 } // namespace
 ResizeModel::ResizeModel(QSize s, double dpi)

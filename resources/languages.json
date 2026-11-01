@@ -791,5 +791,10 @@
 ["Unbekannte Dateioperation.", "Unknown file operation.", "알 수 없는 파일 작업입니다.", "不明なファイル操作です。", "Opération de fichier inconnue."],
 ["Quelle ist keine normale Datei oder ist eine Verknüpfung.", "The source is not a regular file or is a link.", "원본이 일반 파일이 아니거나 링크입니다.", "コピー元は通常のファイルではないか、リンクです。", "La source n’est pas un fichier ordinaire ou est un lien."],
 ["Ziel fehlt.", "Destination is missing.", "대상이 없습니다.", "保存先がありません。", "La destination est absente."],
-["Dateioperation fehlgeschlagen.", "File operation failed.", "파일 작업에 실패했습니다.", "ファイル操作に失敗しました。", "L’opération sur le fichier a échoué."]
+["Dateioperation fehlgeschlagen.", "File operation failed.", "파일 작업에 실패했습니다.", "ファイル操作に失敗しました。", "L’opération sur le fichier a échoué."],
+["Speicherbudget: %1 MiB. Bei %2 Pixel Breite sind höchstens %3 Pixel Höhe möglich.", "Memory budget: %1 MiB. At %2 pixels wide, the maximum height is %3 pixels.", "메모리 예산: %1 MiB. 너비 %2픽셀에서 최대 높이는 %3픽셀입니다.", "メモリ予算: %1 MiB。幅 %2 ピクセルでの最大高さは %3 ピクセルです。", "Budget mémoire : %1 MiB. Pour une largeur de %2 pixels, la hauteur maximale est de %3 pixels."],
+["Für dieses Seitenverhältnis sind höchstens %1 × %2 Pixel möglich (%3 MiB RAM-Budget).", "For this aspect ratio, the maximum is %1 × %2 pixels (%3 MiB RAM budget).", "이 가로세로 비율에서 최대 크기는 %1 × %2픽셀입니다(RAM 예산 %3 MiB).", "この縦横比での最大サイズは %1 × %2 ピクセルです（RAM予算 %3 MiB）。", "Pour ce rapport, le maximum est de %1 × %2 pixels (budget RAM de %3 MiB)."],
+["Neue Größe: %1 × %2 Pixel\nMaximal: %3 × %4 Pixel", "New size: %1 × %2 pixels\nMaximum: %3 × %4 pixels", "새 크기: %1 × %2픽셀\n최대: %3 × %4픽셀", "新しいサイズ: %1 × %2 ピクセル\n最大: %3 × %4 ピクセル", "Nouvelle taille : %1 × %2 pixels\nMaximum : %3 × %4 pixels"],
+["Bildpuffer-Budget (Neustart):", "Image buffer budget (restart):", "이미지 버퍼 예산(재시작):", "画像バッファ予算（再起動）:", "Budget des tampons image (redémarrage) :"],
+["Automatisch (%1 MiB)", "Automatic (%1 MiB)", "자동(%1 MiB)", "自動（%1 MiB）", "Automatique (%1 MiB)"]
 ]

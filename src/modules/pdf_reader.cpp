@@ -8,7 +8,7 @@
 #include <cmath>
 #include <utility>
 
-static ix::ImageResult readPdf(const QString &path, int page, QSize bounds = {}) {
+static ix::ImageResult readPdf(const QString &path, int page, qint64 budget, QSize bounds = {}) {
     QPdfDocument pdf(nullptr); // Worker-owned; Qt serializes PDFium internally.
     const auto error = pdf.load(path);
     if (error == QPdfDocument::Error::IncorrectPassword || error == QPdfDocument::Error::UnsupportedSecurityScheme)
@@ -19,7 +19,7 @@ static ix::ImageResult readPdf(const QString &path, int page, QSize bounds = {})
     const auto points = pdf.pagePointSize(page);
     const double width = std::ceil(points.width() * 2), height = std::ceil(points.height() * 2);
     if (!std::isfinite(width) || !std::isfinite(height) || width < 1 || height < 1 ||
-        width > 100000 || height > 100000 || width * height > ix::ImageMemoryLimit / 8)
+        width > ix::ImageAxisLimit || height > ix::ImageAxisLimit || width * height > budget / 8)
         return {{}, QStringLiteral("PDF-Seite überschreitet das Speicherlimit.")};
     auto size = QSize(int(width), int(height));
     if (bounds.isValid()) size.scale(bounds, Qt::KeepAspectRatio);
@@ -47,10 +47,10 @@ static ix::ImageResult readPdf(const QString &path, int page, QSize bounds = {})
     return {std::move(document), {}};
 }
 
-extern "C" Q_DECL_EXPORT ix::ImageResult ixReadPdf(const QString &path, int page) {
-    return readPdf(path, page);
+extern "C" Q_DECL_EXPORT ix::ImageResult ixReadPdf(const QString &path, int page, qint64 budget) {
+    return readPdf(path, page, budget);
 }
-extern "C" Q_DECL_EXPORT QImage ixReadPdfPreview(const QString &path, QSize bounds) {
+extern "C" Q_DECL_EXPORT QImage ixReadPdfPreview(const QString &path, QSize bounds, qint64 budget) {
     if (!bounds.isValid() || bounds.width() > 2048 || bounds.height() > 2048) return {};
-    return readPdf(path, 0, bounds).document.pixels;
+    return readPdf(path, 0, budget, bounds).document.pixels;
 }

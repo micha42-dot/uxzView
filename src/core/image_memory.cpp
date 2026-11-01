@@ -4,10 +4,10 @@
 #include <algorithm>
 namespace ix {
 namespace {
-constexpr qint64 Limit = ImageMemoryLimit + 1;
+constexpr qint64 Limit = ImageCostLimit;
 qint64 add(qint64 a, qint64 b) { return std::min(Limit, a + b); }
 qint64 text(const QString &value) {
-    return std::min<qint64>(std::max(value.size(), value.capacity()), ImageMemoryLimit / 2) * 2;
+    return std::min<qint64>(std::max(value.size(), value.capacity()), (ImageCostLimit - 1) / 2) * 2;
 }
 qint64 map(const QMap<QString, QString> &values) {
     qint64 result = 0;
@@ -17,14 +17,14 @@ qint64 map(const QMap<QString, QString> &values) {
 }
 }
 qint64 imageMemoryCost(const QImage &image) {
-    qint64 result = std::min<qint64>(image.sizeInBytes(), ImageMemoryLimit);
+    qint64 result = std::min<qint64>(image.sizeInBytes(), (ImageCostLimit - 1));
     for (const auto &key : image.textKeys())
         result = add(result, add(128, add(text(key), text(image.text(key)))));
     const auto icc = image.colorSpace().iccProfile();
-    return add(result, std::min<qint64>(icc.size(), ImageMemoryLimit / 2) * 2);
+    return add(result, std::min<qint64>(icc.size(), (ImageCostLimit - 1) / 2) * 2);
 }
 qint64 metadataMemoryCost(const Metadata &metadata) {
-    return add(map(metadata.tags), std::clamp<qint64>(metadata.nativeBytes, 0, ImageMemoryLimit));
+    return add(map(metadata.tags), std::clamp<qint64>(metadata.nativeBytes, 0, (ImageCostLimit - 1)));
 }
 qint64 documentPropertiesMemoryCost(const ImageDocument &document) {
     auto result = add(sizeof(ImageDocument), text(document.path));

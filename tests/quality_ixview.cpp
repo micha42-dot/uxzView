@@ -1,3 +1,4 @@
+#include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
 #include "core/batch_pipeline.h"
@@ -6,11 +7,13 @@
 #include "convolution_reference.h"
 #include "auto_crop_reference.h"
 #include "pixel_processing_reference.h"
+#include "resample_reference.h"
 #include "pdf_fixture.h"
 #include <QtConcurrent>
 #include "ui/main_window.h"
 #include <QColorSpace>
 #include <QJsonDocument>
+#include <QImageReader>
 #include <QSettings>
 #include <QtTest>
 #include <QtWidgets>
@@ -26,6 +29,54 @@ class QualityTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_{QStringLiteral(IX_QUALITY_OUTPUT "/run-quality-XXXXXX")};
   private slots:
+    void memoryPolicyCalculatesAutoAndOverrides() {
+        QCOMPARE(ix::calculateImageMemoryLimit(16ULL*1024*ix::MiB), 8192*ix::MiB);
+        QCOMPARE(ix::calculateImageMemoryLimit(4ULL*1024*ix::MiB), 2048*ix::MiB);
+        QCOMPARE(ix::calculateImageMemoryLimit(16942501888ULL) % ix::MiB, 0);
+        QCOMPARE(ix::calculateImageMemoryLimit(128*ix::MiB), 512*ix::MiB);
+        QCOMPARE(ix::calculateImageMemoryLimit(std::numeric_limits<quint64>::max()), 8192*ix::MiB);
+        QCOMPARE(ix::calculateImageMemoryLimit(16ULL*1024*ix::MiB,1024), 1024*ix::MiB);
+        QCOMPARE(ix::calculateImageMemoryLimit(16ULL*1024*ix::MiB,0,32), 1024*ix::MiB);
+        QCOMPARE(QImageReader::allocationLimit(), int(ix::imageMemoryLimit()/ix::MiB));
+        QVERIFY(ix::physicalMemoryBytes() > 0);
+        QVERIFY(ix::safeSize({100001,1},4)); QVERIFY(!ix::safeSize({1,1},0));
+        QVERIFY(!ix::safeSize({ix::ImageAxisLimit+1,1},4));
+    }
+    void rowResampleMatchesLegacy_data() {
+        QTest::addColumn<int>("format");
+        for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_ARGB32_Premultiplied,
+                            QImage::Format_RGBA8888,QImage::Format_RGB888,QImage::Format_Indexed8,QImage::Format_Grayscale8})
+            QTest::newRow(qPrintable(QString::number(int(format)))) << int(format);
+    }
+    void rowResampleMatchesLegacy() {
+        QFETCH(int,format);
+        auto source=ix::test::filterPattern({41,29},QImage::Format(format));
+        source.setColorSpace(QColorSpace::DisplayP3); source.setText(QStringLiteral("Comment"),QStringLiteral("resize rows"));
+        const auto key=source.cacheKey();
+        for (auto size : {QSize(73,67),QSize(17,11),QSize(1,31),QSize(53,1)})
+            for (int filter=0;filter<6;++filter) for (bool linear : {false,true}) for (bool fast : {false,true}) {
+                ix::ResizeOptions options; options.size=size; options.filter=ix::ResampleFilter(filter);
+                options.linearLight=linear; options.fastDownscale=fast;
+                const auto actual=ix::resample(source,options), expected=ix::test::referenceResample(source,options);
+                QCOMPARE(actual,expected); QCOMPARE(actual.format(),expected.format());
+                QCOMPARE(actual.colorSpace(),expected.colorSpace()); QCOMPARE(actual.text(),expected.text());
+                QCOMPARE(actual.dotsPerMeterX(),expected.dotsPerMeterX());
+            }
+        QCOMPARE(source.cacheKey(),key);
+    }
+    void resizeEstimateDefinesTheAcceptedBoundary() {
+        ix::ResizeOptions options; options.size={100000,100000};
+        const QSize source(6000,4000);
+        const auto maximum=ix::maximumResizeSize(source,QImage::Format_RGB32,options);
+        QVERIFY(maximum.width()>0); QVERIFY(maximum.width()<100000);
+        options.size=maximum;
+        QVERIFY(ix::estimatedResizeBytes(source,QImage::Format_RGB32,options)<=ix::imageMemoryLimit());
+        options.size+=QSize(1,1);
+        QVERIFY(ix::estimatedResizeBytes(source,QImage::Format_RGB32,options)>ix::imageMemoryLimit());
+        QVERIFY(ix::resizeSizeLimitError(source,QImage::Format_RGB32,options).contains(QString::number(maximum.width())));
+        std::atomic_bool cancel=true; QImage small(5,5,QImage::Format_RGB32); small.fill(Qt::red);
+        options.size={8,8}; QVERIFY(ix::resample(small,options,&cancel).isNull());
+    }
     void grayscaleMatchesEveryRgbColor() {
         QImage source(4096,4096,QImage::Format_RGB32); QVERIFY(!source.isNull());
         for (int y = 0; y < source.height(); ++y) {
@@ -103,6 +154,7 @@ class QualityTests : public QObject {
         QCOMPARE(second.result().document.pixels.size(),QSize(120,200));
     }
     void initTestCase() {
+        ix::initializeImageMemoryLimit(512);
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewQualityTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));

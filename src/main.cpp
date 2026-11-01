@@ -54,6 +54,8 @@ int main(int argc, char **argv) {
         QStringLiteral("Decode an image and print JSON without opening a window"), QStringLiteral("path")));
     parser.addOption(QCommandLineOption(QStringLiteral("probe-modules"),
                                         QStringLiteral("Check compiled optional modules and print JSON")));
+    parser.addOption(QCommandLineOption(QStringLiteral("memory-info"),
+                                        QStringLiteral("Print the active image memory budget as JSON")));
     parser.addPositionalArgument(QStringLiteral("image"), QStringLiteral("Bilddatei"),
                                  QStringLiteral("[image]"));
     parser.process(app);
@@ -117,6 +119,14 @@ int main(int argc, char **argv) {
                                   {QStringLiteral("tools"), ix::ExtensionStorage::requestedRoot(ix::ExtensionStorage::Domain::Tools)},
                                   {QStringLiteral("settings"), QSettings().fileName()}};
         QTextStream(stdout) << QJsonDocument(storage).toJson(QJsonDocument::Compact) << Qt::endl;
+        return 0;
+    }
+    ix::initializeImageMemoryLimit();
+    if (parser.isSet(QStringLiteral("memory-info"))) {
+        const QJsonObject result{{QStringLiteral("physicalBytes"), double(ix::physicalMemoryBytes())},
+            {QStringLiteral("memoryLimitMiB"), double(ix::imageMemoryLimit() / ix::MiB)},
+            {QStringLiteral("axisLimit"), ix::ImageAxisLimit}};
+        QTextStream(stdout) << QJsonDocument(result).toJson(QJsonDocument::Compact) << Qt::endl;
         return 0;
     }
     ix::ExtensionStorage::initialize();

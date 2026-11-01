@@ -130,7 +130,7 @@ struct Session {
         if (!ended || ihdr.size() != 13 || declaredFrames != quint32(frames.size()))
             return fail(QStringLiteral("Unvollständige Animation."));
         const QSize size(int(u32(ihdr)), int(u32(ihdr, 4)));
-        if (!safeSize(size) || qint64(size.width()) * size.height() * 8 * 4 > ImageMemoryLimit)
+        if (!safeSize(size) || qint64(size.width()) * size.height() * 8 * 4 > imageMemoryLimit())
             return fail(QStringLiteral("Animation überschreitet das Speicherlimit."));
         canvas = QImage(size, quint8(ihdr[8]) == 16 ? QImage::Format_RGBA64 : QImage::Format_ARGB32);
         if (canvas.isNull())

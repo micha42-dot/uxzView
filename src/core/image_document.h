@@ -2,6 +2,7 @@
 // Copyright (C) 2026 IxView contributors
 #pragma once
 #include "metadata.h"
+#include "memory_policy.h"
 #include <QDateTime>
 #include <QImage>
 #include <QMap>
@@ -38,7 +39,6 @@ struct ImageResult {
         return error.isEmpty() && !document.empty();
     }
 };
-constexpr qint64 ImageMemoryLimit = 512LL * 1024 * 1024;
 bool safeSize(QSize size, int bytesPerPixel = 8);
 int imageChannelBits(const QImage &image);
 QImage::Format imageWorkingFormat(const QImage &image, bool alpha = true);

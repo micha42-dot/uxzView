@@ -286,6 +286,11 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     check(capture, QStringLiteral("capture/currentScreen"),
           IX_TEXT("Bildschirm unter dem Mauszeiger aufnehmen"), true);
     auto *performance = page(IX_TEXT("Leistung"));
+    auto *memory = number(performance, QStringLiteral("performance/memoryLimitMiB"),
+                          IX_TEXT("Bildpuffer-Budget (Neustart):"), 0, 0, 1048576);
+    memory->setSuffix(QStringLiteral(" MiB"));
+    memory->setSpecialValueText(IX_TEXT("Automatisch (%1 MiB)")
+        .arg(calculateImageMemoryLimit(physicalMemoryBytes()) / MiB));
     auto *imageCache = number(performance, QStringLiteral("performance/imageCacheMiB"),
                               IX_TEXT("Cache für geladene Bilder:"), 192, 0, 512);
     imageCache->setSuffix(QStringLiteral(" MiB"));

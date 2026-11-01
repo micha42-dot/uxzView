@@ -1,3 +1,4 @@
+#include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/preview_service.h"
 #include "core/document_history.h"
@@ -87,6 +88,7 @@ class MaintenanceTests : public QObject {
     QTemporaryDir temporary_;
   private slots:
     void initTestCase() {
+        ix::initializeImageMemoryLimit(512);
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewMaintenanceTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
@@ -283,7 +285,7 @@ class MaintenanceTests : public QObject {
         original.metadata = std::make_shared<ix::Metadata>();
         auto mutableMetadata = std::const_pointer_cast<ix::Metadata>(original.metadata);
         mutableMetadata->nativeBytes = std::numeric_limits<qint64>::max();
-        QCOMPARE(ix::documentMemoryCost(original), ix::ImageMemoryLimit + 1);
+        QCOMPARE(ix::documentMemoryCost(original), ix::ImageCostLimit);
     }
     void losslessJpegRetainsConflictingSourceAndDestination_data() {
         QTest::addColumn<QString>("change");

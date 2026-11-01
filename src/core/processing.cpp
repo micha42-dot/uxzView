@@ -3,6 +3,7 @@
 #include "processing.h"
 #include "localization.h"
 #include <QColorSpace>
+#include <QCache>
 #include <QPainter>
 #include <QTransform>
 #include <algorithm>
@@ -94,6 +95,72 @@ double toSrgb(double x) {
 quint16 u16(double x) {
     return quint16(std::clamp(std::lround(x * 65535), 0L, 65535L));
 }
+int channelBits(QImage::Format format) {
+    const auto pixel = QImage::toPixelFormat(format);
+    return std::max({pixel.redSize(), pixel.greenSize(), pixel.blueSize(), pixel.alphaSize()});
+}
+qint64 resizeRowCacheBudget() { return std::min<qint64>(64 * MiB, imageMemoryLimit() / 16); }
+// Horizontal rows retain the original RGBA64 rounding, but not a full-frame
+// conversion/intermediate. A bounded cache reuses overlapping vertical support.
+QImage resampleRows(const QImage &src, const ResizeOptions &o, const std::atomic_bool *cancel) {
+    auto wx = weights(src.width(), o.size.width(), o.filter, o.fastDownscale);
+    auto wy = weights(src.height(), o.size.height(), o.filter, o.fastDownscale);
+    QCache<int, QImage> rows{int(resizeRowCacheBudget())};
+    const bool hasAlpha = src.hasAlphaChannel();
+    const auto palette = src.colorTable();
+    QImage out(o.size, hasAlpha ? QImage::Format_ARGB32 : QImage::Format_RGB32);
+    if (out.isNull()) throw std::runtime_error("Nicht genügend Speicher.");
+    QVector<std::array<double,4>> sums(o.size.width());
+    for (int y = 0; y < out.height(); ++y) {
+        if (cancel && cancel->load()) return {};
+        std::fill(sums.begin(), sums.end(), std::array<double,4>{});
+        for (const auto vertical : wy[y]) {
+            if (cancel && cancel->load()) return {};
+            QImage horizontal;
+            if (const auto *cached = rows.object(vertical.index)) horizontal = *cached;
+            else {
+                QImage view(src.constScanLine(vertical.index), src.width(), 1, src.bytesPerLine(), src.format());
+                if (!palette.isEmpty()) view.setColorTable(palette);
+                const auto input = view.convertToFormat(QImage::Format_RGBA64);
+                horizontal = QImage(o.size.width(), 1, QImage::Format_RGBA64);
+                if (input.isNull() || horizontal.isNull()) throw std::runtime_error("Nicht genügend Speicher.");
+                const auto *s = reinterpret_cast<const QRgba64 *>(input.constBits());
+                auto *d = reinterpret_cast<QRgba64 *>(horizontal.bits());
+                for (int x = 0; x < horizontal.width(); ++x) {
+                    double r = 0, g = 0, b = 0, a = 0;
+                    for (const auto tap : wx[x]) {
+                        const auto p = s[tap.index];
+                        const double alpha = p.alpha() / 65535.0;
+                        const auto cv = [&](quint16 c) { const double v = c / 65535.0; return o.linearLight ? toLinear(v) : v; };
+                        r += cv(p.red()) * alpha * tap.weight;
+                        g += cv(p.green()) * alpha * tap.weight;
+                        b += cv(p.blue()) * alpha * tap.weight;
+                        a += alpha * tap.weight;
+                    }
+                    d[x] = QRgba64::fromRgba64(u16(r), u16(g), u16(b), u16(a));
+                }
+                rows.insert(vertical.index, new QImage(horizontal), int(horizontal.sizeInBytes()));
+            }
+            const auto *row = reinterpret_cast<const QRgba64 *>(horizontal.constBits());
+            for (int x = 0; x < out.width(); ++x) {
+                const auto p = row[x];
+                sums[x][0] += p.red() / 65535.0 * vertical.weight;
+                sums[x][1] += p.green() / 65535.0 * vertical.weight;
+                sums[x][2] += p.blue() / 65535.0 * vertical.weight;
+                sums[x][3] += p.alpha() / 65535.0 * vertical.weight;
+            }
+        }
+        auto *target = reinterpret_cast<QRgb *>(out.scanLine(y));
+        for (int x = 0; x < out.width(); ++x) {
+            auto [r,g,b,a] = sums[x];
+            if (a > 1e-10) { r /= a; g /= a; b /= a; } else r = g = b = 0;
+            if (o.linearLight) { r = toSrgb(r); g = toSrgb(g); b = toSrgb(b); }
+            const auto pixel = QRgba64::fromRgba64(u16(r), u16(g), u16(b), u16(a));
+            target[x] = hasAlpha ? pixel.toArgb32() : pixel.toArgb32() | 0xff000000u;
+        }
+    }
+    return out;
+}
 QImage finish(const QImage &src, QImage dst) {
     inheritImageProperties(src, dst);
     if (imageChannelBits(src) <= 8)
@@ -104,9 +171,9 @@ QImage finish(const QImage &src, QImage dst) {
 }
 void checkWorkingSet(const QImage &src, int extraBytesPerPixel) {
     const qint64 pixels = qint64(src.width()) * src.height();
-    if (src.sizeInBytes() > ImageMemoryLimit ||
-        pixels > (ImageMemoryLimit - src.sizeInBytes()) / extraBytesPerPixel)
-        throw std::runtime_error(IX_TEXT("Bildbearbeitung überschreitet das Speicherlimit von 512 MiB.").toStdString());
+    if (src.sizeInBytes() > imageMemoryLimit() ||
+        pixels > (imageMemoryLimit() - src.sizeInBytes()) / extraBytesPerPixel)
+        throw std::runtime_error(imageSizeLimitError(src.size(), extraBytesPerPixel + src.depth() / 8).toStdString());
 }
 bool nativeRgb32(const QImage &image) {
     return image.format() == QImage::Format_RGB32 || image.format() == QImage::Format_ARGB32;
@@ -141,6 +208,50 @@ template <class F> QImage perPixel(const QImage &src, F fn) {
     return finish(src, std::move(out));
 }
 } // namespace
+qint64 estimatedResizeBytes(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes) {
+    if (source.isEmpty() || o.size.isEmpty() || source.width() > ImageAxisLimit || source.height() > ImageAxisLimit ||
+        o.size.width() > ImageAxisLimit || o.size.height() > ImageAxisLimit || format == QImage::Format_Invalid)
+        return std::numeric_limits<qint64>::max();
+    const int depth = QImage::toPixelFormat(format).bitsPerPixel();
+    if (sourceBytes <= 0) sourceBytes = ((qint64(source.width()) * depth + 31) / 32) * 4 * source.height();
+    const qint64 pixels = qint64(o.size.width()) * o.size.height();
+    qint64 result = sourceBytes;
+    if (o.filter == ResampleFilter::Nearest)
+        return result + ((qint64(o.size.width()) * depth + 31) / 32) * 4 * o.size.height() + qint64(o.size.width()) * sizeof(int);
+    // Six-tap Lanczos is the widest kernel. Includes outer row containers,
+    // edge taps, row conversion, accumulation and the bounded row cache.
+    const qint64 taps = 128 * (qint64(std::max(source.width(),o.size.width())) + std::max(source.height(),o.size.height())) +
+        64 * (qint64(o.size.width()) + o.size.height());
+    if (channelBits(format) <= 8)
+        result += pixels * 4 + qint64(source.width()) * 12 + qint64(o.size.width()) * 48 + resizeRowCacheBudget() + taps;
+    else {
+        if (format != QImage::Format_RGBA64) result += qint64(source.width()) * source.height() * 8;
+        result += qint64(o.size.width()) * source.height() * 8 + pixels * 8 + taps;
+    }
+    if (o.sharpen) result = std::max(result, sourceBytes + pixels * (channelBits(format) <= 8 ? 24 : 16));
+    return result;
+}
+QSize maximumResizeSize(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes) {
+    if (o.size.isEmpty()) return {};
+    const auto aspect = o.size;
+    int low = 1, high = ImageAxisLimit; QSize best;
+    while (low <= high) {
+        const int longest = low + (high-low)/2;
+        ResizeOptions candidate = o;
+        candidate.size = aspect.width() >= aspect.height()
+            ? QSize(longest, std::max(1, int(qint64(longest) * aspect.height() / aspect.width())))
+            : QSize(std::max(1, int(qint64(longest) * aspect.width() / aspect.height())), longest);
+        if (estimatedResizeBytes(source,format,candidate,sourceBytes) <= imageMemoryLimit()) {
+            best = candidate.size; low = longest + 1;
+        } else high = longest - 1;
+    }
+    return best;
+}
+QString resizeSizeLimitError(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes) {
+    const auto maximum = maximumResizeSize(source, format, o, sourceBytes);
+    return IX_TEXT("Für dieses Seitenverhältnis sind höchstens %1 × %2 Pixel möglich (%3 MiB RAM-Budget).")
+        .arg(std::max(0, maximum.width())).arg(std::max(0, maximum.height())).arg(imageMemoryLimit() / MiB);
+}
 QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_bool *cancel) {
     if (src.isNull())
         return {};
@@ -148,27 +259,12 @@ QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_boo
     if (!std::isfinite(density) || density < .5 ||
         density > double(std::numeric_limits<int>::max()) - .5)
         throw std::runtime_error(IX_TEXT("Die Auflösung kann nicht als gültige Bildmetadaten gespeichert werden.").toStdString());
-    constexpr auto sizeError = "Größenänderung überschreitet das Speicherlimit von 512 MiB.";
-    if (!safeSize(o.size))
-        throw std::runtime_error(sizeError);
-    const qint64 outputPixels = qint64(o.size.width()) * o.size.height();
-    qint64 imageBuffers = src.sizeInBytes();
-    if (o.filter == ResampleFilter::Nearest) {
-        // Nearest copies native pixels directly; it has no 16-bit conversion
-        // or separable-filter intermediate image.
-        imageBuffers += ((qint64(o.size.width()) * src.depth() + 31) / 32) * 4 * o.size.height();
-    } else {
-        if (src.format() != QImage::Format_RGBA64)
-            imageBuffers += qint64(src.width()) * src.height() * 8;
-        imageBuffers += qint64(o.size.width()) * src.height() * 8 + outputPixels * 8;
-        if (imageChannelBits(src) <= 8)
-            imageBuffers += outputPixels * 4; // final 8-bit conversion overlaps
-        if (o.sharpen)
-            imageBuffers = std::max(imageBuffers, src.sizeInBytes() +
-                outputPixels * (imageChannelBits(src) <= 8 ? 24 : 16));
-    }
-    if (imageBuffers > ImageMemoryLimit)
-        throw std::runtime_error(sizeError);
+    const auto sizeError = [&] { return resizeSizeLimitError(src.size(),src.format(),o,src.sizeInBytes()).toStdString(); };
+    if (!safeSize(o.size, channelBits(src.format()) <= 8 ? 4 : 8))
+        throw std::runtime_error(sizeError());
+    const auto imageBuffers = estimatedResizeBytes(src.size(),src.format(),o,src.sizeInBytes());
+    if (imageBuffers > imageMemoryLimit())
+        throw std::runtime_error(sizeError());
     QImage out;
     if (o.filter == ResampleFilter::Nearest) {
         out = QImage(o.size, src.format());
@@ -192,6 +288,9 @@ QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_boo
                     out.setPixel(x, y, src.pixelIndex(columns[x], sourceY));
             }
         }
+    } else if (imageChannelBits(src) <= 8) {
+        out = resampleRows(src, o, cancel);
+        if (out.isNull()) return {};
     } else {
         auto input = src.convertToFormat(QImage::Format_RGBA64);
         QImage temp(o.size.width(), src.height(), QImage::Format_RGBA64);

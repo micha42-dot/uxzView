@@ -1813,7 +1813,7 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("resize")) {
-        ResizeDialog dialog(document_.pixels.size(), document_.dpiX(), this);
+        ResizeDialog dialog(document_.pixels, document_.dpiX(), this);
         if (dialog.exec() == QDialog::Accepted) {
             auto o = dialog.options();
             operation([o](const QImage &s) { return resample(s, o); });

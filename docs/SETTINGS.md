@@ -143,3 +143,9 @@ Ordnernavigation und Diashow berücksichtigen die Dateiendungen der aktivierten 
 Löschen verschiebt Bilder in den Papierkorb des Betriebssystems. Wiederherstellen erfolgt dort. Ist der Systempapierkorb nicht verfügbar, wird die Datei nicht ersatzweise endgültig gelöscht. Dateijournal und Dateioperationen-Undo entfallen ab 0.5.0. Das Rückgängig für Bildbearbeitungen bleibt erhalten.
 
 Die untere Infoleiste behält Bild- und Auswahlinformationen auch beim Überfahren von Menü- und Toolbar-Aktionen. Befehlsbeschreibungen stehen als Tooltips am jeweiligen Bedienelement.
+
+Under **Performance → Image buffer budget (restart)**, zero selects automatic
+half-RAM sizing (512 MiB to 8 GiB); a positive MiB value is an override. The
+preference is performance/memoryLimitMiB. It is separate from caches/history and
+applies after restarting. The resize dialog reports its maximum dimensions for
+the selected filter and aspect ratio. See [large images](LARGE_IMAGES.md).
