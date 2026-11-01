@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reuse one settings reader when capturing color-management and RAW-preview
+  preferences for an image-load request.
 - Load catalog snapshots and perform annotation IO off the GUI thread; retain
   owned library inputs and process GUI paints/timers while joining worker work.
   Filter existing extension rows during search, move folder enumeration to a

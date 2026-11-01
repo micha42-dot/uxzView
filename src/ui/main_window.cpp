@@ -850,9 +850,10 @@ void MainWindow::openPath(QString path, int pageIndex, bool checkChanges) {
         animationPlaying_ = true;
         animationEnded_ = false;
     }
-    bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool(), sharp = displaySharpen_;
+    const QSettings settings;
+    bool manage = settings.value(QStringLiteral("color/manage"), true).toBool(), sharp = displaySharpen_;
     auto registry = registry_;
-    bool rawPreview = QSettings().value(QStringLiteral("performance/rawPreview"), true).toBool();
+    bool rawPreview = settings.value(QStringLiteral("performance/rawPreview"), true).toBool();
     bool same = path == document_.path;
     const int generation = ++loadGeneration_;
     QPointer<MainWindow> self(this);
