@@ -93,6 +93,7 @@ class MainWindow : public QMainWindow {
     DocumentActivity activity_;
     bool lockZoom_ = false, lockScroll_ = false, displaySharpen_ = false;
     bool zoomEdited_ = false;
+    bool smoothZoom_ = true, smoothFit_ = true;
     int pendingNavigation_ = 0;
     int loadGeneration_ = 0;
     bool rawPreviewShown_ = false;

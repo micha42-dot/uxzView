@@ -137,6 +137,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     }
     statusBar()->setSizeGripEnabled(true);
     connect(view_, &ImageView::zoomChanged, this, [this](double value) {
+        view_->setSmooth(view_->fit() == ImageView::Fit::Original ? smoothZoom_ : smoothFit_);
         QSignalBlocker blocker(zoom_);
         QSignalBlocker editorBlocker(zoom_->lineEdit());
         zoom_->setEditText(QString::number(value * 100, 'f', 1));
@@ -1244,7 +1245,12 @@ void MainWindow::applySettings(bool applyFit) {
         if (isFullScreen()) windowBrowsingFit_ = fit;
         else view_->setFit(fit);
     }
-    view_->setSmooth(s.value(QStringLiteral("view/smooth"), true).toBool());
+    smoothZoom_ = s.value(QStringLiteral("view/smooth"), true).toBool();
+    smoothFit_ = s.value(QStringLiteral("view/smoothFit"), smoothZoom_).toBool();
+    // Preserve the previously shared choice when migrating an older profile.
+    if (!s.contains(QStringLiteral("view/smoothFit")))
+        s.setValue(QStringLiteral("view/smoothFit"), smoothFit_);
+    view_->setSmooth(view_->fit() == ImageView::Fit::Original ? smoothZoom_ : smoothFit_);
     auto check = [&](QString cmd, bool value) {
         if (auto *a = actions_.value(cmd))
             a->setChecked(value);
@@ -1252,8 +1258,8 @@ void MainWindow::applySettings(bool applyFit) {
     check(QStringLiteral("lockZoom"), lockZoom_);
     check(QStringLiteral("lockScroll"), lockScroll_);
     check(QStringLiteral("sharpenDisplay"), displaySharpen_);
-    check(QStringLiteral("smooth"), s.value(QStringLiteral("view/smooth"), true).toBool());
-    check(QStringLiteral("smoothFit"), s.value(QStringLiteral("view/smooth"), true).toBool());
+    check(QStringLiteral("smooth"), smoothZoom_);
+    check(QStringLiteral("smoothFit"), smoothFit_);
     check(QStringLiteral("center"), s.value(QStringLiteral("view/center"), true).toBool());
     check(QStringLiteral("statusbar"), s.value(QStringLiteral("window/statusbar"), true).toBool());
     check(QStringLiteral("toolbar"), s.value(QStringLiteral("window/toolbar"), true).toBool());
@@ -2037,7 +2043,8 @@ void MainWindow::dispatch(const QString &cmd) {
     if (cmd == QStringLiteral("smooth") || cmd == QStringLiteral("smoothFit") ||
         cmd == QStringLiteral("center")) {
         QSettings().setValue(cmd == QStringLiteral("center") ? QStringLiteral("view/center")
-                                                             : QStringLiteral("view/smooth"),
+                            : cmd == QStringLiteral("smoothFit") ? QStringLiteral("view/smoothFit")
+                                                                 : QStringLiteral("view/smooth"),
                              actions_[cmd]->isChecked());
         applySettings();
         return;

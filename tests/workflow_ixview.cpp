@@ -55,6 +55,66 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void fitAndZoomSmoothingAreIndependent_data() {
+        QTest::addColumn<bool>("legacy");
+        QTest::newRow("legacy-smooth") << true;
+        QTest::newRow("legacy-nearest") << false;
+    }
+    void fitAndZoomSmoothingAreIndependent() {
+        QFETCH(bool, legacy);
+        QSettings settings;
+        QVariantMap previous;
+        for (const auto &key : settings.allKeys()) previous.insert(key, settings.value(key));
+        const auto restore = qScopeGuard([&] {
+            settings.clear();
+            for (auto it = previous.cbegin(); it != previous.cend(); ++it) settings.setValue(it.key(), it.value());
+        });
+        settings.setValue(QStringLiteral("view/smooth"), legacy);
+        settings.remove(QStringLiteral("view/smoothFit"));
+        settings.setValue(QStringLiteral("view/fit"), int(ix::ImageView::Fit::Window));
+        settings.setValue(QStringLiteral("view/fitCommand"), QStringLiteral("fitWindow"));
+        const auto path = temporary_.filePath(QStringLiteral("smoothing.png"));
+        QImage image(13, 9, QImage::Format_RGB32);
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x)
+                image.setPixelColor(x,y,(x+y)%2 ? Qt::black : Qt::white);
+        QVERIFY(image.save(path));
+        ix::MainWindow window;
+        window.resize(500,400); window.show(); window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        auto *view = window.findChild<ix::ImageView *>(); QVERIFY(view);
+        auto *zoom = window.findChild<QAction *>(QStringLiteral("smooth")); QVERIFY(zoom);
+        auto *fit = window.findChild<QAction *>(QStringLiteral("smoothFit")); QVERIFY(fit);
+        QCOMPARE(zoom->isChecked(),legacy); QCOMPARE(fit->isChecked(),legacy);
+        QCOMPARE(settings.value(QStringLiteral("view/smoothFit")).toBool(),legacy);
+        view->setSmooth(false); const auto nearestFit = view->screenshot();
+        view->setSmooth(true); const auto smoothFit = view->screenshot();
+        QVERIFY(nearestFit != smoothFit);
+        view->setSmooth(legacy);
+        zoom->trigger();
+        QCOMPARE(fit->isChecked(),legacy);
+        QCOMPARE(settings.value(QStringLiteral("view/smooth")).toBool(),!legacy);
+        QCOMPARE(settings.value(QStringLiteral("view/smoothFit")).toBool(),legacy);
+        QCOMPARE(view->screenshot(),legacy ? smoothFit : nearestFit);
+        {
+            ix::MainWindow reopened;
+            QCOMPARE(reopened.findChild<QAction *>(QStringLiteral("smooth"))->isChecked(),!legacy);
+            QCOMPARE(reopened.findChild<QAction *>(QStringLiteral("smoothFit"))->isChecked(),legacy);
+        }
+        view->setZoom(2.35);
+        const auto actualZoom = view->screenshot();
+        view->setSmooth(!legacy); const auto expectedZoom = view->screenshot();
+        view->setSmooth(legacy); QVERIFY(view->screenshot() != expectedZoom);
+        view->setSmooth(!legacy);
+        QCOMPARE(actualZoom,expectedZoom);
+        fit->trigger();
+        QCOMPARE(zoom->isChecked(),!legacy);
+        QCOMPARE(settings.value(QStringLiteral("view/smooth")).toBool(),!legacy);
+        QCOMPARE(view->screenshot(),expectedZoom);
+        window.dispatch(QStringLiteral("fitWindow"));
+        QCOMPARE(view->screenshot(),legacy ? nearestFit : smoothFit);
+        QCOMPARE(window.document().pixels,image);
+    }
     void postDeleteNavigation_data() {
         QTest::addColumn<QStringList>("files");
         QTest::addColumn<int>("index");

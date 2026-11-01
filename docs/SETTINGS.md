@@ -51,6 +51,12 @@ Anzeigeparameter ändern keine Originalpixel. Bildanpassung und die beiden Navig
 
 Das Bildcachebudget steht standardmäßig auf 192 MiB, Miniaturen auf 16 MiB. Maximal 96 MiB pro Bild werden zusätzlich im Bildcache gehalten. Der aktuelle Bildinhalt, Undo, Encoder und Decoder benötigen unabhängig davon Speicher. Ein höheres Budget ist keine Zusage, dass alle Bilder ohne erneutes Dekodieren verfügbar bleiben. Ausgeschaltete RAW-Vorschauen verhindern eingebettete RAW-Miniaturen; der vollständige RAW-Decoder bleibt nutzbar. Die Batchparallelität gilt als Voreinstellung für neue Ketten und kann im Batchdialog weiterhin geändert werden.
 
+Die beiden Glättungsaktionen unter **Ansicht** sind unabhängig: „für Anpassen“
+gilt bei automatischer Einpassung, „für Zoomen“ bei manueller Vergrößerung und
+100-Prozent-Ansicht. Alte Profile übernehmen ihren bisherigen Wert zunächst für
+beide Aktionen. Intern bleiben `view/smooth` und `view/smoothFit` getrennt;
+Zoomen liest diese Werte nicht erneut vom Datenträger.
+
 ## Bedeutung der Symbole
 
 Die eigenen SVG-Konturen sind im Quellcode unter `src/ui/icons.cpp` definiert. Farbe und deaktivierter Zustand folgen dem gewählten Farbschema; Rasterungen werden nach Größe, Farbe und Pixeldichte zwischengespeichert. Es werden keine externen Iconpakete oder Netzwerkzugriffe benötigt.

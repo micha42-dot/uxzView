@@ -62,6 +62,7 @@ void ImageView::setCentered(bool v) {
     viewport()->update();
 }
 void ImageView::setSmooth(bool v) {
+    if (smooth_ == v) return;
     smooth_ = v;
     viewport()->update();
 }

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Store fitted-view and manual-zoom smoothing independently. Migrate the old
+  shared preference to both choices and switch rendering policy without settings
+  IO on each zoom or redundant repaint requests.
 - Resolve post-delete navigation against the source path when its snapshot index
   is stale; skip duplicate source entries. Queued manual navigation takes priority
   over hotfolder auto-opening when a new directory snapshot arrives.
