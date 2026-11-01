@@ -1,3 +1,4 @@
+#include "core/image_storage.h"
 #include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/app_storage.h"
@@ -36,6 +37,7 @@ class StorageTests : public QObject {
   private slots:
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
+        ix::configureImageStorage({false});
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxView"));
         QCoreApplication::setApplicationName(QStringLiteral("IxView"));

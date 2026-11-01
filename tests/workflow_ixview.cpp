@@ -1,3 +1,5 @@
+#include <QSettings>
+#include "core/image_storage.h"
 #include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
@@ -924,13 +926,19 @@ class WorkflowTests : public QObject {
         QVERIFY(!progress.publish(1));
     }
 
+    void init() {
+        ix::configureImageStorage({false});
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+    }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
+        ix::configureImageStorage({false});
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewWorkflowTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
         ix::applyInterfaceTheme(QStringLiteral("system"));
     }
     void interfaceThemePreservesImageAndNavigationState() {

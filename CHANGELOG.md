@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.5.4
+
+- Add optional disk-backed original-pixel buffers with reserved storage, an
+  aggregate budget, last-reference cleanup and locked crash cleanup. Default to
+  64 GiB backing; retain pixel Undo and discard-by-default behavior.
+- Extend bounded row resampling to 16-bit output, include available backing in
+  resize validation, and decode PNG/sequential JPEG directly into mapped pixels.
+  Keep large progressive JPEG and unverified codecs explicitly RAM-limited.
+- Stream large PNG/JPEG exports atomically, flatten alpha per row, preserve
+  source geometry in display and report format/metadata limits explicitly.
+
 - Select image-buffer RAM limits at startup from physical RAM (automatic half-RAM,
   512 MiB to 8 GiB) or performance/memoryLimitMiB. Bound 32-bit builds, align Qt's
   decoder limit and expose --memory-info. Changes take effect after restart.
@@ -26,7 +37,8 @@
 - Process negative, channel-display and channel-swap edits directly in native
   RGB32/ARGB32 output buffers. Retain exact pixels, alpha and image properties;
   halve their source/working/output image-buffer estimate from 16 to 8 bytes
-  per pixel while keeping the 512 MiB guard. Other formats retain the legacy path.
+  per pixel while respecting the configured RAM/storage budgets. Other formats
+  retain their guarded processing paths.
 - Apply the selected appearance to native Windows title bars, including older
   Windows 10's DWM fallback, late-created dialogs and recreated window handles.
   Keep frame updates independent of image loads and window geometry.
@@ -62,7 +74,7 @@
 - Apply classic batch rename annotations in one ordered, atomic catalog update,
   including completed moves on cancellation. Serialize process-local file work
   through that flush; retain latest unrelated annotations and revision snapshots.
-- Bound pixel/filter image working sets to 512 MiB before allocation, release
+- Bound pixel/filter image working sets to the configured RAM budget before allocation, release
   convolution/histogram inputs before output conversion, and reject invalid
   filter geometry without overflowing kernel-size arithmetic.
 - Scan native 32-/64-bit rows for automatic border cropping without a converted

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 if(CMAKE_HOST_APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum target macOS version")
 endif()
-project(IxView VERSION 0.5.0 LANGUAGES CXX)
+project(IxView VERSION 0.5.4 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -19,7 +19,7 @@ qt_standard_project_setup()
 include(cmake/Dependencies.cmake)
 option(IX_REQUIRE_FULL_FEATURES "Fail if metadata, RAW previews, PDF or the extension manager are unavailable" OFF)
 add_library(ixcore STATIC
-    src/core/image_document.cpp src/core/memory_policy.cpp src/core/image_memory.cpp src/core/document_history.cpp
+    src/core/image_document.cpp src/core/memory_policy.cpp src/core/image_storage.cpp src/core/image_memory.cpp src/core/document_history.cpp
     src/core/codec_registry.cpp src/core/processing.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
     src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
@@ -282,14 +282,19 @@ if(BUILD_TESTING)
     add_test(NAME ixview_ui_quality_tests COMMAND ixview_ui_quality_tests -platform offscreen
         -o ${CMAKE_CURRENT_BINARY_DIR}/ui-quality-test-results.txt,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/ui-quality-test-results.xml,junitxml)
+    qt_add_executable(ixview_large_image_tests tests/large_images_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_large_image_tests PRIVATE ixui Qt6::Test)
+    add_test(NAME ixview_large_image_tests COMMAND ixview_large_image_tests -platform offscreen
+        -o ${CMAKE_CURRENT_BINARY_DIR}/large-image-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/large-image-test-results.xml,junitxml)
     set_tests_properties(ixview_tests ixview_workflow_tests ixview_quality_tests
         ixview_storage_tests ixview_file_operation_tests ixview_extension_tests ixview_maintenance_tests
-        ixview_ui_quality_tests
+        ixview_ui_quality_tests ixview_large_image_tests
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
     if(TARGET ixpdf)
         set_tests_properties(ixview_tests ixview_workflow_tests ixview_quality_tests
             ixview_storage_tests ixview_file_operation_tests ixview_extension_tests
-            ixview_maintenance_tests ixview_ui_quality_tests PROPERTIES
+            ixview_maintenance_tests ixview_ui_quality_tests ixview_large_image_tests PROPERTIES
             ENVIRONMENT_MODIFICATION "QT_PLUGIN_PATH=set:${CMAKE_CURRENT_BINARY_DIR}/qt-plugins")
     endif()
 endif()

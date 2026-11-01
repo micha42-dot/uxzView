@@ -1,3 +1,4 @@
+#include "core/image_storage.h"
 #include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
@@ -153,13 +154,19 @@ class QualityTests : public QObject {
         QCOMPARE(first.result().document.pixels.size(),QSize(160,120));
         QCOMPARE(second.result().document.pixels.size(),QSize(120,200));
     }
+    void init() {
+        ix::configureImageStorage({false});
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+    }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
+        ix::configureImageStorage({false});
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewQualityTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
         ix::ImageLoadCache::configure(0, 16, true);
     }
     void swapChannelsRejectsInvalidIndices() {

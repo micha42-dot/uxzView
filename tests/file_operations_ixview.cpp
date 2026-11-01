@@ -1,3 +1,5 @@
+#include <QSettings>
+#include "core/image_storage.h"
 #include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/file_operations.h"
@@ -23,8 +25,13 @@ class FileOperationTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_;
   private slots:
+    void init() {
+        ix::configureImageStorage({false});
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+    }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
+        ix::configureImageStorage({false});
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewFileOperationTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));

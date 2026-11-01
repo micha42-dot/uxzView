@@ -1,3 +1,5 @@
+#include <QSettings>
+#include "core/image_storage.h"
 #include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/localization.h"
@@ -238,13 +240,19 @@ class UiQualityTests : public QObject {
         QCOMPARE(window.document().pixels.cacheKey(), key);
         QCOMPARE(view->selection(), QRect(1, 2, 3, 4));
     }
+    void init() {
+        ix::configureImageStorage({false});
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+    }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
+        ix::configureImageStorage({false});
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewUiQualityTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
+        QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
         QStandardPaths::setTestModeEnabled(true);
         ix::applyInterfaceLanguage(QStringLiteral("de"));
         ix::applyInterfaceTheme(QStringLiteral("light"));

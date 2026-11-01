@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "image_loading.h"
+#include "image_storage.h"
 #include "localization.h"
 #include "preview_service.h"
 #include "processing.h"
@@ -7,11 +8,25 @@
 #include <QElapsedTimer>
 #include <QDebug>
 #include <stdexcept>
+#include <cstring>
 namespace ix {
 QImage displayImage(const QImage &image, bool manageColor, bool sharpen) {
     QImage out = image;
     if (manageColor && image.colorSpace().isValid() && image.colorSpace() != QColorSpace(QColorSpace::SRgb))
-        out = image.convertedToColorSpace(QColorSpace::SRgb);
+    {
+        if (!imageIsFileBacked(image)) out = image.convertedToColorSpace(QColorSpace::SRgb);
+        else {
+            out=allocateImage(image.size(),image.format(),qint64(image.width())*32);
+            for (int y=0; y<image.height(); ++y) {
+                QImage row(image.constScanLine(y),image.width(),1,image.bytesPerLine(),image.format());
+                row.setColorTable(image.colorTable()); row.setColorSpace(image.colorSpace());
+                const auto converted=row.convertedToColorSpace(QColorSpace::SRgb);
+                if (converted.isNull() || converted.format()!=out.format()) throw std::runtime_error("Farbprofil konnte nicht zeilenweise konvertiert werden.");
+                std::memcpy(out.scanLine(y),converted.constBits(),size_t(image.bytesPerLine()));
+            }
+            inheritImageProperties(image,out); out.setColorSpace(QColorSpace::SRgb);
+        }
+    }
     if (sharpen && !out.isNull())
         out = convolve(out, {0, -1, 0, -1, 5, -1, 0, -1, 0}, 3);
     if (out.isNull())

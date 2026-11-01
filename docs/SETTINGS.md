@@ -149,3 +149,9 @@ half-RAM sizing (512 MiB to 8 GiB); a positive MiB value is an override. The
 preference is performance/memoryLimitMiB. It is separate from caches/history and
 applies after restarting. The resize dialog reports its maximum dimensions for
 the selected filter and aspect ratio. See [large images](LARGE_IMAGES.md).
+
+Performance also exposes disk backing for large original-pixel buffers:
+performance/swapEnabled defaults to true; performance/swapLimitMiB defaults to
+65536 MiB, aggregated across active mappings in this process. Changes affect new
+allocations immediately; existing images remain usable. See the storage and
+format limits in [large images](LARGE_IMAGES.md).

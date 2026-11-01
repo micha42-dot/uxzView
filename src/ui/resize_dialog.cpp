@@ -1,3 +1,4 @@
+#include "core/image_storage.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "resize_dialog.h"
@@ -227,7 +228,7 @@ ResizeDialog::ResizeDialog(QSize original, double dpi, QWidget *parent)
 }
 ResizeDialog::ResizeDialog(const QImage &original, double dpi, QWidget *parent)
     : ResizeDialog(original.size(), dpi, parent) {
-    sourceFormat_ = original.format(); sourceBytes_ = original.sizeInBytes();
+    sourceFormat_ = original.format(); sourceBytes_ = original.sizeInBytes(); sourceMapped_ = imageIsFileBacked(original);
     updateEstimate();
 }
 void ResizeDialog::sync(QDoubleSpinBox *editing) {
@@ -261,12 +262,12 @@ void ResizeDialog::updateMode() {
     updateEstimate();
 }
 void ResizeDialog::updateEstimate() {
-    const auto maximum = maximumResizeSize(sourceSize_, sourceFormat_, options(), sourceBytes_);
+    const auto maximum = maximumResizeSize(sourceSize_, sourceFormat_, options(), sourceBytes_, sourceMapped_);
     result_->setText(IX_TEXT("Neue Größe: %1 × %2 Pixel\nMaximal: %3 × %4 Pixel")
         .arg(model_.size().width()).arg(model_.size().height()).arg(std::max(0, maximum.width())).arg(std::max(0, maximum.height())));
     if (auto *buttons = findChild<QDialogButtonBox *>(QStringLiteral("resizeButtons")))
         buttons->button(QDialogButtonBox::Ok)->setEnabled(
-            estimatedResizeBytes(sourceSize_, sourceFormat_, options(), sourceBytes_) <= imageMemoryLimit());
+            resizeFitsBudget(sourceSize_, sourceFormat_, options(), sourceBytes_, sourceMapped_));
 }
 ResizeOptions ResizeDialog::options() const {
     ResizeOptions o;
@@ -280,9 +281,9 @@ ResizeOptions ResizeDialog::options() const {
     return o;
 }
 void ResizeDialog::accept() {
-    if (estimatedResizeBytes(sourceSize_, sourceFormat_, options(), sourceBytes_) > imageMemoryLimit()) {
+    if (!resizeFitsBudget(sourceSize_, sourceFormat_, options(), sourceBytes_, sourceMapped_)) {
         QMessageBox::warning(this, IX_TEXT("Größe ändern"),
-                             resizeSizeLimitError(sourceSize_, sourceFormat_, options(), sourceBytes_));
+                             resizeSizeLimitError(sourceSize_, sourceFormat_, options(), sourceBytes_, sourceMapped_));
         return;
     }
     QStringList presets;

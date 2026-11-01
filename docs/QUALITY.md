@@ -6,9 +6,7 @@ crop and pixel-Undo proof with an unchanged source hash. The full core and
 portable checks pass after removing obsolete batch backup promises; no new
 native cross-platform, HDR or peak-process-memory coverage is implied.
 
-Phase 1 of the [large-image work](LARGE_IMAGES.md) passes 560 Qt cases and 46
-Python tests in the development build. The packaged resource baseline below
-remains available while the storage phase is implemented.
+The [large-image storage review](LARGE_IMAGE_REVIEW_2026-11-01.md) records the latest candidate: 596 Qt cases in nine suites and 46 Python tests, all passing in the development build; the same Qt cases pass SDK-free in the portable runtime. Native targeted checks pass at four scales. Older counts below describe their respective baselines.
 
 The 0.5.0 resource baseline has eight Qt test suites. Its build and portable runtime
 each pass **551 Qt cases** on Windows 11: 200 functional, 154 workflow, 78 quality,

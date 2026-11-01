@@ -104,7 +104,7 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
         if (!PluginStore::formatEnabled(reader.format()))
             return {};
         const auto size = reader.size();
-        if (size.isValid() && !safeSize(size))
+        if (size.isValid() && !safeSize(size) && reader.format() != "jpeg" && reader.format() != "jpg")
             return {};
         if (size.isValid()) {
             // Decoder scaling precedes EXIF rotation. A non-square thumbnail

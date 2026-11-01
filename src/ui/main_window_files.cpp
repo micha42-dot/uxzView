@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/file_operations.h"
+#include "core/image_export_policy.h"
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "main_window.h"
@@ -89,9 +90,18 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             return false;
     }
     if (selection) {
-        auto pixels = output.pixels.copy(selectedArea);
-        inheritImageProperties(output.pixels, pixels);
-        output.pixels = std::move(pixels);
+        // Selection copies can themselves be multi-GB mapped images. Prepare
+        // original pixels in a worker before calculating export losses.
+        struct SelectionResult { QImage pixels; QString error; };
+        auto result = runGuiWorker([pixels = output.pixels, selectedArea] {
+            try {
+                return SelectionResult{copyImageRegion(pixels, selectedArea), {}};
+            } catch (const std::exception &error) {
+                return SelectionResult{{}, localized(QString::fromUtf8(error.what()))};
+            }
+        });
+        if (!result.error.isEmpty()) { showError(result.error); return false; }
+        output.pixels = std::move(result.pixels);
         output.modified = true;
     }
     auto format = QFileInfo(path).suffix().toLower().toLatin1();
@@ -124,7 +134,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     updateRecent(QStringLiteral("saved"), path);
     if (!selection) {
         const auto &metadata = output.metadata;
-        const bool writtenMetadata = metadata && metadata->data && metadataWritable(format) &&
+        const bool writtenMetadata = !exportNeedsStreaming(output.pixels) &&
+                                     metadata && metadata->data && metadataWritable(format) &&
                                      (metadata->hasExif || metadata->hasIptc || metadata->hasXmp);
         document_.path = QFileInfo(path).absoluteFilePath();
         document_.modified = false;

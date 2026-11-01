@@ -141,7 +141,7 @@ class MainWindow : public QMainWindow {
     bool confirmDiscard(DiscardPolicy policy = DiscardPolicy::Ask);
     bool saveImage(bool selection = false, bool forceDialog = false);
     void fileOperation(const QString &operation);
-    void operation(std::function<QImage(const QImage &)> fn);
+    void operation(std::function<QImage(const QImage &)> fn, bool streaming = false);
     void effect(std::function<QImage(const QImage &)> fn);
     void installDocument(ImageDocument document, QImage display = {}, bool clearHistory = true);
     void beginWork(std::function<WorkResult()> fn, WorkMode mode);

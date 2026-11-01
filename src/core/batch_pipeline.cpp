@@ -60,6 +60,7 @@ QHash<QString, QImage> loadResources(const PipelineProfile &profile, const QHash
     return resources;
 }
 void watermark(QImage &image, const QJsonObject &p, const QHash<QString, QImage> *resources) {
+    if (image.sizeInBytes() > imageMemoryLimit()/4) throw std::runtime_error("Wasserzeichen benötigt vollständige RAM-Puffer; bitte zuerst verkleinern.");
     const double opacity = p.value(QStringLiteral("opacity")).toDouble(.65);
     const int margin = p.value(QStringLiteral("margin")).toInt(20);
     QImage result = image;

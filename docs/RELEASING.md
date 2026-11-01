@@ -53,7 +53,7 @@ Versionen über die Windows-API; es startet die untersuchte EXE nicht:
 python scripts/verify_windows_metadata.py build/uxzView.exe
 ```
 
-Für eine außerhalb des Quellbaums abgelegte Kopie kann `--version 0.5.0.0`
+Für eine außerhalb des Quellbaums abgelegte Kopie kann `--version 0.5.4.0`
 explizit angegeben werden. Die Prüfung bestätigt Ressourcen-Konsistenz, keine
 Authenticode-Signatur und kein Scannerurteil.
 Die Verweisregeln beschreibt Microsoft bei
@@ -106,11 +106,11 @@ Schutzfunktionen oder Ausnahmen sind kein Release-Fix.
 Nach dem ersten Push und einer Prüfung des gewünschten Commits:
 
 ```powershell
-git tag -a v0.5.0 -m "üxzView 0.5.0"
-git push origin v0.5.0
+git tag -a v0.5.4 -m "üxzView 0.5.4"
+git push origin v0.5.4
 ```
 
-Dann **Actions → Prepare Windows release draft → Run workflow** auswählen und den vorhandenen Tag `v0.5.0` angeben (Versionsnummern im Beispiel an das tatsächliche Release anpassen). Tag, CMake-Version und ausgecheckter Commit müssen übereinstimmen. Der Workflow baut den Tag neu, prüft ihn und legt mit dem eingebauten `GITHUB_TOKEN` einen Release-Entwurf an. Ein zusätzliches persönliches Token ist nicht erforderlich. Nur dieser Job erhält `contents: write`; normale Build-Jobs erhalten `contents: read`. Ein Push oder Tag allein veröffentlicht nichts.
+Dann **Actions → Prepare Windows release draft → Run workflow** auswählen und den vorhandenen Tag `v0.5.4` angeben (Versionsnummern im Beispiel an das tatsächliche Release anpassen). Tag, CMake-Version und ausgecheckter Commit müssen übereinstimmen. Der Workflow baut den Tag neu, prüft ihn und legt mit dem eingebauten `GITHUB_TOKEN` einen Release-Entwurf an. Ein zusätzliches persönliches Token ist nicht erforderlich. Nur dieser Job erhält `contents: write`; normale Build-Jobs erhalten `contents: read`. Ein Push oder Tag allein veröffentlicht nichts.
 
 Den Entwurf unter Releases öffnen. Windows-ZIP frisch in ein leeres Verzeichnis entpacken und starten; Öffnen, Rahmenzoom, Pfeiltasten, Speichern, Vorschauen und Einstellungen sowie einen Batchlauf an Testkopien prüfen. Den tatsächlichen Testumfang im Text korrekt benennen, insbesondere Windows-10- und native Desktop-Tests. Alle fünf Download-Anhänge einschließlich Quellhinweisen und Prüfsummen beibehalten und erst dann **Publish release** wählen. Ein wiederholter Workflow für einen bereits vorhandenen Release schlägt fehl, statt dessen Dateien still zu ersetzen.
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "processing.h"
+#include "image_storage.h"
 #include "localization.h"
 #include <QColorSpace>
 #include <QCache>
@@ -108,7 +109,9 @@ QImage resampleRows(const QImage &src, const ResizeOptions &o, const std::atomic
     QCache<int, QImage> rows{int(resizeRowCacheBudget())};
     const bool hasAlpha = src.hasAlphaChannel();
     const auto palette = src.colorTable();
-    QImage out(o.size, hasAlpha ? QImage::Format_ARGB32 : QImage::Format_RGB32);
+    const auto format = channelBits(src.format()) > 8 ? QImage::Format_RGBA64 : hasAlpha ? QImage::Format_ARGB32 : QImage::Format_RGB32;
+    const qint64 resident = estimatedResizeBytes(src.size(),src.format(),o,src.sizeInBytes()) - imageBufferBytes(o.size,format) - (imageIsFileBacked(src) ? src.sizeInBytes() : 0);
+    QImage out = allocateImage(o.size, format, resident);
     if (out.isNull()) throw std::runtime_error("Nicht genügend Speicher.");
     QVector<std::array<double,4>> sums(o.size.width());
     for (int y = 0; y < out.height(); ++y) {
@@ -151,12 +154,14 @@ QImage resampleRows(const QImage &src, const ResizeOptions &o, const std::atomic
             }
         }
         auto *target = reinterpret_cast<QRgb *>(out.scanLine(y));
+        auto *wide = reinterpret_cast<QRgba64 *>(target);
         for (int x = 0; x < out.width(); ++x) {
             auto [r,g,b,a] = sums[x];
             if (a > 1e-10) { r /= a; g /= a; b /= a; } else r = g = b = 0;
             if (o.linearLight) { r = toSrgb(r); g = toSrgb(g); b = toSrgb(b); }
             const auto pixel = QRgba64::fromRgba64(u16(r), u16(g), u16(b), u16(a));
-            target[x] = hasAlpha ? pixel.toArgb32() : pixel.toArgb32() | 0xff000000u;
+            if (out.depth() == 64) wide[x] = pixel;
+            else target[x] = hasAlpha ? pixel.toArgb32() : pixel.toArgb32() | 0xff000000u;
         }
     }
     return out;
@@ -179,8 +184,7 @@ bool nativeRgb32(const QImage &image) {
     return image.format() == QImage::Format_RGB32 || image.format() == QImage::Format_ARGB32;
 }
 template <class F> QImage perPixel32(const QImage &src, F fn) {
-    checkWorkingSet(src, 4);
-    QImage out(src.size(), src.format());
+    QImage out = allocateImage(src.size(), src.format(), imageIsFileBacked(src) ? 0 : src.sizeInBytes());
     if (out.isNull()) throw std::runtime_error("Speicher nicht verfügbar.");
     // convertToFormat() carried these properties in the legacy working buffer.
     out.setDevicePixelRatio(src.devicePixelRatio());
@@ -210,7 +214,7 @@ template <class F> QImage perPixel(const QImage &src, F fn) {
 } // namespace
 qint64 estimatedResizeBytes(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes) {
     if (source.isEmpty() || o.size.isEmpty() || source.width() > ImageAxisLimit || source.height() > ImageAxisLimit ||
-        o.size.width() > ImageAxisLimit || o.size.height() > ImageAxisLimit || format == QImage::Format_Invalid)
+        o.size.width() > ImageAxisLimit || o.size.height() > ImageAxisLimit || format <= QImage::Format_Invalid || format >= QImage::NImageFormats)
         return std::numeric_limits<qint64>::max();
     const int depth = QImage::toPixelFormat(format).bitsPerPixel();
     if (sourceBytes <= 0) sourceBytes = ((qint64(source.width()) * depth + 31) / 32) * 4 * source.height();
@@ -222,16 +226,24 @@ qint64 estimatedResizeBytes(QSize source, QImage::Format format, const ResizeOpt
     // edge taps, row conversion, accumulation and the bounded row cache.
     const qint64 taps = 128 * (qint64(std::max(source.width(),o.size.width())) + std::max(source.height(),o.size.height())) +
         64 * (qint64(o.size.width()) + o.size.height());
-    if (channelBits(format) <= 8)
-        result += pixels * 4 + qint64(source.width()) * 12 + qint64(o.size.width()) * 48 + resizeRowCacheBudget() + taps;
-    else {
-        if (format != QImage::Format_RGBA64) result += qint64(source.width()) * source.height() * 8;
-        result += qint64(o.size.width()) * source.height() * 8 + pixels * 8 + taps;
-    }
+    result += pixels * (channelBits(format) <= 8 ? 4 : 8) + qint64(source.width()) * 12 +
+        qint64(o.size.width()) * 48 + resizeRowCacheBudget() + taps;
     if (o.sharpen) result = std::max(result, sourceBytes + pixels * (channelBits(format) <= 8 ? 24 : 16));
     return result;
 }
-QSize maximumResizeSize(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes) {
+bool resizeFitsBudget(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes, bool mappedSource) {
+    if (format <= QImage::Format_Invalid || format >= QImage::NImageFormats) return false;
+    const auto targetFormat = o.filter == ResampleFilter::Nearest ? format : channelBits(format) > 8
+        ? QImage::Format_RGBA64 : QImage::Format_ARGB32;
+    const auto bytes = imageBufferBytes(o.size,targetFormat);
+    const auto estimate = estimatedResizeBytes(source,format,o,sourceBytes);
+    if (bytes <= 0 || estimate == std::numeric_limits<qint64>::max()) return false;
+    const auto resident = estimate - bytes - (mappedSource ? sourceBytes : 0);
+    // Sharpen still requires full-frame working images. It remains RAM guarded.
+    if (o.sharpen && o.filter != ResampleFilter::Nearest) return estimate <= imageMemoryLimit();
+    return canAllocateImage(o.size,targetFormat,resident);
+}
+QSize maximumResizeSize(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes, bool mappedSource) {
     if (o.size.isEmpty()) return {};
     const auto aspect = o.size;
     int low = 1, high = ImageAxisLimit; QSize best;
@@ -241,15 +253,15 @@ QSize maximumResizeSize(QSize source, QImage::Format format, const ResizeOptions
         candidate.size = aspect.width() >= aspect.height()
             ? QSize(longest, std::max(1, int(qint64(longest) * aspect.height() / aspect.width())))
             : QSize(std::max(1, int(qint64(longest) * aspect.width() / aspect.height())), longest);
-        if (estimatedResizeBytes(source,format,candidate,sourceBytes) <= imageMemoryLimit()) {
+        if (resizeFitsBudget(source,format,candidate,sourceBytes,mappedSource)) {
             best = candidate.size; low = longest + 1;
         } else high = longest - 1;
     }
     return best;
 }
-QString resizeSizeLimitError(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes) {
-    const auto maximum = maximumResizeSize(source, format, o, sourceBytes);
-    return IX_TEXT("Für dieses Seitenverhältnis sind höchstens %1 × %2 Pixel möglich (%3 MiB RAM-Budget).")
+QString resizeSizeLimitError(QSize source, QImage::Format format, const ResizeOptions &o, qint64 sourceBytes, bool mappedSource) {
+    const auto maximum = maximumResizeSize(source, format, o, sourceBytes, mappedSource);
+    return IX_TEXT("Für dieses Seitenverhältnis sind höchstens %1 × %2 Pixel möglich (%3 MiB RAM; Auslagerungsbudget berücksichtigt).")
         .arg(std::max(0, maximum.width())).arg(std::max(0, maximum.height())).arg(imageMemoryLimit() / MiB);
 }
 QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_bool *cancel) {
@@ -259,15 +271,12 @@ QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_boo
     if (!std::isfinite(density) || density < .5 ||
         density > double(std::numeric_limits<int>::max()) - .5)
         throw std::runtime_error(IX_TEXT("Die Auflösung kann nicht als gültige Bildmetadaten gespeichert werden.").toStdString());
-    const auto sizeError = [&] { return resizeSizeLimitError(src.size(),src.format(),o,src.sizeInBytes()).toStdString(); };
-    if (!safeSize(o.size, channelBits(src.format()) <= 8 ? 4 : 8))
-        throw std::runtime_error(sizeError());
-    const auto imageBuffers = estimatedResizeBytes(src.size(),src.format(),o,src.sizeInBytes());
-    if (imageBuffers > imageMemoryLimit())
+    const auto sizeError = [&] { return resizeSizeLimitError(src.size(),src.format(),o,src.sizeInBytes(),imageIsFileBacked(src)).toStdString(); };
+    if (!resizeFitsBudget(src.size(),src.format(),o,src.sizeInBytes(),imageIsFileBacked(src)))
         throw std::runtime_error(sizeError());
     QImage out;
     if (o.filter == ResampleFilter::Nearest) {
-        out = QImage(o.size, src.format());
+        out = allocateImage(o.size, src.format(), (imageIsFileBacked(src) ? 0 : src.sizeInBytes()) + qint64(o.size.width()) * sizeof(int));
         if (out.isNull())
             throw std::runtime_error("Nicht genügend Speicher.");
         out.setColorTable(src.colorTable());
@@ -288,70 +297,9 @@ QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_boo
                     out.setPixel(x, y, src.pixelIndex(columns[x], sourceY));
             }
         }
-    } else if (imageChannelBits(src) <= 8) {
+    } else {
         out = resampleRows(src, o, cancel);
         if (out.isNull()) return {};
-    } else {
-        auto input = src.convertToFormat(QImage::Format_RGBA64);
-        QImage temp(o.size.width(), src.height(), QImage::Format_RGBA64);
-        out = QImage(o.size, QImage::Format_RGBA64);
-        if (input.isNull() || temp.isNull() || out.isNull())
-            throw std::runtime_error("Nicht genügend Speicher.");
-        // Fast shrinking limits the footprint; quality shrinking widens the kernel
-        // to integrate source pixels and avoid aliasing.
-        auto wx = weights(input.width(), out.width(), o.filter, o.fastDownscale);
-        auto wy = weights(input.height(), out.height(), o.filter, o.fastDownscale);
-        for (int y = 0; y < input.height(); ++y) {
-            if (cancel && cancel->load())
-                return {};
-            auto *s = reinterpret_cast<const QRgba64 *>(input.constScanLine(y));
-            auto *d = reinterpret_cast<QRgba64 *>(temp.scanLine(y));
-            for (int x = 0; x < temp.width(); ++x) {
-                double r = 0, g = 0, b = 0, a = 0;
-                for (auto t : wx[x]) {
-                    auto p = s[t.index];
-                    double alpha = p.alpha() / 65535.0;
-                    auto cv = [&](quint16 c) {
-                        double v = c / 65535.0;
-                        return o.linearLight ? toLinear(v) : v;
-                    };
-                    r += cv(p.red()) * alpha * t.weight;
-                    g += cv(p.green()) * alpha * t.weight;
-                    b += cv(p.blue()) * alpha * t.weight;
-                    a += alpha * t.weight;
-                }
-                // Keep premultiplied components in intermediate storage.
-                d[x] = QRgba64::fromRgba64(u16(r), u16(g), u16(b), u16(a));
-            }
-        }
-        for (int y = 0; y < out.height(); ++y) {
-            if (cancel && cancel->load())
-                return {};
-            auto *d = reinterpret_cast<QRgba64 *>(out.scanLine(y));
-            for (int x = 0; x < out.width(); ++x) {
-                double r = 0, g = 0, b = 0, a = 0;
-                for (auto t : wy[y]) {
-                    auto p = reinterpret_cast<const QRgba64 *>(temp.constScanLine(t.index))[x];
-                    r += p.red() / 65535.0 * t.weight;
-                    g += p.green() / 65535.0 * t.weight;
-                    b += p.blue() / 65535.0 * t.weight;
-                    a += p.alpha() / 65535.0 * t.weight;
-                }
-                if (a > 1e-10) {
-                    r /= a;
-                    g /= a;
-                    b /= a;
-                } else
-                    r = g = b = 0;
-                if (o.linearLight) {
-                    r = toSrgb(r);
-                    g = toSrgb(g);
-                    b = toSrgb(b);
-                }
-                d[x] = QRgba64::fromRgba64(u16(r), u16(g), u16(b), u16(a));
-            }
-        }
-        out = finish(src, std::move(out));
     }
     inheritImageProperties(src, out);
     out.setDotsPerMeterX(int(std::round(density)));

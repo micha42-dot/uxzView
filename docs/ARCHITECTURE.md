@@ -497,3 +497,24 @@ an independent signed-int saturation bound. PDF receives its budget explicitly.
 bounded row cache; the final image is native 32-bit. GUI estimates and worker
 preflight share the same calculation. Display caches remain unsuitable for
 Save/Export. Details and phase status: [large images](LARGE_IMAGES.md).
+
+`core/image_storage.*` owns mutable QImage file mappings, physical disk
+reservation, aggregate backing accounting, last-reference cleanup and locked
+stale-buffer cleanup. The pixel allocator is shared by row resampling, direct
+PNG/sequential-JPEG reading, crop copying, native 32-bit effects and row-based
+ICC/alpha conversion. Files contain a versioned geometry header and never point
+at user source files. A process lock protects each live buffer and a root lock
+serializes file creation against stale cleanup. Thread-neutral QFile objects
+can be released by the last image owner on either worker or GUI thread.
+
+The resize dialog and worker share resizeFitsBudget; logical mapped source and
+destination bytes are separated from estimated resident work. Non-streaming
+operations retain RAM guards. Large PNG/JPEG writes bypass full encoded metadata
+buffers, explicitly expose metadata loss, and keep QSaveFile/revision contracts.
+No preview or display raster may replace document.pixels. See LARGE_IMAGES.md
+for codec limits, settings, disk reservation and the non-global RAM guarantee.
+
+Selection export prepares original-pixel crops in its worker before loss
+confirmation. `image_export_policy.h` shares the streaming threshold between
+encoder, confirmation and post-save source metadata state, so a successful
+streamed write cannot be recorded as having rewritten EXIF/IPTC/XMP.

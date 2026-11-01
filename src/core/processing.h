@@ -17,9 +17,11 @@ QImage resample(const QImage &source, const ResizeOptions &options, const std::a
 qint64 estimatedResizeBytes(QSize source, QImage::Format format, const ResizeOptions &options,
                             qint64 sourceBytes = 0);
 QSize maximumResizeSize(QSize source, QImage::Format format, const ResizeOptions &options,
-                       qint64 sourceBytes = 0);
+                       qint64 sourceBytes = 0, bool mappedSource = false);
 QString resizeSizeLimitError(QSize source, QImage::Format format, const ResizeOptions &options,
-                             qint64 sourceBytes = 0);
+                             qint64 sourceBytes = 0, bool mappedSource = false);
+bool resizeFitsBudget(QSize source, QImage::Format format, const ResizeOptions &options,
+                      qint64 sourceBytes = 0, bool mappedSource = false);
 QImage rotate(const QImage &source, double degrees);
 QImage grayscale(const QImage &source);
 QImage negative(const QImage &source, int channel = -1);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "codec_registry.h"
+#include "image_storage.h"
+#include "image_export_policy.h"
 #include "apng_codec.h"
 #include "file_revision.h"
 #include "localization.h"
@@ -111,9 +113,35 @@ class QtCodec final : public ImageCodec {
         // size first leaves that device past its header in some Qt versions.
         const int count = reader.imageCount();
         auto dimensions = reader.size();
-        if (dimensions.isValid() && !safeSize(dimensions)) {
-            out.error = imageSizeLimitError(reader.size());
+        const auto pixelFormat = reader.imageFormat();
+        const auto pixelBytes = imageBufferBytes(dimensions,pixelFormat);
+        const bool large = dimensions.isValid() && (!safeSize(dimensions) ||
+            (imageStorageOptions().spillThresholdBytes > 0 && pixelBytes > imageStorageOptions().spillThresholdBytes));
+        const qint64 decodeRows=qint64(dimensions.width())*64 + qint64(dimensions.height())*sizeof(void *);
+        if (large && ((detectedFormat != "png" && detectedFormat != "jpeg" && detectedFormat != "jpg") ||
+            page != 0 || pixelBytes <= 0 || !canAllocateImage(dimensions,pixelFormat,decodeRows))) {
+            out.error = imageSizeLimitError(dimensions);
             return out;
+        }
+        if (large && (detectedFormat == "jpeg" || detectedFormat == "jpg")) {
+            // Progressive JPEG keeps coefficient arrays for the entire image;
+            // backing only its final pixels would not bound decoder memory.
+            QFile header(path);
+            bool sequential = false;
+            if (header.open(QIODevice::ReadOnly) && header.read(2) == QByteArray::fromHex("ffd8")) {
+                for (int segments=0; segments<4096 && header.pos()<16*MiB; ++segments) {
+                    char marker=0, code=0;
+                    if (!header.getChar(&marker) || uchar(marker)!=0xff) break;
+                    do { if (!header.getChar(&code)) break; } while (uchar(code)==0xff && header.pos()<16*MiB);
+                    if (uchar(code)==0xc0 || uchar(code)==0xc1) { sequential=true; break; }
+                    if (uchar(code)==0xc2 || uchar(code)==0xca || uchar(code)==0xda || uchar(code)==0xd9) break;
+                    const auto length=header.read(2);
+                    if (length.size()!=2) break;
+                    const int bytes=(uchar(length[0])<<8)|uchar(length[1]);
+                    if (bytes<2 || !header.seek(header.pos()+bytes-2)) break;
+                }
+            }
+            if (!sequential) { out.error=IX_TEXT("Dieses große JPEG benötigt einen sequenziellen Decoder; progressive JPEGs überschreiten das RAM-Budget."); return out; }
         }
         if (page < 0 || (count > 0 && page >= count)) {
             out.error = IX_TEXT("Seite nicht vorhanden.");
@@ -130,12 +158,23 @@ class QtCodec final : public ImageCodec {
                 }
         }
         auto &d = out.document;
-        d.pixels = reader.read();
+        if (large) {
+            try {
+                const auto transformation = reader.transformation();
+                reader.setAutoTransform(false);
+                d.pixels = allocateImage(dimensions,pixelFormat,decodeRows,true);
+                const auto *mapped = d.pixels.constBits();
+                if (!reader.read(&d.pixels) || d.pixels.constBits()!=mapped) {
+                    d.pixels={}; out.error=IX_TEXT("Der Decoder kann dieses Bild nicht direkt in den ausgelagerten Puffer lesen."); return out;
+                }
+                d.pixels=transformImageOrientation(d.pixels,int(transformation));
+            } catch (const std::exception &error) { d.pixels={}; out.error=localized(QString::fromUtf8(error.what())); return out; }
+        } else d.pixels = reader.read();
         if (d.empty()) {
             out.error = reader.errorString();
             return out;
         }
-        if (!safeSize(d.pixels.size(), std::max(8, d.pixels.depth() / 8))) {
+        if (!imageIsFileBacked(d.pixels) && !safeSize(d.pixels.size(), std::max(8, d.pixels.depth() / 8))) {
             out.error = IX_TEXT("Bild zu groß.");
             d.pixels = {};
             return out;
@@ -259,7 +298,7 @@ QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray
     auto format = normalized(f);
     if (d.pageCount > 1)
         losses.append(IX_TEXT("Es wird nur die aktuelle Seite / der aktuelle Frame gespeichert."));
-    if (d.sourceHasExif && (!d.metadata || !metadataWritable(format)))
+    if (d.sourceHasExif && (!d.metadata || !metadataWritable(format) || exportNeedsStreaming(d.pixels)))
         losses.append(
             IX_TEXT("EXIF-, IPTC- und XMP-Daten werden vom Qt-Encoder nicht vollständig übernommen. "
                     "Die EXIF-Ausrichtung ist bereits auf die Pixel angewendet."));
@@ -285,6 +324,13 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
         return IX_TEXT("Kein Encoder für %1 verfügbar.").arg(QString::fromLatin1(format));
     if (!allowLoss && !exportLosses(d, format).isEmpty())
         return exportLosses(d, format).join(QLatin1Char('\n'));
+    const bool large = exportNeedsStreaming(d.pixels);
+    if (format == "jpeg" && (d.pixels.width()>65500 || d.pixels.height()>65500))
+        return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
+    if (large && qint64(d.pixels.width())*64 + qint64(d.pixels.height())*sizeof(void *) > imageMemoryLimit())
+        return imageSizeLimitError({d.pixels.width(),1},64);
+    if (large && format != "png" && format != "jpeg")
+        return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
     const auto targetRevision = [&] {
         return QFileInfo::exists(path) ? imageFileKey(path) : QString();
     };
@@ -305,7 +351,7 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
         return file.errorString();
     QByteArray encoded;
     QBuffer buffer(&encoded);
-    const bool attach = d.metadata && metadataWritable(format);
+    const bool attach = d.metadata && metadataWritable(format) && !large;
     QIODevice *destination = &file;
     if (attach) {
         buffer.open(QIODevice::WriteOnly);
@@ -317,11 +363,21 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
     writer.setQuality(quality);
     QImage output = d.pixels;
     if (output.hasAlphaChannel() && !alphaWritable(format)) {
-        QImage flat(output.size(), QImage::Format_RGB32);
-        flat.fill(Qt::white);
-        QPainter painter(&flat);
-        painter.drawImage(0, 0, output);
-        painter.end();
+        QImage flat;
+        try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
+        catch (const std::exception &error) { file.cancelWriting(); return localized(QString::fromUtf8(error.what())); }
+        for (int y=0; y<output.height(); ++y) {
+            QImage input(output.constScanLine(y),output.width(),1,output.bytesPerLine(),output.format());
+            input.setColorTable(output.colorTable());
+            const auto premultiplied=input.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+            if (premultiplied.isNull()) { file.cancelWriting(); return IX_TEXT("Speicher nicht verfügbar."); }
+            const auto *source=reinterpret_cast<const QRgb *>(premultiplied.constBits());
+            auto *target=reinterpret_cast<QRgb *>(flat.scanLine(y));
+            for (int x=0;x<flat.width();++x) {
+                const auto pixel=source[x]; const int white=255-qAlpha(pixel);
+                target[x]=qRgb(qRed(pixel)+white,qGreen(pixel)+white,qBlue(pixel)+white);
+            }
+        }
         inheritImageProperties(output, flat);
         output = flat;
     }

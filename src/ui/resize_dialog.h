@@ -23,6 +23,7 @@ class ResizeDialog : public QDialog {
     QSize sourceSize_;
     QImage::Format sourceFormat_ = QImage::Format_ARGB32;
     qint64 sourceBytes_ = 0;
+    bool sourceMapped_ = false;
     QDoubleSpinBox *width_, *height_, *percentW_, *percentH_, *mp_, *dpi_;
     QCheckBox *proportional_, *sharpen_, *adaptDpi_, *fast_, *gamma_;
     QComboBox *filter_, *custom_;

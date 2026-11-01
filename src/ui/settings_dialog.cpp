@@ -291,6 +291,9 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     memory->setSuffix(QStringLiteral(" MiB"));
     memory->setSpecialValueText(IX_TEXT("Automatisch (%1 MiB)")
         .arg(calculateImageMemoryLimit(physicalMemoryBytes()) / MiB));
+    check(performance, QStringLiteral("performance/swapEnabled"), IX_TEXT("Große Bildpuffer auf Datenträger auslagern"), true);
+    auto *swap = number(performance, QStringLiteral("performance/swapLimitMiB"), IX_TEXT("Auslagerungsbudget:"), 65536, 0, 1048576);
+    swap->setSuffix(QStringLiteral(" MiB"));
     auto *imageCache = number(performance, QStringLiteral("performance/imageCacheMiB"),
                               IX_TEXT("Cache für geladene Bilder:"), 192, 0, 512);
     imageCache->setSuffix(QStringLiteral(" MiB"));

@@ -1,3 +1,5 @@
+#include "core/image_storage.h"
+#include <QtConcurrent>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "core/codec_registry.h"
@@ -122,10 +124,15 @@ int main(int argc, char **argv) {
         return 0;
     }
     ix::initializeImageMemoryLimit();
+    ix::configureImageStorageFromSettings();
+    const auto swapRoot = QDir(ix::AppStorage::cacheRoot()).filePath(QStringLiteral("swap"));
+    if (QFileInfo::exists(swapRoot)) (void)QtConcurrent::run([swapRoot] { ix::cleanupStaleImageStorage(swapRoot); });
     if (parser.isSet(QStringLiteral("memory-info"))) {
         const QJsonObject result{{QStringLiteral("physicalBytes"), double(ix::physicalMemoryBytes())},
             {QStringLiteral("memoryLimitMiB"), double(ix::imageMemoryLimit() / ix::MiB)},
-            {QStringLiteral("axisLimit"), ix::ImageAxisLimit}};
+            {QStringLiteral("axisLimit"), ix::ImageAxisLimit},
+            {QStringLiteral("swapEnabled"), ix::imageStorageOptions().enabled},
+            {QStringLiteral("swapLimitMiB"), double(ix::imageStorageOptions().maxBytes / ix::MiB)}};
         QTextStream(stdout) << QJsonDocument(result).toJson(QJsonDocument::Compact) << Qt::endl;
         return 0;
     }

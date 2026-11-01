@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.5.0 · Stand: 01.11.2026**
+**Version 0.5.4 · Stand: 01.11.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -17,6 +17,12 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- 0.5.4 bündelt das dynamische RAM-Budget, dateibasierte Großbildpuffer,
+  zeilenbasiertes 8-/16-Bit-Resize, PNG-/JPEG-Streaming und die bisherigen
+  PDF-, Navigations- und Speicheroptimierungen. 596 Qt-Fälle und 46 Python-Tests
+  bestehen; die Qt-Fälle auch im SDK-freien portablen Paket.
+  [Großbildprüfung](docs/LARGE_IMAGE_REVIEW_2026-11-01.md).
 
 - Speicherphase 1: automatisches/manuelles RAM-Budget, großere geprüfte
   Dimensionen und zeilenbasiertes Resize mit exakter Referenzprüfung. Der Dialog
@@ -290,8 +296,8 @@ Fünf echte CR2-/NEF-/ARW-/PEF-/DNG-Dateien, vier unabhängige LittleCMS-Referen
 
 1. Native Windows-10-/Linux-/macOS-Läufe, breitere RAW-/OCR-/Barcode-Stichproben, kalibrierte Monitorprofile, HDR-Desktop und Mehrmonitorverhalten prüfen. Wayland-Screenshots benötigen noch die Portal-Anbindung. Muttersprachliche Prüfung der Übersetzungen steht aus.
 2. Die Auftragssteuerung der Ordnerindizierung ist ausgelagert. Laden, Navigation, Speichern und Dateiverwaltung aus dem weiterhin großen Hauptfenster weiter schrittweise entflechten. Erst darauf aufbauend gerichtetes Vorladen mit Abbruch und ohne doppelte Decodierung ergänzen.
-3. Ein gemeinsames RAM-Budget für aktive Decoder, Undo, Caches, Anzeige und Export schaffen. Die einzelnen Budgets sind keine Gesamtgrenze. Dynamisches RAM-Budget und zeilenbasiertes 8-Bit-Resize sind umgesetzt; dateibasierte Pixelpuffer und riesige Decoderpfade folgen in der Speicherphase. Siehe [Großbilder](docs/LARGE_IMAGES.md).
-4. Automatische Wiederherstellung von `pending`-/`undoPending`-Dateioperationen nach einem Absturz ergänzen. Revisionstest und Dateisystemmutation sind gegenüber anderen Programmen nicht atomar. Große JSON-Kataloge und synchrone Formatpaket-Installation benötigen weitere Arbeit.
+3. Ein gemeinsames RAM-Budget für aktive Decoder, Undo, Caches, Anzeige und Export schaffen. Die einzelnen Budgets sind keine Gesamtgrenze. Dynamisches RAM-Budget, dateibasierte Pixelpuffer und zeilenbasiertes 8-/16-Bit-Resize sind umgesetzt. PNG und sequenzielle JPEGs können direkt in ausgelagerte Originalpuffer lesen; progressive JPEGs und weitere riesige Codec-Varianten bleiben begrenzt. Siehe [Großbilder](docs/LARGE_IMAGES.md).
+4. Dateioperationen nutzen den Systempapierkorb; ein internes Journal oder Datei-Undo existiert nicht mehr. Revisionstest und Dateisystemmutation sind gegenüber anderen Programmen nicht atomar. Große JSON-Kataloge und synchrone Formatpaket-Installation benötigen weitere Arbeit.
 5. Paketgröße bleibt erheblich: rund 179,3 MB entpackt, davon etwa 24 MB Erkennungswerkzeuge. Weitere Einsparungen erfordern geprüfte optionale Formatpakete oder einen kleineren Qt-/ICU-Build.
 
 Weitere technische Einschränkungen: Export speichert nur die aktuelle Seite bzw. den aktuellen Frame; kein Animations-/Mehrseitenencoder. ICNS-Schreiben bleibt wegen stiller Größenänderungen gesperrt. PSD zeigt gespeicherte Composites; Ebenen/PSB/CMYK sind nicht umfassend geprüft. MakerNotes, große Metadaten und HDR-Bearbeitung sind nicht vollständig abgesichert. JPEG-Verlustfreioperationen unterstützen EXIF-Ausrichtung ungleich 1 noch nicht. Einzelne Decoder und Operationen sind nicht sofort abbrechbar. Ein vollständiger manueller Druck-/Zwischenablage-/Drag-and-drop-Durchlauf und sämtliche Referenzdialoge sind nicht nachgewiesen.
@@ -300,6 +306,6 @@ Eine große Effektgalerie, 8BF, Audio/Video und KI-Dienste gehören nicht zum ak
 
 ## Entwicklung und Auslieferung
 
-[Architektur](docs/ARCHITECTURE.md) beschreibt Zuständigkeiten, Threads und Speicherverträge; [Entwicklung](docs/DEVELOPMENT.md) die reproduzierbaren Prüfabläufe. `CMakeLists.txt` ist die maßgebliche Versionsquelle. Der geprüfte Wartungsstand trägt 0.5.0; bestehende Profile und Werkzeugpakete bleiben kompatibel.
+[Architektur](docs/ARCHITECTURE.md) beschreibt Zuständigkeiten, Threads und Speicherverträge; [Entwicklung](docs/DEVELOPMENT.md) die reproduzierbaren Prüfabläufe. `CMakeLists.txt` ist die maßgebliche Versionsquelle. Der geprüfte Wartungsstand trägt 0.5.4; bestehende Profile und Werkzeugpakete bleiben kompatibel.
 
 Die gemeinsamen Ausgaben liegen unter `dist/uxzView`, `dist/uxzView-win64.zip` und `dist/uxzView-source.zip`; Quellhinweise und Prüfsummen liegen ebenfalls direkt unter `dist`. Die Release-Paketierung prüft eigene Binärdateien und Drittanbieter-Quellen und schließt private Profile aus. Werkzeugpakete unter `dist/tools` sind eigenständige optionale Downloads. Kein zusätzliches Release- oder GitHub-Quellverzeichnis. [Release-Anleitung](docs/RELEASING.md), [GitHub-Vorbereitung](docs/GITHUB.md).

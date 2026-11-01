@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "selection.h"
+#include "image_storage.h"
 #include "image_document.h"
 #include <cstring>
 #include <stdexcept>
@@ -16,6 +17,8 @@ QImage applySelectionEffect(const QImage &source, QRect selection, bool inverted
                             const std::function<QImage(const QImage &)> &filter) {
     if (source.isNull())
         throw std::runtime_error("Kein Bild geladen.");
+    if (imageIsFileBacked(source) && source.sizeInBytes() > imageMemoryLimit()/32 && !selection.isEmpty())
+        throw std::runtime_error("Auswahlfilter benötigen vollständige RAM-Puffer; bitte zuerst verkleinern.");
     selection = selection.intersected(source.rect());
     if (selection.isEmpty())
         return filter(source);

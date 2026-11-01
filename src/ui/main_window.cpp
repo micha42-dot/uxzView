@@ -1,3 +1,4 @@
+#include "core/image_storage.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "main_window.h"
@@ -1074,7 +1075,10 @@ void MainWindow::restoreHistory(bool redo) {
         return WorkResult{entry, displayImage(entry.pixels, manage, sharp), {}, entry.selection};
     }, redo ? WorkMode::Redo : WorkMode::Undo);
 }
-void MainWindow::operation(std::function<QImage(const QImage &)> fn) {
+void MainWindow::operation(std::function<QImage(const QImage &)> fn, bool streaming) {
+    if (!streaming && imageIsFileBacked(document_.pixels) && document_.pixels.sizeInBytes() > imageMemoryLimit()/32) {
+        QMessageBox::warning(this, IX_TEXT("Bild bearbeiten"), IX_TEXT("Diese Bearbeitung benötigt vollständige RAM-Puffer. Bitte das Bild zuerst verkleinern.")); return;
+    }
     if (document_.empty() || activity_.busy())
         return;
     if (document_.pixels.pixelFormat().typeInterpretation() == QPixelFormat::FloatingPoint &&
@@ -1103,7 +1107,7 @@ void MainWindow::effect(std::function<QImage(const QImage &)> fn) {
     const bool inverted = invertedSelection_;
     operation([fn = std::move(fn), selected, inverted](const QImage &source) {
         return applySelectionEffect(source, selected, inverted, fn);
-    });
+    }, true);
 }
 void MainWindow::syncFitActions() {
     if (!viewFitActions_) return;
@@ -1288,6 +1292,7 @@ void MainWindow::changeEvent(QEvent *event) {
 }
 void MainWindow::applySettings(bool applyFit) {
     QSettings s;
+    configureImageStorageFromSettings();
     unreadableFiles_ = unreadableFilesMode(s.value(QStringLiteral("navigation/unreadableFiles"), 0).toInt());
     applyInterfaceTheme(s.value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
     view_->setDisplayCacheEnabled(s.value(QStringLiteral("performance/imageCacheMiB"), 192).toInt() > 0);
@@ -1816,7 +1821,7 @@ void MainWindow::dispatch(const QString &cmd) {
         ResizeDialog dialog(document_.pixels, document_.dpiX(), this);
         if (dialog.exec() == QDialog::Accepted) {
             auto o = dialog.options();
-            operation([o](const QImage &s) { return resample(s, o); });
+            operation([o](const QImage &s) { return resample(s, o); }, true);
         }
         return;
     }
@@ -1890,10 +1895,10 @@ void MainWindow::dispatch(const QString &cmd) {
         if (r.isEmpty())
             return;
         operation([r](const QImage &s) {
-            auto result = s.copy(r);
+            auto result = copyImageRegion(s,r);
             inheritImageProperties(s, result);
             return result;
-        });
+        }, true);
         return;
     }
     if (cmd == QStringLiteral("autoSelect")) {
@@ -1904,16 +1909,20 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (cmd == QStringLiteral("autoCrop")) {
         operation([](const QImage &s) {
-            auto image = s.copy(autoCropRect(s));
+            auto image = copyImageRegion(s,autoCropRect(s));
             inheritImageProperties(s, image);
             return image;
-        });
+        }, true);
         return;
     }
     if (cmd == QStringLiteral("copy")) {
-        auto image =
-            view_->selection().isEmpty() ? document_.pixels : document_.pixels.copy(view_->selection());
-        QApplication::clipboard()->setImage(image);
+        try {
+            const auto region=view_->selection().isEmpty() ? document_.pixels.rect() : view_->selection();
+            if (qint64(region.width())*region.height()*std::max(1,document_.pixels.depth()/8)>imageMemoryLimit()/8)
+                throw std::runtime_error("Zwischenablage benötigt vollständige RAM-Puffer; bitte zuerst verkleinern.");
+            auto image=copyImageRegion(document_.pixels,region);
+            QApplication::clipboard()->setImage(image);
+        } catch (const std::exception &error) { QMessageBox::warning(this,IX_TEXT("Bild bearbeiten"),localized(QString::fromUtf8(error.what()))); }
         return;
     }
     if (cmd == QStringLiteral("cut") || cmd == QStringLiteral("cutOutside") ||
@@ -1921,12 +1930,17 @@ void MainWindow::dispatch(const QString &cmd) {
         auto r = view_->selection();
         if (r.isEmpty())
             return;
-        if (cmd == QStringLiteral("cut"))
-            QApplication::clipboard()->setImage(document_.pixels.copy(r));
+        if (cmd == QStringLiteral("cut")) {
+            try {
+                if (qint64(r.width())*r.height()*std::max(1,document_.pixels.depth()/8)>imageMemoryLimit()/8)
+                    throw std::runtime_error("Zwischenablage benötigt vollständige RAM-Puffer; bitte zuerst verkleinern.");
+                QApplication::clipboard()->setImage(copyImageRegion(document_.pixels,r));
+            } catch (const std::exception &error) { QMessageBox::warning(this,IX_TEXT("Bild bearbeiten"),localized(QString::fromUtf8(error.what()))); return; }
+        }
         QColor background = view_->background;
         operation([=](const QImage &s) {
             if (cmd == QStringLiteral("crop")) {
-                auto image = s.copy(r);
+                auto image = copyImageRegion(s,r);
                 inheritImageProperties(s, image);
                 return image;
             }
@@ -1944,7 +1958,7 @@ void MainWindow::dispatch(const QString &cmd) {
             p.end();
             inheritImageProperties(s, out);
             return out;
-        });
+        }, cmd == QStringLiteral("crop"));
         return;
     }
     if (cmd == QStringLiteral("grid")) {
