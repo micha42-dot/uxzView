@@ -111,6 +111,14 @@ private slots:
         try { QVERIFY(ix::resample(source,o,&cancel).isNull()); } catch (const std::runtime_error &) { QVERIFY(filter==6); }
         QCOMPARE(ix::mappedImageBytes(),out.sizeInBytes()+65536);
     }
+    void parallelMappedResizeMatchesLegacyAndReleases() {
+        const auto source=fixture(QImage::Format_RGBA64);
+        ix::ResizeOptions options; options.size={2048,1536};
+        const auto expected=ix::test::referenceResample(source,options);
+        const auto image=ix::resample(source,options);
+        QVERIFY(ix::imageIsFileBacked(image)); QCOMPARE(image,expected);
+        QCOMPARE(ix::mappedImageBytes(),image.sizeInBytes()+65536);
+    }
     void mappedDecodeAndAtomicExport_data() {
         QTest::addColumn<QByteArray>("format");
         QTest::newRow("png")<<QByteArray("png"); QTest::newRow("jpeg")<<QByteArray("jpeg");

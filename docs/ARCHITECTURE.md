@@ -27,6 +27,14 @@ flowchart TD
 
 In-process modules are internal interfaces, built and deployed with the application and matching Qt/toolchain. They are not a stable public C++ ABI. When a signature changes, update its resolved symbol as appropriate and rebuild both sides; packaging validates matching binaries. Standalone extensions use the documented [tool protocols](TOOL_EXTENSIONS.md).
 
+`ui/option_controls.h` contains lightweight widget presentation helpers for
+Settings and fullscreen information: native checkbox semantics with full-row
+hit targets, cached width-dependent label wrapping, and comfortable popup rows.
+They own no preferences. Settings retains its existing save/cancel boundary and
+keys; moving a field between pages must not migrate or reset its value. Geometry
+rules are local to the dialog, so opening images creates no additional widgets
+or resident services.
+
 ## Document ownership and operations
 
 `ImageDocument` holds original pixel precision, metadata, source revision and page/animation state. `core/image_loading.*` owns the load pipeline (optional RAW preview, revision-aware cache read and presentation conversion) with an explicit `ImageLoadRequest`. `displayImage` prepares presentation pixels. `ImageView` owns fitting, scrolling, selection and its bounded optional display cache. Display caches must never supply pixels for save/export.
@@ -518,3 +526,27 @@ Selection export prepares original-pixel crops in its worker before loss
 confirmation. `image_export_policy.h` shares the streaming threshold between
 encoder, confirmation and post-save source metadata state, so a successful
 streamed write cannot be recorded as having rewritten EXIF/IPTC/XMP.
+
+## Resampling workers
+
+`core/resampling.cpp` owns filter kernels, row caching, resize limits and
+resampling; `processing.h` retains the public API. The normalized-row path
+premultiplies/converts each source row once and preserves the RGBA64 horizontal
+rounding boundary before caching double samples. Vertical support reuses those
+samples. Byte quantization retains the two-stage thresholds, tie cases and the
+legacy long-overflow behavior for near-zero-alpha ringing.
+
+Large outputs may use four disjoint row bands. A process-local atomic pool caps
+additional resize threads across concurrent caller jobs; the calling worker
+participates. std::thread plus a scope guard joins all children on every exit,
+including creation failure. Exceptions stop peers and propagate after joining;
+shared cancellation never publishes partial output. QImage's unique writable
+buffer is obtained before launching threads; workers write raw, non-overlapping
+rows and never call mutable QImage accessors concurrently.
+
+The row-cache cap is divided across actual workers. Planning includes the
+maximum worker-local source, accumulation and active-row storage. If normalized
+rows cannot retain overlapping support in the bounded cache, the existing
+compact RGBA64-row path remains available. File-backed destinations use the same
+worker lifetime contract. No nested global QThreadPool waits, new runtime
+libraries, startup workers or GUI controls are introduced.

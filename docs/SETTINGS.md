@@ -1,11 +1,12 @@
 # Einstellungen und Symbole in üxzView
 
-**Optionen → Einstellungen** enthält neun Bereiche in einer vertikalen Kategorienliste. Die Vorschauleiste wird unter **Anzeige → Vorschauen** eingerichtet. Das kompaktere Fenster behält beim Kategorienwechsel seine Größe; auf kleinen Bildschirmen kann der jeweilige Inhalt vertikal scrollen. Zahlenfelder verwenden ihre benötigte Breite. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
+**Optionen → Einstellungen** enthält zehn Bereiche in einer vertikalen Kategorienliste. Die Vorschauleiste hat den eigenen Bereich **Vorschauen**. Das Fenster behält beim Kategorienwechsel seine Größe; auf kleinen Bildschirmen kann der jeweilige Inhalt vertikal scrollen. Bedienelemente und Auswahllisten haben größere Klickflächen, die Dropdown-Pfeile bleiben klein. Zahlenfelder verwenden ihre benötigte Breite. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
 
 | Bereich | Verfügbare Einstellungen |
 | --- | --- |
-| Anzeige | Bildanpassung, Zentrierung, Glättung, ICC-Anzeige nach sRGB, Anzeigeschärfe, Hintergrundfarbe; Nachbarleiste ein/aus, unabhängig 1–5 vorherige und kommende Bilder, Hintergrund der Vorschaubilder |
+| Anzeige | Bildanpassung, Zentrierung, Glättung, ICC-Anzeige nach sRGB, Anzeigeschärfe, Hintergrundfarbe |
 | Oberfläche | Farbschema (Systemdesign/Hell/Dunkel) und Sprache (Deutsch/English/한국어/日本語/Français), beide sofort nach OK; Symbol-/Status-/Menüleiste, Aktionssuche, Symbolgröße 20–32 px, optionale Symbolbeschriftungen, Fenstergröße/-position merken |
+| Vorschauen | Nachbarleiste ein/aus, unabhängig 1–5 vorherige und kommende Bilder, Hintergrund der Vorschaubilder |
 | Navigation | Natürliche/alphabetische/Datums-/Größensortierung, Reihenfolge umkehren, Wiederholung am Ordnerende, Zoom und Scrollposition beim Bildwechsel behalten, optionale Speicherabfrage (standardmäßig aus) |
 | Vollbild | Eigene Bildanpassung (100 %, ganzes Bild, nur große Bilder, Breite, Höhe, kurze Seite), Zielbildschirm bei mehreren Monitoren, Mauszeiger ausblenden, eigene Hintergrundfarbe (Standard Schwarz), optionale Informationsanzeige mit vier Ecken und auswählbaren Datei-/Bild-/EXIF-Daten; keine Bildflächenumrandung |
 | Diashow | Anzeigedauer, Start im Vollbild, Wiederholung, Zufallsreihenfolge; sonst Sortierung unter Navigation |
@@ -65,6 +66,8 @@ gilt bei automatischer Einpassung, „für Zoomen“ bei manueller Vergrößerun
 beide Aktionen. Intern bleiben `view/smooth` und `view/smoothFit` getrennt;
 Zoomen liest diese Werte nicht erneut vom Datenträger.
 
+Zahlenfelder und Auswahllisten reagieren auf das Mausrad erst mit Tastaturfokus. Dadurch ändert das Scrollen einer Seite keine Werte versehentlich. Checkboxen sind über ihre gesamte Zeile anklickbar; längere Texte umbrechen bei schmalen Fenstern. Abhängige Vorschauoptionen und das Auslagerungsbudget werden zusammen mit ihren Beschriftungen deaktiviert, wenn die zugehörige Funktion ausgeschaltet ist. Gespeicherte Werte bleiben dabei erhalten.
+
 ## Bedeutung der Symbole
 
 Die eigenen SVG-Konturen sind im Quellcode unter `src/ui/icons.cpp` definiert. Farbe und deaktivierter Zustand folgen dem gewählten Farbschema; Rasterungen werden nach Größe, Farbe und Pixeldichte zwischengespeichert. Es werden keine externen Iconpakete oder Netzwerkzugriffe benötigt.
@@ -87,7 +90,7 @@ Tooltips benennen die jeweilige Aktion und vorhandene Tastenkürzel. Unter Oberf
 
 ## Noch nicht enthalten
 
-Die neun Bereiche erschließen die vorhandenen Funktionen und tatsächlich angebundenen Optionen. Eine vollständige IrfanView-Einstellungsreferenz ist damit nicht umgesetzt. Dateizuordnungen werden über die beiliegenden Windows-Registrierungsskripte beziehungsweise den Linux-/macOS-Desktop verwaltet (siehe FILE_ASSOCIATIONS.md). Unter anderem fehlen Scanner/TWAIN-Konfiguration, vollständige Monitorprofil-/Softproof-Verwaltung und weitere spezialisierte Druck-/Dateioptionen. Eine zusätzliche Effektgalerie gehört nicht zum Kernumfang; solche Erweiterungen sollen optional bleiben. Einstellungen einzelner Bearbeitungsschritte und Batchprofile liegen weiterhin in ihren jeweiligen Dialogen.
+Die zehn Bereiche erschließen die vorhandenen Funktionen und tatsächlich angebundenen Optionen. Eine vollständige IrfanView-Einstellungsreferenz ist damit nicht umgesetzt. Dateizuordnungen werden über die beiliegenden Windows-Registrierungsskripte beziehungsweise den Linux-/macOS-Desktop verwaltet (siehe FILE_ASSOCIATIONS.md). Unter anderem fehlen Scanner/TWAIN-Konfiguration, vollständige Monitorprofil-/Softproof-Verwaltung und weitere spezialisierte Druck-/Dateioptionen. Eine zusätzliche Effektgalerie gehört nicht zum Kernumfang; solche Erweiterungen sollen optional bleiben. Einstellungen einzelner Bearbeitungsschritte und Batchprofile liegen weiterhin in ihren jeweiligen Dialogen.
 
 
 ## Sprache und Screenshot-Kürzel

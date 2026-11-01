@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.5.4 · Stand: 01.11.2026**
+**Version 0.5.4 · Stand: 02.11.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -17,6 +17,17 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Unreleased: Einstellungen mit größeren Klickflächen, kleiner Dropdown-Pfeilgrafik,
+  eigener Vorschauseite und dynamisch umbrechenden Beschriftungen. Unfokussierte
+  Zahlen-/Auswahlfelder ändern sich nicht beim Scrollen. 608 Qt-Fälle und
+  46 Python-Tests bestehen; die Qt-Fälle auch im SDK-freien portablen Paket.
+  [Bedienung und Prüfungen](docs/SETTINGS_COMFORT_REVIEW.md).
+
+- Unreleased: Große Größenänderungen nutzen wiederverwendete Filterzeilen und
+  bis zu vier Rechen-Threads mit gemeinsamer Begrenzung. Pixel und Filterwahl
+  bleiben erhalten; 605 Qt-Fälle bestehen im Build und portabel, dazu 46 Python-Tests.
+  [Messwerte und Grenzen](docs/RESIZE_PERFORMANCE_REVIEW.md).
 
 - 0.5.4 bündelt das dynamische RAM-Budget, dateibasierte Großbildpuffer,
   zeilenbasiertes 8-/16-Bit-Resize, PNG-/JPEG-Streaming und die bisherigen

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "crop_ratio_editor.h"
+#include "option_controls.h"
 #include "crop_ratios.h"
 #include "core/localization.h"
 #include <QtWidgets>
@@ -56,13 +57,16 @@ void CropRatioEditor::append(int width, int height) {
         table_->setItem(row, column, item);
         auto *spin = new QSpinBox;
         spin->setRange(1, 10000);
+        spin->setMinimumHeight(optionControlHeight(spin->fontMetrics()));
+        spin->setMinimumWidth(96);
+        spin->setFocusPolicy(Qt::StrongFocus);
         spin->setValue(column == 0 ? width : height);
         spin->setAccessibleName(column == 0 ? IX_TEXT("Breite") : IX_TEXT("Höhe"));
         spin->setFrame(false);
         spin->installEventFilter(this);
         for (auto *child : spin->findChildren<QLineEdit *>()) child->installEventFilter(this);
         table_->setCellWidget(row, column, spin);
-        table_->setRowHeight(row, std::max(32, spin->sizeHint().height() + 4));
+        table_->setRowHeight(row, std::max(optionControlHeight(spin->fontMetrics()) + 4, spin->sizeHint().height() + 4));
     }
     updateButtons();
 }
@@ -71,6 +75,11 @@ void CropRatioEditor::updateButtons() {
     remove_->setEnabled(table_->currentRow() >= 0);
 }
 bool CropRatioEditor::eventFilter(QObject *object, QEvent *event) {
+    if (event->type() == QEvent::Wheel) {
+        auto *field = qobject_cast<QWidget *>(object);
+        while (field && !qobject_cast<QSpinBox *>(field)) field = field->parentWidget();
+        if (field && !field->hasFocus()) { event->ignore(); return true; }
+    }
     if (event->type() == QEvent::FocusIn || event->type() == QEvent::MouseButtonPress)
         for (int row = 0; row < table_->rowCount(); ++row)
             for (int column = 0; column < 2; ++column) {

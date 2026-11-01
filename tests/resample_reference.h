@@ -218,6 +218,35 @@ QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_boo
     return out;
 }
 } // namespace legacy_resize_detail
+// Evaluate sparse output points using the original two-pass arithmetic, without
+// allocating its full-frame intermediates for a 53 MP regression fixture.
+inline QVector<QRgb> referenceResamplePoints(const QImage &source, const ResizeOptions &o, const QVector<QPoint> &points) {
+    using namespace legacy_resize_detail;
+    const auto input = source.convertToFormat(QImage::Format_RGBA64);
+    const auto wx = weights(input.width(),o.size.width(),o.filter,o.fastDownscale);
+    const auto wy = weights(input.height(),o.size.height(),o.filter,o.fastDownscale);
+    QVector<QRgb> result;
+    for (const auto point : points) {
+        double r=0,g=0,b=0,a=0;
+        for (const auto vertical : wy[point.y()]) {
+            const auto *row=reinterpret_cast<const QRgba64 *>(input.constScanLine(vertical.index));
+            double hr=0,hg=0,hb=0,ha=0;
+            for (const auto tap : wx[point.x()]) {
+                const auto p=row[tap.index]; const double alpha=p.alpha()/65535.0;
+                const auto cv=[&](quint16 c) { const double v=c/65535.0; return o.linearLight ? toLinear(v) : v; };
+                hr+=cv(p.red())*alpha*tap.weight; hg+=cv(p.green())*alpha*tap.weight;
+                hb+=cv(p.blue())*alpha*tap.weight; ha+=alpha*tap.weight;
+            }
+            const auto p=QRgba64::fromRgba64(u16(hr),u16(hg),u16(hb),u16(ha));
+            r+=p.red()/65535.0*vertical.weight; g+=p.green()/65535.0*vertical.weight;
+            b+=p.blue()/65535.0*vertical.weight; a+=p.alpha()/65535.0*vertical.weight;
+        }
+        if(a>1e-10) {r/=a;g/=a;b/=a;} else r=g=b=0;
+        if(o.linearLight) {r=toSrgb(r);g=toSrgb(g);b=toSrgb(b);}
+        result.append(QRgba64::fromRgba64(u16(r),u16(g),u16(b),u16(a)).toArgb32());
+    }
+    return result;
+}
 inline QImage referenceResample(const QImage &source, const ResizeOptions &options) {
     return legacy_resize_detail::resample(source, options, nullptr);
 }

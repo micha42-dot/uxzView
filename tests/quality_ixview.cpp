@@ -65,6 +65,42 @@ class QualityTests : public QObject {
             }
         QCOMPARE(source.cacheKey(),key);
     }
+    void parallelResampleMatchesLegacy_data() {
+        QTest::addColumn<int>("format"); QTest::addColumn<bool>("linear");
+        for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_RGBA64})
+            for (bool linear : {false,true})
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(int(format)).arg(linear))) << int(format) << linear;
+    }
+    void parallelResampleMatchesLegacy() {
+        QFETCH(int,format); QFETCH(bool,linear);
+        auto source=ix::test::filterPattern({41,29},QImage::Format(format));
+        source.setColorSpace(QColorSpace::DisplayP3);
+        ix::ResizeOptions options; options.size={2048,1536}; options.linearLight=linear;
+        QCOMPARE(ix::resample(source,options),ix::test::referenceResample(source,options));
+    }
+    void simultaneousResizesDoNotShareWritableRows() {
+        const auto source=ix::test::filterPattern({19,13},QImage::Format_ARGB32);
+        ix::ResizeOptions options; options.size={2048,1536};
+        const auto expected=ix::test::referenceResample(source,options);
+        auto first=QtConcurrent::run([source,options] { return ix::resample(source,options); });
+        auto second=QtConcurrent::run([source,options] { return ix::resample(source,options); });
+        QCOMPARE(first.result(),expected); QCOMPARE(second.result(),expected);
+        std::atomic_bool cancelled{true}; QVERIFY(ix::resample(source,options,&cancelled).isNull());
+    }
+    void reportedLargeResizeRetainsTransparentPixelColors() {
+        QImage source(1920,1024,QImage::Format_ARGB32);
+        for(int y=0;y<source.height();++y) {
+            auto *row=reinterpret_cast<QRgb *>(source.scanLine(y));
+            for(int x=0;x<source.width();++x)
+                row[x]=qRgba((x*17+y*3)%256,(x*7+y*23)%256,(x*31+y*11)%256,(x*13+y*19)%256);
+        }
+        ix::ResizeOptions options; options.size={10000,5333};
+        const QVector<QPoint> points{{2892,766},{6892,766},{3745,1867},{7745,1867},
+            {693,2903},{4693,2903},{8693,2903},{3193,4981},{7193,4981},{0,0},{9999,5332},{5000,2666}};
+        const auto expected=ix::test::referenceResamplePoints(source,options,points);
+        const auto actual=ix::resample(source,options);
+        for(int i=0;i<points.size();++i) QCOMPARE(actual.pixel(points[i]),expected[i]);
+    }
     void resizeEstimateDefinesTheAcceptedBoundary() {
         ix::ResizeOptions options; options.size={100000,100000};
         const QSize source(6000,4000);

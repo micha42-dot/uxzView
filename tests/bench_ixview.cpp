@@ -3,12 +3,14 @@
 #include "convolution_reference.h"
 #include "auto_crop_reference.h"
 #include "pixel_processing_reference.h"
+#include "resample_reference.h"
 #include "core/apng_codec.h"
 #include "core/codec_registry.h"
 #include "core/file_operations.h"
 #include "core/batch_pipeline.h"
 #include "core/directory_index.h"
 #include "core/image_loading.h"
+#include "core/image_storage.h"
 #include "core/metadata.h"
 #include "core/preview_service.h"
 #include "ui/image_view.h"
@@ -33,6 +35,68 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QImage resizeProfileSource(QImage::Format format) {
+    QImage source(1920,1024,format);
+    for (int y=0;y<source.height();++y) {
+        auto *row=reinterpret_cast<QRgb *>(source.scanLine(y));
+        for (int x=0;x<source.width();++x)
+            row[x]=qRgba((x*17+y*3)%256,(x*7+y*23)%256,(x*31+y*11)%256,
+                format==QImage::Format_RGB32 ? 255 : (x*13+y*19)%256);
+    }
+    source.setColorSpace(QColorSpace::SRgb);
+    return source;
+}
+QJsonObject checkResize() {
+    ix::initializeImageMemoryLimit(); ix::configureImageStorage({false});
+    const auto source=resizeProfileSource(QImage::Format_ARGB32);
+    ix::ResizeOptions options; options.size={10000,5333};
+    const auto actual=ix::resample(source,options), expected=ix::test::referenceResample(source,options);
+    qint64 differences=0; int error=0; QJsonArray examples;
+    for (int y=0;y<actual.height();++y) {
+        const auto *a=reinterpret_cast<const QRgb *>(actual.constScanLine(y));
+        const auto *e=reinterpret_cast<const QRgb *>(expected.constScanLine(y));
+        for(int x=0;x<actual.width();++x) if(a[x]!=e[x]) {
+            ++differences;
+            for(int shift : {0,8,16,24}) error=std::max(error,std::abs(int((a[x]>>shift)&255)-int((e[x]>>shift)&255)));
+            if(examples.size()<12) examples.append(QJsonObject{{QStringLiteral("x"),x},{QStringLiteral("y"),y},
+                {QStringLiteral("actual"),QString::number(a[x],16)},{QStringLiteral("expected"),QString::number(e[x],16)}});
+        }
+    }
+    return {{QStringLiteral("different_pixels"),double(differences)},{QStringLiteral("max_channel_error"),error},{QStringLiteral("examples"),examples}};
+}
+QJsonObject profileResize() {
+    ix::initializeImageMemoryLimit();
+    ix::configureImageStorage({false});
+    QJsonArray cases;
+    for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32}) {
+        const auto source=resizeProfileSource(format);
+        for (auto filter : {ix::ResampleFilter::Lanczos,ix::ResampleFilter::Triangle,ix::ResampleFilter::Nearest}) {
+            QJsonArray resizeTimes,displayTimes,paintTimes;
+            QByteArray hash;
+            ix::ResizeOptions options; options.size={10000,5333}; options.filter=filter;
+            for (int sample=0;sample<3;++sample) {
+                QElapsedTimer timer; timer.start();
+                auto resized=ix::resample(source,options);
+                resizeTimes.append(timer.nsecsElapsed()/1e6);
+                timer.restart(); const auto display=ix::displayImage(resized,true,false);
+                displayTimes.append(timer.nsecsElapsed()/1e6);
+                ix::ImageView view; view.resize(1200,800); view.setImage(display);
+                QImage canvas(view.size(),QImage::Format_RGB32);
+                timer.restart(); view.viewport()->render(&canvas);
+                paintTimes.append(timer.nsecsElapsed()/1e6);
+                const auto current=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char *>(resized.constBits()),resized.sizeInBytes()),QCryptographicHash::Sha256).toHex();
+                if (!hash.isEmpty() && hash!=current) return {{QStringLiteral("error"),QStringLiteral("Resize output changed between runs")}};
+                hash=current;
+            }
+            cases.append(QJsonObject{{QStringLiteral("format"),int(format)}, {QStringLiteral("filter"),int(filter)},
+                {QStringLiteral("resize_ms"),resizeTimes}, {QStringLiteral("display_ms"),displayTimes},
+                {QStringLiteral("paint_ms"),paintTimes}, {QStringLiteral("sha256"),QString::fromLatin1(hash)}});
+        }
+    }
+    return {{QStringLiteral("cases"),cases},{QStringLiteral("source"),QStringLiteral("1920x1024")},
+        {QStringLiteral("target"),QStringLiteral("10000x5333")},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"),QStringLiteral("Three calls per format/filter; no decoding/encoding/IO; alpha varies in ARGB32; gamma and sharpening off; hashes exclude timing; same profiler for before/after.")}};
+}
 QJsonObject profileAutoCrop() {
     QJsonArray formats;
     for (auto format : {QImage::Format_RGB32,QImage::Format_RGBA64}) {
@@ -955,6 +1019,15 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--check-resize"))) {
+        const auto result=checkResize(); QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.value(QStringLiteral("different_pixels")).toDouble() == 0 ? 0 : 5;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-resize"))) {
+        const auto result=profileResize();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-grayscale"))) {
         const auto result = profileGrayscale();
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;

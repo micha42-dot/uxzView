@@ -1,12 +1,23 @@
 # Quality checks
 
+The [Settings interaction review](SETTINGS_COMFORT_REVIEW.md) records the current
+candidate: 608 Qt cases in nine suites and 46 Python checks pass in the build;
+the same Qt cases pass SDK-free in the portable runtime.
+Targeted native Settings/theme checks pass on Windows 11 at four scales.
+Counts include setup/cleanup and data rows rather than independent features.
+
+The [resize performance review](RESIZE_PERFORMANCE_REVIEW.md) records the previous
+candidate: 605 Qt cases in nine suites and 46 Python checks, all passing; the
+same Qt cases pass SDK-free in the portable runtime. Older counts below describe
+their respective baselines.
+
 The [external review cross-check](EXTERNAL_REVIEW_2026-10-31.md) evaluates all
 35 supplied assertions and records a generated 100 MiB decoded-image load,
 crop and pixel-Undo proof with an unchanged source hash. The full core and
 portable checks pass after removing obsolete batch backup promises; no new
 native cross-platform, HDR or peak-process-memory coverage is implied.
 
-The [large-image storage review](LARGE_IMAGE_REVIEW_2026-11-01.md) records the latest candidate: 596 Qt cases in nine suites and 46 Python tests, all passing in the development build; the same Qt cases pass SDK-free in the portable runtime. Native targeted checks pass at four scales. Older counts below describe their respective baselines.
+The [large-image storage review](LARGE_IMAGE_REVIEW_2026-11-01.md) records the storage candidate: 596 Qt cases in nine suites and 46 Python tests, all passing in the development build; the same Qt cases pass SDK-free in the portable runtime. Native targeted checks pass at four scales. Older counts below describe their respective baselines.
 
 The 0.5.0 resource baseline has eight Qt test suites. Its build and portable runtime
 each pass **551 Qt cases** on Windows 11: 200 functional, 154 workflow, 78 quality,

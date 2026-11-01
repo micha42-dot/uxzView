@@ -1,5 +1,12 @@
 # Performance in üxzView
 
+## Large resizes
+
+The [resize review](RESIZE_PERFORMANCE_REVIEW.md) records the reproduced
+1920×1024 → 10000×5333 delay, bounded parallel row processing, exact pixel
+comparisons and before/after component timings. The original filter stays
+selected; this changes calculation and reuse, not output resolution.
+
 ## Native 32-bit channel edits · 01.11.2026
 
 Negative, channel display and red/blue swapping use one native output buffer

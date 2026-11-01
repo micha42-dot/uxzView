@@ -21,6 +21,7 @@ class SettingsDialog : public QDialog {
 
   protected:
     void accept() override;
+    bool eventFilter(QObject *object, QEvent *event) override;
 
   private:
     QMap<QString, QCheckBox *> checks_;

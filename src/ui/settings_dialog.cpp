@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "settings_dialog.h"
+#include "option_controls.h"
 #include "dialog_layout.h"
 #include "crop_ratio_editor.h"
 #include "core/localization.h"
@@ -10,30 +11,24 @@
 #include "folder_traversal.h"
 #include <QtWidgets>
 #include <QtConcurrent>
-#include <QTextLayout>
 namespace ix {
-namespace {
-QString wrappedOption(const QString &text, const QFont &font, int width) {
-    QTextLayout layout(text, font);
-    QTextOption option; option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    layout.setTextOption(option);
-    QStringList lines;
-    layout.beginLayout();
-    for (;;) {
-        auto line=layout.createLine(); if (!line.isValid()) break;
-        line.setLineWidth(width);
-        lines.append(text.mid(line.textStart(),line.textLength()).trimmed());
-    }
-    layout.endLayout();
-    return lines.join(QLatin1Char('\n'));
-}
-}
 SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(parent) {
     storageHome_ = storageHome.isEmpty() ? AppStorage::applicationHome() : storageHome;
     setObjectName(QStringLiteral("settingsDialog"));
     setWindowTitle(IX_TEXT("Einstellungen"));
+    auto readableFont = font();
+    if (readableFont.pointSizeF() > 0 && readableFont.pointSizeF() < 10) {
+        readableFont.setPointSizeF(10);
+        setFont(readableFont);
+    }
+    setStyleSheet(QStringLiteral(
+        "QCheckBox::indicator { width: 18px; height: 18px; }"
+        "QSpinBox::up-button, QSpinBox::down-button, "
+        "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 22px; }"
+        "QComboBox::drop-down { width: 24px; }"
+        "QComboBox::down-arrow { width: 8px; height: 5px; }"));
     const auto available = screen()->availableGeometry().size();
-    resize(QSize(800, 480).boundedTo(available - QSize(32, 48)));
+    resize(QSize(800, 500).boundedTo(available - QSize(32, 48)));
     QSettings settings;
     auto *layout = dialogLayout(this);
     auto *body = new QHBoxLayout;
@@ -42,6 +37,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     categories_->setObjectName(QStringLiteral("settingsCategories"));
     categories_->setAccessibleName(IX_TEXT("Einstellungsbereiche"));
     categories_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    categories_->setFrameShape(QFrame::NoFrame);
     categories_->setSpacing(2);
     pages_ = new QStackedWidget;
     pages_->setObjectName(QStringLiteral("settingsPages"));
@@ -64,12 +60,14 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         scroll->setWidgetResizable(true);
         scroll->setWidget(widget);
         pages_->addWidget(scroll);
-        categories_->addItem(label);
+        auto *item = new QListWidgetItem(label);
+        item->setSizeHint({categories_->fontMetrics().horizontalAdvance(label) + 16,
+                           optionControlHeight(categories_->fontMetrics())});
+        categories_->addItem(item);
         return form;
     };
     auto check = [&](QFormLayout *form, const QString &key, const QString &label, bool fallback) {
-        auto *box = new QCheckBox;
-        box->setText(wrappedOption(label, box->font(), std::max(220, std::min(520, width()-210))));
+        auto *box = new OptionCheckBox(label);
         box->setAccessibleName(label);
         box->setObjectName(key);
         box->setChecked(settings.value(key, fallback).toBool());
@@ -87,6 +85,15 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         integers_.insert(key, box);
         form->addRow(label, box);
         return box;
+    };
+    auto dependentField = [](QCheckBox *toggle, QFormLayout *form, QWidget *field) {
+        auto *label = form->labelForField(field);
+        auto update = [field, label](bool enabled) {
+            field->setEnabled(enabled);
+            if (label) label->setEnabled(enabled);
+        };
+        update(toggle->isChecked());
+        QObject::connect(toggle, &QCheckBox::toggled, field, update);
     };
     auto *display = page(IX_TEXT("Anzeige"));
     fit_ = new QComboBox;
@@ -160,27 +167,16 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
           false);
     check(surface, QStringLiteral("window/rememberGeometry"), IX_TEXT("Fenstergröße und Position merken"),
           true);
-    auto *previewSection = new QWidget;
-    auto *previewLayout = new QVBoxLayout(previewSection);
-    previewLayout->setContentsMargins(0, spacing::section, 0, 0);
-    previewLayout->setSpacing(spacing::row);
-    auto *previewTitle = new QLabel(IX_TEXT("Vorschauen"));
-    auto previewFont = previewTitle->font();
-    previewFont.setBold(true);
-    previewTitle->setFont(previewFont);
-    previewLayout->addWidget(previewTitle);
-    auto *previews = dialogFormLayout();
-    previewLayout->addLayout(previews);
-    display->addRow(previewSection);
+    // Dedicated page keeps the display controls roomy without a nested frame.
+    auto *previews = page(IX_TEXT("Vorschauen"));
+    previews->parentWidget()->setObjectName(QStringLiteral("previewSettingsPage"));
     auto *enabled = check(previews, QStringLiteral("view/previewStrip"),
                           IX_TEXT("Nachbarbilder unter dem aktuellen Bild anzeigen"), false);
     auto *previous =
         number(previews, QStringLiteral("preview/previous"), IX_TEXT("Vorherige Bilder:"), 2, 1, 5);
     auto *next = number(previews, QStringLiteral("preview/next"), IX_TEXT("Kommende Bilder:"), 2, 1, 5);
-    connect(enabled, &QCheckBox::toggled, previous, &QWidget::setEnabled);
-    connect(enabled, &QCheckBox::toggled, next, &QWidget::setEnabled);
-    previous->setEnabled(enabled->isChecked());
-    next->setEnabled(enabled->isChecked());
+    dependentField(enabled, previews, previous);
+    dependentField(enabled, previews, next);
     previewBackground_ = new QComboBox;
     previewBackground_->setObjectName(QStringLiteral("preview/background"));
     previewBackground_->addItem(IX_TEXT("Wie Oberfläche"), QStringLiteral("theme"));
@@ -189,8 +185,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     previewBackground_->setCurrentIndex(std::max(0, previewBackground_->findData(
         settings.value(QStringLiteral("preview/background"), QStringLiteral("theme")))));
     previews->addRow(IX_TEXT("Hintergrund der Vorschaubilder:"), previewBackground_);
-    connect(enabled, &QCheckBox::toggled, previewBackground_, &QWidget::setEnabled);
-    previewBackground_->setEnabled(enabled->isChecked());
+    dependentField(enabled, previews, previewBackground_);
     auto *navigation = page(IX_TEXT("Navigation"));
     sort_ = new QComboBox;
     sort_->setObjectName(QStringLiteral("navigation/sort"));
@@ -291,9 +286,10 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     memory->setSuffix(QStringLiteral(" MiB"));
     memory->setSpecialValueText(IX_TEXT("Automatisch (%1 MiB)")
         .arg(calculateImageMemoryLimit(physicalMemoryBytes()) / MiB));
-    check(performance, QStringLiteral("performance/swapEnabled"), IX_TEXT("Große Bildpuffer auf Datenträger auslagern"), true);
+    auto *swapEnabled = check(performance, QStringLiteral("performance/swapEnabled"), IX_TEXT("Große Bildpuffer auf Datenträger auslagern"), true);
     auto *swap = number(performance, QStringLiteral("performance/swapLimitMiB"), IX_TEXT("Auslagerungsbudget:"), 65536, 0, 1048576);
     swap->setSuffix(QStringLiteral(" MiB"));
+    dependentField(swapEnabled, performance, swap);
     auto *imageCache = number(performance, QStringLiteral("performance/imageCacheMiB"),
                               IX_TEXT("Cache für geladene Bilder:"), 192, 0, 512);
     imageCache->setSuffix(QStringLiteral(" MiB"));
@@ -324,7 +320,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     cropRatios_ = new CropRatioEditor(settings.value(QStringLiteral("crop/customRatios")).toStringList());
     crop->addRow(IX_TEXT("Eigene Seitenverhältnisse:"), cropRatios_);
     auto *storage = page(IX_TEXT("Speicherorte"));
-    portable_ = new QCheckBox(IX_TEXT("Portabelmodus verwenden (nach Neustart)"));
+    portable_ = new OptionCheckBox(IX_TEXT("Portabelmodus verwenden (nach Neustart)"));
     portable_->setObjectName(QStringLiteral("storage/portable"));
     portable_->setChecked(AppStorage::portableRequested(storageHome_));
     storage->addRow(portable_);
@@ -347,13 +343,49 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         QDir().mkpath(AppStorage::dataRoot());
         QDesktopServices::openUrl(QUrl::fromLocalFile(AppStorage::dataRoot()));
     });
-    categories_->setFixedWidth(std::max(130, categories_->sizeHintForColumn(0) + 24));
+    const int controlHeight = optionControlHeight(fontMetrics());
+    for (auto *combo : findChildren<QComboBox *>()) {
+        combo->setFocusPolicy(Qt::StrongFocus);
+        combo->setMinimumHeight(controlHeight);
+        combo->setMinimumWidth(160);
+        combo->setMaximumWidth(340);
+        combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        combo->setItemDelegate(new OptionItemDelegate(combo));
+        combo->installEventFilter(this);
+    }
+    for (auto *spin : findChildren<QAbstractSpinBox *>()) {
+        spin->setFocusPolicy(Qt::StrongFocus);
+        spin->setMinimumHeight(controlHeight);
+        spin->setMinimumWidth(96);
+        spin->setMaximumWidth(200);
+        spin->setAccelerated(true);
+        spin->installEventFilter(this);
+    }
+    captureShortcut_->setMinimumHeight(controlHeight);
+    for (auto *edit : findChildren<QLineEdit *>())
+        edit->setMinimumHeight(edit->isReadOnly() ? controlHeight : controlHeight - 4);
+    for (auto *button : findChildren<QPushButton *>()) button->setMinimumHeight(controlHeight);
+    categories_->setFixedWidth(std::max(150, categories_->sizeHintForColumn(0) + 28));
     categories_->setCurrentRow(0);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     buttons->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));
+    for (auto *button : buttons->buttons()) {
+        button->setMinimumHeight(controlHeight);
+        button->setMinimumWidth(96);
+    }
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &SettingsDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+}
+bool SettingsDialog::eventFilter(QObject *object, QEvent *event) {
+    if (event->type() == QEvent::Wheel) {
+        auto *field = qobject_cast<QWidget *>(object);
+        if (field && !field->hasFocus()) {
+            event->ignore();
+            return true;
+        }
+    }
+    return QDialog::eventFilter(object, event);
 }
 void SettingsDialog::selectPage(const QString &objectName) {
     if (auto *page = findChild<QWidget *>(objectName))

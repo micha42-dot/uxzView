@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fullscreen_info.h"
+#include "option_controls.h"
 #include "dialog_layout.h"
 #include "core/localization.h"
 #include <QtWidgets>
@@ -89,7 +90,7 @@ FullscreenInfoEditor::FullscreenInfoEditor(QWidget *parent) : QWidget(parent) {
     const auto initial = fullscreenInfoOptions();
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    enabled_ = new QCheckBox(IX_TEXT("Informationen im Vollbild anzeigen"));
+    enabled_ = new OptionCheckBox(IX_TEXT("Informationen im Vollbild anzeigen"));
     enabled_->setObjectName(QStringLiteral("fullscreen/info/enabled"));
     enabled_->setChecked(initial.enabled);
     layout->addWidget(enabled_);
@@ -98,6 +99,8 @@ FullscreenInfoEditor::FullscreenInfoEditor(QWidget *parent) : QWidget(parent) {
     details->setLayout(form);
     corner_ = new QComboBox;
     corner_->setObjectName(QStringLiteral("fullscreen/info/corner"));
+    corner_->setMinimumHeight(optionControlHeight(corner_->fontMetrics()));
+    corner_->setItemDelegate(new OptionItemDelegate(corner_));
     corner_->addItem(IX_TEXT("Oben links"), int(Qt::TopLeftCorner));
     corner_->addItem(IX_TEXT("Oben rechts"), int(Qt::TopRightCorner));
     corner_->addItem(IX_TEXT("Unten links"), int(Qt::BottomLeftCorner));
@@ -109,11 +112,11 @@ FullscreenInfoEditor::FullscreenInfoEditor(QWidget *parent) : QWidget(parent) {
     grid->setContentsMargins(0, 0, 0, 0);
     int index = 0;
     for (const auto &[key, label] : fields()) {
-        auto *box = new QCheckBox(label);
+        auto *box = new OptionCheckBox(label);
         box->setObjectName(QStringLiteral("fullscreen/info/field/") + key);
         box->setChecked(initial.fields.contains(key));
         fields_.insert(key, box);
-        grid->addWidget(box, index / 2, index % 2);
+        grid->addWidget(box, index / 3, index % 3);
         ++index;
     }
     form->addRow(choices);

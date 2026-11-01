@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Make Settings controls easier to operate: larger click targets and popup rows,
+  readable labels that wrap with the available width, and a dedicated Previews
+  page. Keep dropdown arrows small, disable dependent labels with their fields,
+  and require focus before the mouse wheel changes numeric or dropdown values.
+- Accelerate large resizes with reusable normalized filter rows, exact byte
+  quantization and at most four participating threads per operation. Bound extra
+  workers across simultaneous resizes, and retain compact rows for wide images
+  or kernels that would overflow the normalized-row cache.
+- Keep legacy 8-/16-bit pixels, including colors under zero alpha, while counting
+  per-worker row buffers in the live RAM estimate. Separate resampling from
+  general pixel processing; add a reproducible 1920×1024 → 10000×5333 benchmark.
+
 ## 0.5.4
 
 - Add optional disk-backed original-pixel buffers with reserved storage, an

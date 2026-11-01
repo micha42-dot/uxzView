@@ -46,13 +46,18 @@ Resize, color and rotation dialogs place their content in a scroll area and keep
 OK/Cancel in a separate footer. Preserve object names, field ranges, model wiring
 and language-specific fonts. Explanations of gestures belong in tooltips.
 
-Settings starts at 800×480 logical pixels, bounded by available screen space.
-Keep its size stable when switching categories. Preview controls belong in a
-frameless Display section, rather than a mostly empty separate page. Numeric fields, short
-selectors and standalone colour buttons use content-sized widths; long options
-wrap while retaining their original accessible names. Scroll page bodies
-vertically on small screens instead of shrinking text or hiding confirmation
-buttons. See the [menu/settings review](MENU_SETTINGS_REVIEW_2026-10-29.md).
+Settings starts at 800×500 logical pixels, bounded by available screen space.
+Keep its size stable when switching categories. Preview controls have their own
+frameless page, leaving room for comfortable Display controls. Use at least 32
+logical pixels for control and popup-row height, growing with font metrics.
+Keep dropdown arrow glyphs small (8×5), independently of the clickable area.
+Numeric fields and standalone colour buttons use bounded widths; long checkbox
+labels wrap for the current width while retaining their original accessible
+names. Checkbox rows are clickable throughout. Require keyboard focus before
+wheel input changes a number or dropdown choice. Disable dependent form labels
+with their fields without clearing values. Scroll page bodies vertically on
+small screens instead of shrinking text or hiding confirmation buttons. See the
+[Settings interaction review](SETTINGS_COMFORT_REVIEW.md).
 
 ## Live language
 

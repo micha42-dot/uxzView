@@ -266,7 +266,7 @@ class UiQualityTests : public QObject {
         QVERIFY(dialog.width() <= 800); QVERIFY(dialog.height() <= 500);
         auto *categories=dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
         auto *pages=dialog.findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
-        QVERIFY(categories && pages); QCOMPARE(categories->count(),9);
+        QVERIFY(categories && pages); QCOMPARE(categories->count(),10);
         const auto size=dialog.size();
         for(int i=0;i<categories->count();++i) {
             categories->setCurrentRow(i); QCoreApplication::processEvents();
@@ -276,9 +276,74 @@ class UiQualityTests : public QObject {
             QCOMPARE(scroll->horizontalScrollBar()->maximum(),0);
             for(auto *number:scroll->findChildren<QSpinBox *>()) QVERIFY(number->width() <= 200);
             for(auto *number:scroll->findChildren<QDoubleSpinBox *>()) QVERIFY(number->width() <= 200);
-            if(i==0 || i==3) capture(&dialog,QStringLiteral("settings-compact-%1-%2-%3").arg(theme,language).arg(i));
+            if(i==0 || i==2 || i==4 || i==7) capture(&dialog,QStringLiteral("settings-compact-%1-%2-%3").arg(theme,language).arg(i));
         }
         auto *buttons=dialog.findChild<QDialogButtonBox *>(); QVERIFY(buttons && buttons->isVisible());
+    }
+    void settingsTargetsAndLabelsStayUsable() {
+        ix::SettingsDialog dialog;
+        dialog.show(); QTest::qWait(20);
+        for (auto *field : dialog.findChildren<QComboBox *>()) {
+            QVERIFY(field->height() >= 32);
+            QStyleOptionViewItem option; option.initFrom(field); option.fontMetrics=field->fontMetrics();
+            QVERIFY(field->itemDelegate()->sizeHint(option,field->model()->index(0,0)).height() >= 32);
+        }
+        for (auto *field : dialog.findChildren<QAbstractSpinBox *>()) {
+            QVERIFY(field->height() >= 32); QVERIFY(field->width() >= 96);
+        }
+        auto *box=dialog.findChild<QCheckBox *>(QStringLiteral("view/center")); QVERIFY(box);
+        const bool wasChecked=box->isChecked();
+        QTest::mouseClick(box,Qt::LeftButton,Qt::NoModifier,QPoint(box->width()-3,box->height()/2));
+        QCOMPARE(box->isChecked(),!wasChecked);
+        box->setFocus(); QTest::keyClick(box,Qt::Key_Space); QCOMPARE(box->isChecked(),wasChecked);
+        dialog.selectPage(QStringLiteral("navigation/askToSave"));
+        dialog.resize(620,460); QCoreApplication::processEvents();
+        auto *longOption=dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave")); QVERIFY(longOption);
+        QVERIFY(longOption->hasHeightForWidth());
+        QVERIFY(longOption->height() >= longOption->heightForWidth(longOption->width()));
+        QVERIFY(!longOption->text().contains(QLatin1Char('\n')));
+        dialog.reject();
+    }
+    void settingsWheelRequiresDeliberateFocus() {
+        ix::SettingsDialog dialog; dialog.show(); QTest::qWait(20);
+        dialog.selectPage(QStringLiteral("previewSettingsPage"));
+        auto *enabled=dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip")); enabled->setChecked(true);
+        auto *spin=dialog.findChild<QSpinBox *>(QStringLiteral("preview/previous")); spin->setValue(2);
+        auto *categories=dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories")); categories->setFocus();
+        auto wheel=[](QWidget *field) {
+            const auto point=field->rect().center();
+            QWheelEvent event(QPointF(point),QPointF(field->mapToGlobal(point)),{},QPoint(0,120),
+                              Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+            QApplication::sendEvent(field,&event);
+        };
+        wheel(spin); QCOMPARE(spin->value(),2);
+        spin->setFocus(); QCoreApplication::processEvents(); wheel(spin); QCOMPARE(spin->value(),3);
+        dialog.selectPage(QStringLiteral("view/fit"));
+        auto *combo=dialog.findChild<QComboBox *>(QStringLiteral("view/fit")); combo->setCurrentIndex(2);
+        categories->setFocus(); wheel(combo); QCOMPARE(combo->currentIndex(),2);
+        combo->setFocus(); QCoreApplication::processEvents(); wheel(combo); QCOMPARE(combo->currentIndex(),1);
+        dialog.reject();
+    }
+    void settingsPreviewDependenciesAndNewRatiosUseComfortableControls() {
+        ix::SettingsDialog dialog; dialog.show();
+        dialog.selectPage(QStringLiteral("previewSettingsPage"));
+        auto *toggle=dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip"));
+        auto *previous=dialog.findChild<QSpinBox *>(QStringLiteral("preview/previous"));
+        auto *form=qobject_cast<QFormLayout *>(previous->parentWidget()->layout());
+        // Form is nested in the page's vertical layout, not its direct layout.
+        if(!form) form=previous->parentWidget()->findChild<QFormLayout *>();
+        QVERIFY(form); auto *label=form->labelForField(previous); QVERIFY(label);
+        toggle->setChecked(false); QVERIFY(!previous->isEnabled()); QVERIFY(!label->isEnabled());
+        toggle->setChecked(true); QVERIFY(previous->isEnabled()); QVERIFY(label->isEnabled());
+        dialog.selectPage(QStringLiteral("cropSettingsPage"));
+        auto *table=dialog.findChild<QTableWidget *>(QStringLiteral("crop/customRatios"));
+        auto *add=dialog.findChild<QPushButton *>(QStringLiteral("addCropRatio")); QVERIFY(table && add);
+        const int before=table->rowCount(); QTest::mouseClick(add,Qt::LeftButton);
+        QCOMPARE(table->rowCount(),before+1);
+        auto *field=qobject_cast<QSpinBox *>(table->cellWidget(before,0)); QVERIFY(field);
+        QVERIFY(field->height()>=32); QVERIFY(field->width()>=96);
+        QVERIFY(table->rowHeight(before)>field->height());
+        dialog.reject();
     }
     void paletteTextReadability_data() {
         QTest::addColumn<QString>("theme");

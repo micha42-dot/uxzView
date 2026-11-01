@@ -750,7 +750,7 @@ class IxTests : public QObject {
             dialog.show();
             auto *tabs = dialog.findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
             auto *categories = dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
-            QCOMPARE(tabs->count(), 9);
+            QCOMPARE(tabs->count(), 10);
             dialog.findChild<QComboBox *>(QStringLiteral("preview/background"))->setCurrentIndex(1);
             dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip"))->setChecked(true);
             dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"))->setChecked(true);
@@ -925,7 +925,7 @@ class IxTests : public QObject {
         auto *path = dialog.findChild<QLineEdit *>(QStringLiteral("storage/dataRoot"));
         QVERIFY(path && path->isReadOnly());
         QCOMPARE(QDir::fromNativeSeparators(path->text()), ix::AppStorage::dataRoot());
-        QCOMPARE(categories->count(), 9);
+        QCOMPARE(categories->count(), 10);
         QVERIFY(dialog.findChildren<QTabWidget *>().isEmpty());
         QTest::qWait(30);
         QCOMPARE(categories->horizontalScrollBar()->maximum(), 0);
@@ -939,7 +939,7 @@ class IxTests : public QObject {
         categories->setCurrentRow(0);
         categories->setFocus();
         QTest::keyClick(categories, Qt::Key_End);
-        QCOMPARE(pages->currentIndex(), 8);
+        QCOMPARE(pages->currentIndex(), 9);
         dialog.selectPage(QStringLiteral("cropSettingsPage"));
         QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("cropSettingsPage"))->isVisible());
         QVERIFY(dialog.grab().save(QStringLiteral(IX_TEST_OUTPUT "/settings-sidebar.png")));
