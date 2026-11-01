@@ -2,6 +2,7 @@
 #pragma once
 #include <QImage>
 #include <QJsonObject>
+#include <QPair>
 #include <QStringList>
 #include <atomic>
 #include <functional>
@@ -27,6 +28,7 @@ class ImageCatalog {
     QString setAnnotation(const QString &path, int rating, const QString &color);
     QString setAnnotations(const QStringList &paths, int rating, const QString &color);
     QString relocate(const QString &from, const QString &to);
+    QString relocate(const QList<QPair<QString, QString>> &moves);
     QStringList search(const QStringList &files, const QString &text, int minimumRating = 0,
                        const QString &color = {}) const;
     QString index(const QStringList &files, const std::atomic_bool &cancel,

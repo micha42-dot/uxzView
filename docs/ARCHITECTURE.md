@@ -382,8 +382,15 @@ Classic batch uses the transient `BatchFileChanges` summary. Two hash maps track
 original file identity and current path, so reusing a freed path does not join
 unrelated files into a rename chain. Each applied entry updates this summary in
 constant expected time. MainWindow follows the original's final path once;
-FileOperations alone relocates catalog annotations. Files without an annotation
-do not trigger a catalog rewrite. The summary lives through the dialog and its
+FileOperations relocates direct-move annotations immediately. Classic rename
+batches use a worker-owned `CatalogBatch`: a recursive process-local operation
+lock spans physical moves and one ordered catalog flush, including cancellation.
+The catalog is read under its own lock at flush time, retaining latest unrelated
+annotations. A temporary ordered tree avoids quadratic sorted-JSON edits; output
+is written once. An explicit commit reports errors, with best-effort destructor
+flush on exceptional exits. This is not a crash-safe transaction spanning image
+files and catalog; a crash before flush can leave annotations at old paths.
+Files without an annotation do not trigger a catalog rewrite. The summary lives through the dialog and its
 immediate owner reconciliation; no mapping is persisted to disk or another run.
 Initial-source and final-target revisions prove when only the path changed;
 that case updates document/history source metadata without redecoding or clearing

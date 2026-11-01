@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QLockFile>
 #include <QMutex>
+#include <QMap>
 #include <QSaveFile>
 #include <algorithm>
 #include <bit>
@@ -101,6 +102,34 @@ QString ImageCatalog::relocate(const QString &from, const QString &to) {
     if (value.isUndefined()) return {};
     object.insert(key(to), value);
     return write(object);
+}
+QString ImageCatalog::relocate(const QList<QPair<QString, QString>> &moves) {
+    if (moves.isEmpty()) return {};
+    if (moves.size() == 1) return relocate(moves.first().first, moves.first().second);
+    QMutexLocker guard(&catalogMutex);
+    if (!QFileInfo::exists(file_)) return {};
+    QLockFile lock(file_ + QStringLiteral(".lock"));
+    if (!lock.tryLock(5000)) return QStringLiteral("Bildkatalog ist belegt.");
+    const auto storageError = jsonStorageError(file_, false, 256 * 1024 * 1024);
+    if (!storageError.isEmpty()) return storageError;
+    const auto snapshot = read();
+    if (std::none_of(moves.cbegin(), moves.cend(), [&](const auto &move) {
+        return snapshot.contains(key(move.first));
+    })) return {};
+    // Apply the ordered operations in a tree, not repeated sorted-JSON-array
+    // inserts/removals. Reused names must not merge unrelated file identities.
+    QMap<QString, QJsonValue> records;
+    for (auto it = snapshot.constBegin(); it != snapshot.constEnd(); ++it) records.insert(it.key(), it.value());
+    for (const auto &move : moves) {
+        const auto from = records.find(key(move.first));
+        if (from == records.end()) continue;
+        auto value = from.value();
+        records.erase(from);
+        records.insert(key(move.second), std::move(value));
+    }
+    QJsonObject updated;
+    for (auto it = records.cbegin(); it != records.cend(); ++it) updated.insert(it.key(), it.value());
+    return write(updated);
 }
 QStringList ImageCatalog::search(const QStringList &files, const QString &text, int minimum,
                                  const QString &color) const {

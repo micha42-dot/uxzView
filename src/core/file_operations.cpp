@@ -9,11 +9,28 @@
 #include <QMutex>
 namespace ix {
 namespace {
-QMutex operationMutex;
+QRecursiveMutex operationMutex;
 bool occupied(const QString &path) {
     const QFileInfo info(path);
     return info.exists() || info.isSymLink();
 }
+}
+struct FileOperations::CatalogBatch::State {
+    QMutexLocker<QRecursiveMutex> guard{&operationMutex};
+    ImageCatalog catalog;
+    QList<QPair<QString, QString>> moves;
+};
+FileOperations::CatalogBatch::CatalogBatch() : state_(std::make_unique<State>()) {}
+FileOperations::CatalogBatch::~CatalogBatch() {
+    try {
+        const auto error = commit();
+        if (!error.isEmpty()) qWarning("Catalog batch teardown: %s", qPrintable(error));
+    } catch (...) { qWarning("Catalog batch teardown failed."); }
+}
+QString FileOperations::CatalogBatch::commit() {
+    auto moves = std::move(state_->moves);
+    state_->moves = {};
+    return state_->catalog.relocate(moves);
 }
 QString sha256File(const QString &path, const std::atomic_bool *cancel) {
     QFile file(path);
@@ -30,8 +47,8 @@ QString sha256File(const QString &path, const std::atomic_bool *cancel) {
     }
     return QString::fromLatin1(hash.result().toHex());
 }
-FileOperations::FileOperations(TrashMover trashMover, BeforeChange beforeChange)
-    : trashMover_(std::move(trashMover)), beforeChange_(std::move(beforeChange)) {
+FileOperations::FileOperations(TrashMover trashMover, BeforeChange beforeChange, CatalogBatch *catalogBatch)
+    : trashMover_(std::move(trashMover)), beforeChange_(std::move(beforeChange)), catalogBatch_(catalogBatch) {
     if (!trashMover_) {
         trashMover_ = [](const QString &path, QString *destination) {
             QFile file(path);
@@ -83,7 +100,11 @@ FileOperations::OperationResult FileOperations::perform(const QString &kind, con
     if (!applied)
         return {IX_TEXT("Dateioperation fehlgeschlagen.")};
     const auto targetRevision = imageFileKey(to);
-    const auto warning = kind == QStringLiteral("move") ? ImageCatalog().relocate(from, to) : QString();
+    QString warning;
+    if (kind == QStringLiteral("move")) {
+        if (catalogBatch_) catalogBatch_->state_->moves.append({from, to});
+        else warning = ImageCatalog().relocate(from, to);
+    }
     return {warning, true, sourceRevision, targetRevision};
 }
 } // namespace ix

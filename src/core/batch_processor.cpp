@@ -64,7 +64,9 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
                                       const std::function<void(int, int)> &progress) {
     std::optional<CodecRegistry> registry;
     if (!o.renameOnly) registry.emplace();
-    FileOperations operations;
+    std::optional<FileOperations::CatalogBatch> catalogBatch;
+    if (o.renameOnly) catalogBatch.emplace();
+    FileOperations operations({}, {}, catalogBatch ? &*catalogBatch : nullptr);
     QList<BatchEntry> results;
     QSet<QString> reserved;
     QDir dir(o.outputDirectory);
@@ -126,6 +128,11 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
         results.append(e);
         if (progress)
             progress(i + 1, o.inputs.size());
+    }
+    if (catalogBatch) {
+        const auto warning = catalogBatch->commit();
+        if (!warning.isEmpty()) for (auto &entry : results)
+            if (entry.moved && entry.error.isEmpty()) entry.error = warning;
     }
     return results;
 }

@@ -115,6 +115,78 @@ class FileOperationTests : public QObject {
         QCOMPARE(get(source), QByteArray("replaced during confirmation"));
         QVERIFY(!QFileInfo::exists(target));
     }
+    void classicBatchRelocatesCatalogOnce() {
+        QTemporaryDir folder;
+        const auto prior = qApp->property("ixStorageData");
+        const auto restore = qScopeGuard([&] { qApp->setProperty("ixStorageData", prior); });
+        qApp->setProperty("ixStorageData", folder.filePath(QStringLiteral("data")));
+        ix::BatchOptions options; options.renameOnly = true;
+        options.outputDirectory = folder.path(); options.namePattern = QStringLiteral("renamed-##");
+        for (int i=0;i<4;++i) {
+            const auto path=folder.filePath(QStringLiteral("source%1.bin").arg(i));
+            QVERIFY(put(path,QByteArray::number(i))); options.inputs.append(path);
+        }
+        ix::ImageCatalog catalog;
+        QVERIFY(catalog.setAnnotations(options.inputs,3,QStringLiteral("green")).isEmpty());
+        const auto catalogPath=folder.filePath(QStringLiteral("data/catalog.json"));
+        const auto original=get(catalogPath);
+        std::atomic_bool cancel=false; int reports=0;
+        const auto results=ix::BatchProcessor::run(options,cancel,[&](int,int) {
+            ++reports; QCOMPARE(get(catalogPath),original);
+        });
+        QCOMPARE(reports,4); QCOMPARE(results.size(),4);
+        for (const auto &result:results) {
+            QVERIFY(result.moved); QVERIFY2(result.error.isEmpty(),qPrintable(result.error));
+            QVERIFY(catalog.record(result.input).isEmpty());
+            QCOMPARE(catalog.record(result.output).value(QStringLiteral("rating")).toInt(),3);
+        }
+    }
+    void catalogBatchPreservesReusedNamesAndConcurrentAnnotations() {
+        QTemporaryDir folder;
+        const auto prior = qApp->property("ixStorageData");
+        const auto restore = qScopeGuard([&] { qApp->setProperty("ixStorageData", prior); });
+        qApp->setProperty("ixStorageData", folder.filePath(QStringLiteral("data")));
+        const auto a=folder.filePath(QStringLiteral("a")), b=folder.filePath(QStringLiteral("b"));
+        const auto c=folder.filePath(QStringLiteral("c")), d=folder.filePath(QStringLiteral("d"));
+        const auto unrelated=folder.filePath(QStringLiteral("unrelated"));
+        QVERIFY(put(a,"first")); QVERIFY(put(c,"second"));
+        ix::ImageCatalog catalog;
+        QVERIFY(catalog.setAnnotation(a,3,QStringLiteral("green")).isEmpty());
+        QVERIFY(catalog.setAnnotation(c,5,QStringLiteral("red")).isEmpty());
+        ix::FileOperations::CatalogBatch batch;
+        ix::FileOperations operations({}, {}, &batch);
+        for (const auto &move : QList<QPair<QString,QString>>{{a,b},{c,a},{a,d},{b,a}})
+            QVERIFY(operations.perform(QStringLiteral("move"),move.first,move.second).applied);
+        const auto annotationError = catalog.setAnnotation(unrelated,4,QStringLiteral("blue"));
+        QVERIFY2(annotationError.isEmpty(),qPrintable(annotationError));
+        QVERIFY(batch.commit().isEmpty());
+        QCOMPARE(catalog.record(a).value(QStringLiteral("rating")).toInt(),3);
+        QCOMPARE(catalog.record(d).value(QStringLiteral("rating")).toInt(),5);
+        QCOMPARE(catalog.record(unrelated).value(QStringLiteral("rating")).toInt(),4);
+        QVERIFY(catalog.record(b).isEmpty()); QVERIFY(catalog.record(c).isEmpty());
+    }
+    void cancelledClassicBatchFlushesAppliedRelocations() {
+        QTemporaryDir folder;
+        const auto prior=qApp->property("ixStorageData");
+        const auto restore=qScopeGuard([&] { qApp->setProperty("ixStorageData",prior); });
+        qApp->setProperty("ixStorageData",folder.filePath(QStringLiteral("data")));
+        ix::BatchOptions options; options.renameOnly=true;
+        options.outputDirectory=folder.path(); options.namePattern=QStringLiteral("renamed-##");
+        for (int i=0;i<4;++i) {
+            const auto path=folder.filePath(QStringLiteral("source%1.bin").arg(i));
+            QVERIFY(put(path,"data")); options.inputs.append(path);
+        }
+        ix::ImageCatalog catalog;
+        QVERIFY(catalog.setAnnotations(options.inputs,2,QString()).isEmpty());
+        std::atomic_bool cancel=false;
+        const auto results=ix::BatchProcessor::run(options,cancel,[&](int done,int) { if (done==2) cancel=true; });
+        QCOMPARE(results.size(),2);
+        for (const auto &entry:results) {
+            QVERIFY(entry.moved); QVERIFY(catalog.record(entry.input).isEmpty());
+            QCOMPARE(catalog.record(entry.output).value(QStringLiteral("rating")).toInt(),2);
+        }
+        QCOMPARE(catalog.record(options.inputs[2]).value(QStringLiteral("rating")).toInt(),2);
+    }
     void batchResultsKeepIdentityAcrossRunsAndReusedNames() {
         QTemporaryDir folder;
         const auto prior = qApp->property("ixStorageData");

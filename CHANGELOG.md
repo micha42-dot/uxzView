@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Apply classic batch rename annotations in one ordered, atomic catalog update,
+  including completed moves on cancellation. Serialize process-local file work
+  through that flush; retain latest unrelated annotations and revision snapshots.
 - Bound pixel/filter image working sets to 512 MiB before allocation, release
   convolution/histogram inputs before output conversion, and reject invalid
   filter geometry without overflowing kernel-size arithmetic.
