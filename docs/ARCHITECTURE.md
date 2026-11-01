@@ -118,6 +118,13 @@ and compares the complete export-loss report before/after Undo.
 
 Batch runs check source revisions before/after reading and before atomic commit. An optional configured codec registry is copied into workers; custom readers must support the chosen parallelism. The synchronous run joins workers before returning, so the supplied registry is never retained afterward.
 
+BatchPipeline progress callbacks execute on workers and can arrive concurrently
+or out of count order. They must be thread-safe/nonthrowing and must not wait
+for GUI processing. PipelineDialog publishes through its atomic progress mailbox
+and queues guarded, generation-checked values. Returning from run joins callbacks
+but does not drain queued GUI deliveries; QObject receiver lifetime still owns
+those events. A regression exercises that distinction with four real exports.
+
 `core/batch_plan.cpp` owns read-only destination planning separately from image
 transformation and execution in `batch_pipeline.cpp`. `plan(job, cancel)` returns
 a complete review or an empty list on cancellation; a partial plan must never be

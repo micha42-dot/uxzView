@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Document concurrent worker progress callbacks and verify queued GUI delivery;
+  retain the pipeline dialog's guarded, coalesced progress mailbox.
 - Publish POSIX moves without replacing an occupied destination, including
   cross-volume staging; avoid Qt 6.8's unsafe raw-rename fallback on unsupported
   filesystems. Fail safely if no no-replace primitive is available.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
+#include "core/batch_pipeline.h"
 #include "core/file_operations.h"
 #include "core/preview_service.h"
 #include "convolution_reference.h"
@@ -83,6 +84,34 @@ class QualityTests : public QObject {
             QVERIFY_EXCEPTION_THROWN(ix::convolve(source, {}, side), std::runtime_error);
         QVERIFY_EXCEPTION_THROWN(ix::convolve(source, {1}, 1, 0), std::runtime_error);
         QCOMPARE(source.pixelColor(0, 0), QColor(Qt::red));
+    }
+    void batchProgressQueuesGuiDelivery() {
+        const auto root=temporary_.filePath(QStringLiteral("thread-progress"));
+        QVERIFY(QDir().mkpath(root+QStringLiteral("/in")));
+        QVERIFY(QDir().mkpath(root+QStringLiteral("/out")));
+        ix::PipelineJob job; job.outputDirectory=root+QStringLiteral("/out");
+        job.namePattern=QStringLiteral("{name}-out"); job.parallelism=4; job.allowLoss=true;
+        job.profile.steps={{QStringLiteral("export"),{{QStringLiteral("format"),QStringLiteral("png")}}}};
+        QImage image(4,3,QImage::Format_RGB32); image.fill(Qt::green);
+        for (int i=0;i<4;++i) {
+            const auto path=root+QStringLiteral("/in/%1.png").arg(i);
+            QVERIFY(image.save(path)); job.inputs.append(path);
+        }
+        const auto plan=ix::BatchPipeline::plan(job); QCOMPARE(plan.size(),4);
+        std::atomic_bool cancel=false, callbackOnGui=false, valid=true;
+        std::atomic_int callbacks=0;
+        QObject receiver; int delivered=0;
+        const auto *guiThread=QThread::currentThread();
+        const auto results=ix::BatchPipeline::run(job,plan,cancel,[&](int done,int total) {
+            ++callbacks;
+            if (QThread::currentThread()==guiThread) callbackOnGui=true;
+            if (done<1 || done>4 || total!=4) valid=false;
+            QMetaObject::invokeMethod(&receiver,[&] { ++delivered; },Qt::QueuedConnection);
+        });
+        QCOMPARE(callbacks.load(),4); QVERIFY(!callbackOnGui.load()); QVERIFY(valid.load());
+        QCOMPARE(delivered,0);
+        for (const auto &result:results) QVERIFY2(result.error.isEmpty(),qPrintable(result.error));
+        QTRY_COMPARE(delivered,4);
     }
     void convolutionRetainsReferencePixels_data() {
         QTest::addColumn<int>("format");

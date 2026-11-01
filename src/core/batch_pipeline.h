@@ -51,6 +51,9 @@ class BatchPipeline {
                                    const QList<PipelineFile> &reviewedPlan = {});
     // Optional configured codecs are copied into workers; run joins all workers
     // before returning. Custom readers must support the requested parallelism.
+    // Progress runs on workers, possibly concurrently/out of order. It must be
+    // thread-safe, nonthrowing and must not wait for GUI work. Queue UI updates
+    // with a guarded receiver lifetime. run joins callbacks, not queued delivery.
     static QList<PipelineFile> run(const PipelineJob &job, const QList<PipelineFile> &plan,
                                    const std::atomic_bool &cancel,
                                    const std::function<void(int, int)> &progress = {},
