@@ -155,7 +155,7 @@ void PreviewService::startNext() {
         auto *watcher = new QFutureWatcher<QImage>(this);
         auto token = cancelled_;
         connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, path, generation, token] {
-            auto result = watcher->result();
+            auto result = watcher->future().takeResult();
             watcher->deleteLater();
             --running_;
             const QPointer<PreviewService> alive(this);

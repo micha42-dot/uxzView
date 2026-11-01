@@ -966,7 +966,8 @@ void MainWindow::refreshFiles(bool force) {
     indexedReverse_ = reverse;
     if (!directoryWatcher_.directories().isEmpty())
         directoryWatcher_.removePaths(directoryWatcher_.directories());
-    directoryWatcher_.addPath(directory);
+    if (!directoryWatcher_.addPath(directory))
+        qWarning() << "Cannot monitor image directory; use Refresh to rescan:" << directory;
     indexReady_ = false;
     const bool latest = !watchedFolder_.isEmpty();
     directoryIndex_->request({directory, {}, sorting, reverse, latest, true});
@@ -2073,8 +2074,11 @@ void MainWindow::dispatch(const QString &cmd) {
             hotfolder_.removePath(watchedFolder_);
             watchedFolder_.clear();
         } else {
-            watchedFolder_ = QFileInfo(document_.path).absolutePath();
-            hotfolder_.addPath(watchedFolder_);
+            const auto directory = QFileInfo(document_.path).absolutePath();
+            if (hotfolder_.addPath(directory))
+                watchedFolder_ = directory;
+            else
+                showError(IX_TEXT("Ordner konnte nicht überwacht werden: %1").arg(directory));
         }
         actions_[cmd]->setChecked(!watchedFolder_.isEmpty());
         return;

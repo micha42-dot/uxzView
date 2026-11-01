@@ -3,6 +3,7 @@
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "main_window.h"
+#include "worker_wait.h"
 #include <QScopeGuard>
 #include <QtConcurrent>
 #include <QtWidgets>
@@ -113,7 +114,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         return result;
     }));
     progress.exec();
-    const auto result = watcher.result();
+    waitForGuiWorker(watcher);
+    const auto result = watcher.future().takeResult();
     if (!result.error.isEmpty()) {
         showError(result.error);
         return false;
@@ -184,6 +186,7 @@ void MainWindow::fileOperation(const QString &op) {
                 return FileOperations().perform(QStringLiteral("delete"), source, {}, revision);
             }));
         progress.exec();
+        waitForGuiWorker(watcher);
         const auto result = watcher.future().takeResult();
         if (result.applied) {
             ImageLoadCache::invalidate({source});
@@ -239,6 +242,7 @@ void MainWindow::fileOperation(const QString &op) {
         return result;
     }));
     progress.exec();
+    waitForGuiWorker(watcher);
     const auto result = watcher.future().takeResult();
     if (!result.operation.applied) {
         if (!result.operation.error.isEmpty()) showError(result.operation.error);

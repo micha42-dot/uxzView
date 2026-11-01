@@ -54,6 +54,36 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void hotfolderRegistrationFailureRetainsImage() {
+        const auto path = photo(QStringLiteral("missing-watch/photo.png"), Qt::red);
+        QVERIFY(!path.isEmpty());
+        ix::MainWindow window;
+        auto *service = window.findChild<ix::DirectoryIndexService *>();
+        QVERIFY(service);
+        QSignalSpy ready(service, &ix::DirectoryIndexService::ready);
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        const auto pixels = window.document().pixels;
+        QVERIFY(QFile::remove(path));
+        QVERIFY(QDir().rmdir(QFileInfo(path).absolutePath()));
+        bool reported = false;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            if (auto *message = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                reported |= message->text().contains(QFileInfo(path).absolutePath());
+                message->reject();
+            }
+        });
+        timer.start(10);
+        window.dispatch(QStringLiteral("hotfolder"));
+        timer.stop();
+        auto *action = window.findChild<QAction *>(QStringLiteral("hotfolder"));
+        QVERIFY(action);
+        QVERIFY(reported);
+        QVERIFY(!action->isChecked());
+        QCOMPARE(window.document().pixels, pixels);
+        QCOMPARE(window.document().path, path);
+    }
     void imageOpenDialogIsPreparedBeforeShowing_data() {
         QTest::addColumn<bool>("accept");
         QTest::newRow("cancel") << false;

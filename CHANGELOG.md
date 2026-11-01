@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Guard late OS file-open callbacks with the window lifetime; consume completed
+  preview/save results and keep GUI paints alive during required file-worker joins.
+  Report failed folder watches instead of showing hotfolder mode as active.
 - Reject EXIF resolution values outside the finite unsigned-rational range
   before conversion; adapt the denominator for valid high-DPI values rather
   than overflowing a fixed milli-DPI numerator.

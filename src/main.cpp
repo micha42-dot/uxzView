@@ -19,6 +19,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLibrary>
+#include <QPointer>
 #include <QSettings>
 #include <QMessageBox>
 #include <QStyleFactory>
@@ -154,7 +155,9 @@ int main(int argc, char **argv) {
     ix::applyInterfaceLanguage(language);
     ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
     ix::MainWindow window;
-    app.fileOpened = [&window](const QString &path) { window.openPath(path); };
+    app.fileOpened = [window = QPointer<ix::MainWindow>(&window)](const QString &path) {
+        if (window) window->openPath(path);
+    };
     window.show();
     if (!parser.positionalArguments().isEmpty())
         window.openPath(parser.positionalArguments().first());

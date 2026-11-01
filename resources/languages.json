@@ -1,4 +1,5 @@
 [
+["Ordner konnte nicht überwacht werden: %1", "Could not monitor folder: %1", "폴더를 모니터링할 수 없습니다: %1", "フォルダーを監視できません: %1", "Impossible de surveiller le dossier : %1"],
 ["Auflösung ist für EXIF zu groß.", "Resolution exceeds the EXIF range.", "해상도가 EXIF 범위를 초과합니다.", "解像度がEXIFの範囲を超えています。", "La résolution dépasse la plage EXIF."],
 ["Bildbearbeitung überschreitet das Speicherlimit von 512 MiB.", "Image processing exceeds the 512 MiB memory limit.", "이미지 처리에 필요한 메모리가 512 MiB 제한을 초과합니다.", "画像処理に必要なメモリが512 MiBの上限を超えます。", "Le traitement de l’image dépasse la limite mémoire de 512 Mio."],
 ["&Datei", "&File", "파일(&F)", "ファイル(&F)", "&Fichier"],
