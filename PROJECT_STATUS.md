@@ -18,6 +18,13 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Unreleased: Pixelverdopplung mit wiederverwendeten Ausgabezeilen, exakte
+  SSE2-Byteausgabe, lazy Gamma-Tabelle und begrenzte Kacheln für breite Bilder.
+  Echte proportionale Läufe bis 100000 × 53333 Pixel; benachbarte Zeilenblöcke
+  reduzieren dort die Auslagerungslast. 663 Qt-Fälle und 46 Python-Tests bestehen;
+  die Qt-Fälle auch im SDK-freien portablen Paket. Native Resize-/Anzeigeprüfungen
+  bestehen bei vier Skalierungen. [Messwerte und Speichergrenzen](docs/RESIZE_SCALE_REVIEW.md).
+
 - Unreleased: Einstellungen mit größeren Klickflächen, kleiner Dropdown-Pfeilgrafik,
   eigener Vorschauseite und dynamisch umbrechenden Beschriftungen. Unfokussierte
   Zahlen-/Auswahlfelder ändern sich nicht beim Scrollen. 608 Qt-Fälle und

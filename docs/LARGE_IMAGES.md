@@ -25,6 +25,13 @@ the previous two-pass implementation. The destination uses its final native
 buffers, weights and cache. 16-bit output uses the same bounded row pipeline with RGBA64 destination pixels.
 Sharpening still requires separate RAM working buffers. Pixel doubling keeps its native nearest-neighbor path.
 
+Wide resizes use bounded column tiles when full-width normalized rows would
+reduce parallelism. Up to four workers advance through adjacent row blocks to
+keep mapped-output writes localized. Pixel doubling reuses identical output
+rows and copies native pixels without smoothing. See the
+[resize scaling review](RESIZE_SCALE_REVIEW.md) for measured proportional
+50,000 × 26,667 and 100,000 × 53,333 runs, precision checks and observed memory.
+
 The resize dialog shows a live maximum at the selected aspect ratio and disables
 OK above the accepted operation budget. The estimate includes filter work,
 sharpening and input depth; errors report dimensions and the active MiB budget.

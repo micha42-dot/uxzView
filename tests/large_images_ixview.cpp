@@ -119,6 +119,25 @@ private slots:
         QVERIFY(ix::imageIsFileBacked(image)); QCOMPARE(image,expected);
         QCOMPARE(ix::mappedImageBytes(),image.sizeInBytes()+65536);
     }
+    void wideMappedResizeMatchesLegacy_data() {
+        QTest::addColumn<int>("filter");
+        for (int filter : {1,5,6}) QTest::newRow(qPrintable(QString::number(filter))) << filter;
+    }
+    void wideMappedResizeMatchesLegacy() {
+        QFETCH(int,filter);
+        ix::configureImageStorage({true,64*ix::MiB,temp_.path(),1});
+        const auto source=fixture(QImage::Format_RGBA64);
+        ix::ResizeOptions options; options.size={100000,65}; options.filter=ix::ResampleFilter(filter);
+        const auto expected=ix::test::referenceResample(source,options);
+        QString backing;
+        {
+            const auto image=ix::resample(source,options);
+            QVERIFY(ix::imageIsFileBacked(image)); QCOMPARE(image,expected);
+            backing=ix::imageBackingFile(image);
+            QCOMPARE(ix::mappedImageBytes(),image.sizeInBytes()+65536);
+        }
+        QCOMPARE(ix::mappedImageBytes(),0); QVERIFY(!QFileInfo::exists(backing));
+    }
     void mappedDecodeAndAtomicExport_data() {
         QTest::addColumn<QByteArray>("format");
         QTest::newRow("png")<<QByteArray("png"); QTest::newRow("jpeg")<<QByteArray("jpeg");

@@ -7,6 +7,13 @@ The [resize review](RESIZE_PERFORMANCE_REVIEW.md) records the reproduced
 comparisons and before/after component timings. The original filter stays
 selected; this changes calculation and reuse, not output resolution.
 
+The [scaling follow-up](RESIZE_SCALE_REVIEW.md) covers all seven methods, exact
+x86 byte output, lazy gamma input lookup and bounded column/row jobs. It records
+real proportional 50,000- and 100,000-pixel runs, including mapped memory and
+the substantial difference between operation workspace and total working set.
+Nearest improves much more than the filtered 10,000-pixel cases; the report
+retains the unchanged controls and cases without a clear speed improvement.
+
 ## Native 32-bit channel edits · 01.11.2026
 
 Negative, channel display and red/blue swapping use one native output buffer

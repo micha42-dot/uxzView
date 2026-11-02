@@ -66,17 +66,44 @@ class QualityTests : public QObject {
         QCOMPARE(source.cacheKey(),key);
     }
     void parallelResampleMatchesLegacy_data() {
-        QTest::addColumn<int>("format"); QTest::addColumn<bool>("linear");
+        QTest::addColumn<int>("format"); QTest::addColumn<bool>("linear"); QTest::addColumn<int>("filter");
         for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_RGBA64})
-            for (bool linear : {false,true})
-                QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(int(format)).arg(linear))) << int(format) << linear;
+            for (bool linear : {false,true}) for (int filter=0;filter<6;++filter)
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(int(format)).arg(linear).arg(filter)))
+                    << int(format) << linear << filter;
     }
     void parallelResampleMatchesLegacy() {
-        QFETCH(int,format); QFETCH(bool,linear);
+        QFETCH(int,format); QFETCH(bool,linear); QFETCH(int,filter);
         auto source=ix::test::filterPattern({41,29},QImage::Format(format));
         source.setColorSpace(QColorSpace::DisplayP3);
-        ix::ResizeOptions options; options.size={2048,1536}; options.linearLight=linear;
+        ix::ResizeOptions options; options.size={2048,1024}; options.linearLight=linear;
+        options.filter=ix::ResampleFilter(filter);
         QCOMPARE(ix::resample(source,options),ix::test::referenceResample(source,options));
+    }
+    void nearestReusesRowsWithoutChangingPixels_data() {
+        QTest::addColumn<int>("format");
+        for (auto format : {QImage::Format_Mono,QImage::Format_MonoLSB,QImage::Format_Indexed8,
+             QImage::Format_Grayscale8,QImage::Format_Grayscale16,QImage::Format_RGB16,
+             QImage::Format_RGB888,QImage::Format_RGB32,QImage::Format_ARGB32,
+             QImage::Format_ARGB32_Premultiplied,QImage::Format_RGBA64,QImage::Format_RGBA32FPx4})
+            QTest::newRow(qPrintable(QString::number(int(format)))) << int(format);
+    }
+    void nearestReusesRowsWithoutChangingPixels() {
+        QFETCH(int,format);
+        auto source=ix::test::filterPattern({17,9},QImage::Format(format)); QVERIFY(!source.isNull());
+        source.setColorSpace(QColorSpace::DisplayP3); source.setDevicePixelRatio(1.5);
+        source.setOffset({7,-3}); source.setText(QStringLiteral("Comment"),QStringLiteral("nearest raw pixels"));
+        const auto key=source.cacheKey(); const auto original=source.copy();
+        for (const auto size : {QSize(73,67),QSize(7,3),QSize(17,9),QSize(1,31)}) {
+            ix::ResizeOptions options; options.size=size; options.filter=ix::ResampleFilter::Nearest;
+            const auto actual=ix::resample(source,options), expected=ix::test::referenceResample(source,options);
+            QCOMPARE(actual,expected); QCOMPARE(actual.format(),source.format());
+            QCOMPARE(actual.colorTable(),source.colorTable()); QCOMPARE(actual.colorSpace(),source.colorSpace());
+            QCOMPARE(actual.text(),source.text()); QCOMPARE(actual.offset(),expected.offset());
+            QCOMPARE(actual.devicePixelRatio(),expected.devicePixelRatio());
+            QCOMPARE(actual.dotsPerMeterX(),expected.dotsPerMeterX());
+        }
+        QCOMPARE(source,original); QCOMPARE(source.cacheKey(),key);
     }
     void simultaneousResizesDoNotShareWritableRows() {
         const auto source=ix::test::filterPattern({19,13},QImage::Format_ARGB32);
@@ -86,6 +113,51 @@ class QualityTests : public QObject {
         auto second=QtConcurrent::run([source,options] { return ix::resample(source,options); });
         QCOMPARE(first.result(),expected); QCOMPARE(second.result(),expected);
         std::atomic_bool cancelled{true}; QVERIFY(ix::resample(source,options,&cancelled).isNull());
+    }
+    void hundredThousandPixelRowsMatchLegacy_data() {
+        QTest::addColumn<int>("filter");
+        for (int filter=0;filter<=6;++filter)
+            QTest::newRow(qPrintable(QString::number(filter))) << filter;
+    }
+    void hundredThousandPixelRowsMatchLegacy() {
+        QFETCH(int,filter);
+        const auto source=ix::test::filterPattern({41,29},QImage::Format_ARGB32);
+        ix::ResizeOptions options; options.size={100000,65}; options.filter=ix::ResampleFilter(filter);
+        QCOMPARE(ix::resample(source,options),ix::test::referenceResample(source,options));
+    }
+    void tiledResizeRetainsPixelsAcrossColumnAndRowBlocks() {
+        const auto source=ix::test::filterPattern({41,29},QImage::Format_ARGB32);
+        ix::ResizeOptions options; options.size={50000,1031};
+        const QVector<QPoint> points{{0,0},{8191,255},{8192,256},{16383,257},{16384,258},
+            {24575,511},{24576,512},{32768,768},{49151,1024},{49152,1025},{49999,1030}};
+        const auto expected=ix::test::referenceResamplePoints(source,options,points);
+        const auto actual=ix::resample(source,options);
+        for (int i=0;i<points.size();++i) QCOMPARE(actual.pixel(points[i]),expected[i]);
+        const auto bytes=ix::estimatedResizeBytes(source.size(),source.format(),options,source.sizeInBytes());
+        QVERIFY(bytes>actual.sizeInBytes()); QVERIFY(bytes<actual.sizeInBytes()+96*ix::MiB);
+    }
+    void linearResizeCoversEverySixteenBitInputValue() {
+        QImage source(65536,1,QImage::Format_RGBA64);
+        auto *row=reinterpret_cast<QRgba64 *>(source.bits());
+        for (int i=0;i<65536;++i) row[i]=QRgba64::fromRgba64(i,65535-i,(i*251)%65536,(i*13)%65536);
+        ix::ResizeOptions options; options.size=source.size(); options.linearLight=true;
+        options.filter=ix::ResampleFilter::Triangle;
+        QCOMPARE(ix::resample(source,options),ix::test::referenceResample(source,options));
+    }
+    void resizeByteTiesAndOpaqueAlphaMatchLegacy() {
+        for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32}) {
+            QImage source(512,3,format);
+            for (int y=0;y<source.height();++y) {
+                auto *row=reinterpret_cast<QRgb *>(source.scanLine(y));
+                for (int x=0;x<source.width();++x)
+                    row[x]=qRgba((x/2+x%2)%256,(255-x/2+x%2)%256,(x%2 ? 128 : 127),
+                        format==QImage::Format_RGB32 ? 0 : (x/2)%2 ? 255 : 128);
+            }
+            for (auto filter : {ix::ResampleFilter::Triangle,ix::ResampleFilter::Lanczos}) {
+                ix::ResizeOptions options; options.size={768,9}; options.filter=filter;
+                QCOMPARE(ix::resample(source,options),ix::test::referenceResample(source,options));
+            }
+        }
     }
     void reportedLargeResizeRetainsTransparentPixelColors() {
         QImage source(1920,1024,QImage::Format_ARGB32);

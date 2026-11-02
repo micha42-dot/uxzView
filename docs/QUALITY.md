@@ -1,6 +1,13 @@
 # Quality checks
 
-The [Settings interaction review](SETTINGS_COMFORT_REVIEW.md) records the current
+The [resize scaling review](RESIZE_SCALE_REVIEW.md) records the current candidate:
+663 Qt cases across nine suites and all 46 Python tests pass in the build.
+The same Qt cases pass SDK-free in the portable runtime, with native Windows 11
+resize/display checks at four scales.
+It adds real proportional 50,000-/100,000-pixel probes, full bounded-output
+comparisons, observed mapped-memory costs and unchanged baseline controls.
+
+The [Settings interaction review](SETTINGS_COMFORT_REVIEW.md) records the preceding
 candidate: 608 Qt cases in nine suites and 46 Python checks pass in the build;
 the same Qt cases pass SDK-free in the portable runtime.
 Targeted native Settings/theme checks pass on Windows 11 at four scales.

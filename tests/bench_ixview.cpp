@@ -27,6 +27,7 @@
 #include <QDirListing>
 #include <QImageReader>
 #include <QLibrary>
+#include <QStorageInfo>
 #include <QJsonDocument>
 #include <QtTest>
 #include <QtWidgets>
@@ -35,13 +36,17 @@
 #include <qt_windows.h>
 #endif
 namespace {
-QImage resizeProfileSource(QImage::Format format) {
-    QImage source(1920,1024,format);
+QImage resizeProfileSource(QImage::Format format, QSize size = {1920,1024}) {
+    QImage source(size,format);
     for (int y=0;y<source.height();++y) {
         auto *row=reinterpret_cast<QRgb *>(source.scanLine(y));
-        for (int x=0;x<source.width();++x)
-            row[x]=qRgba((x*17+y*3)%256,(x*7+y*23)%256,(x*31+y*11)%256,
+        for (int x=0;x<source.width();++x) {
+            if (format==QImage::Format_RGBA64)
+                reinterpret_cast<QRgba64 *>(row)[x]=QRgba64::fromRgba64(
+                    (x*317+y*503)%65536,(x*107+y*223)%65536,(x*631+y*911)%65536,(x*913+y*419)%65536);
+            else row[x]=qRgba((x*17+y*3)%256,(x*7+y*23)%256,(x*31+y*11)%256,
                 format==QImage::Format_RGB32 ? 255 : (x*13+y*19)%256);
+        }
     }
     source.setColorSpace(QColorSpace::SRgb);
     return source;
@@ -64,16 +69,37 @@ QJsonObject checkResize() {
     }
     return {{QStringLiteral("different_pixels"),double(differences)},{QStringLiteral("max_channel_error"),error},{QStringLiteral("examples"),examples}};
 }
-QJsonObject profileResize() {
+QJsonObject profileResize(bool matrix = false, bool wide = false) {
     ix::initializeImageMemoryLimit();
     ix::configureImageStorage({false});
     QJsonArray cases;
+    struct Scenario { QSize source, target; bool linear; QImage::Format format; };
+    QVector<Scenario> scenarios;
     for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32}) {
-        const auto source=resizeProfileSource(format);
-        for (auto filter : {ix::ResampleFilter::Lanczos,ix::ResampleFilter::Triangle,ix::ResampleFilter::Nearest}) {
+        if (wide) {
+            scenarios.append({{1920,1024},{50000,257},false,format});
+            scenarios.append({{1920,1024},{100000,129},false,format});
+            continue;
+        }
+        scenarios.append({{1920,1024},{10000,5333},false,format});
+        if (matrix) {
+            scenarios.append({{1920,1024},{640,341},false,format});
+            scenarios.append({{640,341},{2048,1092},true,format});
+        }
+    }
+    if (matrix) scenarios.append({{640,341},{2048,1092},true,QImage::Format_RGBA64});
+    const auto filters = matrix ? QVector<ix::ResampleFilter>{ix::ResampleFilter::Hermite,
+        ix::ResampleFilter::Triangle,ix::ResampleFilter::Bell,ix::ResampleFilter::BSpline,
+        ix::ResampleFilter::Mitchell,ix::ResampleFilter::Lanczos,ix::ResampleFilter::Nearest}
+        : QVector<ix::ResampleFilter>{ix::ResampleFilter::Lanczos,ix::ResampleFilter::Triangle,ix::ResampleFilter::Nearest};
+    for (const auto &scenario : scenarios) {
+        const auto source=resizeProfileSource(scenario.format,scenario.source);
+        for (auto filter : filters) {
             QJsonArray resizeTimes,displayTimes,paintTimes;
             QByteArray hash;
-            ix::ResizeOptions options; options.size={10000,5333}; options.filter=filter;
+            ix::ResizeOptions options; options.size=scenario.target; options.filter=filter;
+            options.linearLight=scenario.linear;
+            if (matrix && options.size.width()<source.width()) options.fastDownscale=false;
             for (int sample=0;sample<3;++sample) {
                 QElapsedTimer timer; timer.start();
                 auto resized=ix::resample(source,options);
@@ -88,14 +114,57 @@ QJsonObject profileResize() {
                 if (!hash.isEmpty() && hash!=current) return {{QStringLiteral("error"),QStringLiteral("Resize output changed between runs")}};
                 hash=current;
             }
-            cases.append(QJsonObject{{QStringLiteral("format"),int(format)}, {QStringLiteral("filter"),int(filter)},
+            cases.append(QJsonObject{{QStringLiteral("format"),int(scenario.format)}, {QStringLiteral("filter"),int(filter)},
+                {QStringLiteral("source_width"),source.width()},{QStringLiteral("source_height"),source.height()},
+                {QStringLiteral("target_width"),options.size.width()},{QStringLiteral("target_height"),options.size.height()},
+                {QStringLiteral("linear_light"),options.linearLight},
+                {QStringLiteral("fast_downscale"),options.fastDownscale},
                 {QStringLiteral("resize_ms"),resizeTimes}, {QStringLiteral("display_ms"),displayTimes},
                 {QStringLiteral("paint_ms"),paintTimes}, {QStringLiteral("sha256"),QString::fromLatin1(hash)}});
+            qInfo().noquote() << "Resize profile:" << source.size() << "->" << options.size
+                             << "format" << int(scenario.format) << "filter" << int(filter) << "linear" << options.linearLight;
         }
     }
-    return {{QStringLiteral("cases"),cases},{QStringLiteral("source"),QStringLiteral("1920x1024")},
-        {QStringLiteral("target"),QStringLiteral("10000x5333")},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
-        {QStringLiteral("note"),QStringLiteral("Three calls per format/filter; no decoding/encoding/IO; alpha varies in ARGB32; gamma and sharpening off; hashes exclude timing; same profiler for before/after.")}};
+    return {{QStringLiteral("cases"),cases},{QStringLiteral("source"),(matrix || wide) ? QStringLiteral("per case") : QStringLiteral("1920x1024")},
+        {QStringLiteral("target"),(matrix || wide) ? QStringLiteral("per case") : QStringLiteral("10000x5333")},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"),QStringLiteral("Three calls per scenario/filter; no decoding/encoding/IO; alpha varies in ARGB32/RGBA64; sharpening off; hashes exclude timing; scenario fields specify dimensions and gamma. Same profiler for before/after.")}};
+}
+QJsonObject probeLargeResize(int axis, int filter) {
+    if ((axis!=50000 && axis!=100000) || filter<0 || filter>6)
+        return {{QStringLiteral("error"),QStringLiteral("Use axis 50000/100000 and filter 0..6")}};
+    ix::initializeImageMemoryLimit(512);
+    QTemporaryDir temporary(QDir::current().filePath(QStringLiteral("build/large-resize-probe-XXXXXX")));
+    if (!temporary.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary directory failed")}};
+    ix::configureImageStorage({true,65536*ix::MiB,temporary.path(),1});
+    const auto source=resizeProfileSource(QImage::Format_ARGB32);
+    ix::ResizeOptions options; options.size={axis,int(std::lround(double(axis)*source.height()/source.width()))};
+    options.filter=ix::ResampleFilter(filter);
+    const auto pixelBytes=ix::imageBufferBytes(options.size,source.format());
+    if (QStorageInfo(temporary.path()).bytesAvailable()<2*pixelBytes)
+        return {{QStringLiteral("error"),QStringLiteral("Insufficient free disk space for bounded large probe")}};
+    QVector<QPoint> points{{0,0},{axis-1,options.size.height()-1},{axis/2,options.size.height()/2}};
+    for (int x : {8191,8192,16383,16384,32767,32768,49151,49152,axis-1})
+        for (int y : {255,256,257,options.size.height()/4,options.size.height()/2,options.size.height()-1})
+            points.append({x,y});
+    QVector<QRgb> expected;
+    if (filter!=6) expected=ix::test::referenceResamplePoints(source,options,points);
+    else for (auto point:points) expected.append(source.pixel(
+        int((qint64(2*point.x()+1)*source.width())/(2*axis)),
+        int((qint64(2*point.y()+1)*source.height())/(2*options.size.height()))));
+    QElapsedTimer timer; timer.start();
+    auto image=ix::resample(source,options);
+    const double elapsed=timer.nsecsElapsed()/1e6;
+    for (qsizetype i=0;i<points.size();++i) if(image.pixel(points[i])!=expected[i])
+        return {{QStringLiteral("error"),QStringLiteral("Large resize pixel mismatch")}};
+    const auto backing=ix::imageBackingFile(image);
+    const bool mapped=ix::imageIsFileBacked(image);
+    const auto bytes=image.sizeInBytes(); image={};
+    if (!mapped || QFileInfo::exists(backing) || ix::mappedImageBytes()!=0)
+        return {{QStringLiteral("error"),QStringLiteral("Mapped output was not released")}};
+    return {{QStringLiteral("width"),options.size.width()},{QStringLiteral("height"),options.size.height()},
+        {QStringLiteral("filter"),filter},{QStringLiteral("resize_ms"),elapsed},
+        {QStringLiteral("pixel_bytes"),double(bytes)},{QStringLiteral("mapped"),mapped},
+        {QStringLiteral("reference_points"),points.size()},{QStringLiteral("mapped_bytes_after_release"),0}};
 }
 QJsonObject profileAutoCrop() {
     QJsonArray formats;
@@ -1023,8 +1092,17 @@ int main(int argc, char **argv) {
         const auto result=checkResize(); QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
         output.write(QJsonDocument(result).toJson()); return result.value(QStringLiteral("different_pixels")).toDouble() == 0 ? 0 : 5;
     }
-    if (app.arguments().contains(QStringLiteral("--profile-resize"))) {
-        const auto result=profileResize();
+    for (const auto &argument:app.arguments()) if (argument.startsWith(QStringLiteral("--probe-resize-axis="))) {
+        int filter=5;
+        for (const auto &value:app.arguments()) if(value.startsWith(QStringLiteral("--resize-filter="))) filter=value.sliced(16).toInt();
+        QJsonObject result;
+        try { result=probeLargeResize(argument.sliced(20).toInt(),filter); }
+        catch (const std::exception &error) { result={{QStringLiteral("error"),QString::fromUtf8(error.what())}}; }
+        QFile output(app.arguments().value(1)); if(!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-resize")) || app.arguments().contains(QStringLiteral("--profile-resize-matrix")) || app.arguments().contains(QStringLiteral("--profile-resize-wide"))) {
+        const auto result=profileResize(app.arguments().contains(QStringLiteral("--profile-resize-matrix")),app.arguments().contains(QStringLiteral("--profile-resize-wide")));
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
         output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
     }

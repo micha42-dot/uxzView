@@ -531,10 +531,18 @@ streamed write cannot be recorded as having rewritten EXIF/IPTC/XMP.
 
 `core/resampling.cpp` owns filter kernels, row caching, resize limits and
 resampling; `processing.h` retains the public API. The normalized-row path
-premultiplies/converts each source row once and preserves the RGBA64 horizontal
-rounding boundary before caching double samples. Vertical support reuses those
+premultiplies/converts a source row for each horizontal cache entry and preserves
+the RGBA64 horizontal rounding boundary before caching double samples. Vertical support reuses those
 samples. Byte quantization retains the two-stage thresholds, tie cases and the
 legacy long-overflow behavior for near-zero-alpha ringing.
+
+The x86 8-bit output path uses baseline SSE2 to clamp, quantize and pack a pixel.
+Near byte ties or the legacy long-overflow boundary it calls the scalar
+quantizer. Other architectures retain that scalar path. No AVX requirement or
+fast-math flag is introduced. Gamma input normalization lazily evaluates all
+65,536 possible RGBA64 input values using the original transfer function, then
+shares the read-only 512 KiB table. Its size is included in gamma resize estimates;
+neither viewer startup nor ordinary non-gamma resizes allocate it.
 
 Large outputs may use four disjoint row bands. A process-local atomic pool caps
 additional resize threads across concurrent caller jobs; the calling worker
@@ -546,7 +554,16 @@ rows and never call mutable QImage accessors concurrently.
 
 The row-cache cap is divided across actual workers. Planning includes the
 maximum worker-local source, accumulation and active-row storage. If normalized
-rows cannot retain overlapping support in the bounded cache, the existing
+full-width rows would reduce useful parallelism, workers use column tiles of at
+most 8192 pixels in blocks of 256 output rows. Weights still use global output
+coordinates, and changing the column tile clears the source-row-keyed cache.
+Wide jobs take neighboring row blocks from a shared atomic cursor rather than
+writing several far-apart multi-GB bands simultaneously. Short outputs use
+smaller blocks to retain parallelism. The full-width path executes its band once.
+The planned tile width remains fixed if fewer thread slots are available, so
+worker-local allocations cannot grow beyond the estimate. Full-width rows remain
+the fast path when their support fits. If even tiled rows cannot retain
+overlapping support in the bounded cache, the existing
 compact RGBA64-row path remains available. File-backed destinations use the same
 worker lifetime contract. No nested global QThreadPool waits, new runtime
 libraries, startup workers or GUI controls are introduced.
