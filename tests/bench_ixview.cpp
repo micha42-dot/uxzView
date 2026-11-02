@@ -69,7 +69,7 @@ QJsonObject checkResize() {
     }
     return {{QStringLiteral("different_pixels"),double(differences)},{QStringLiteral("max_channel_error"),error},{QStringLiteral("examples"),examples}};
 }
-QJsonObject profileResize(bool matrix = false, bool wide = false) {
+QJsonObject profileResize(bool matrix = false, bool wide = false, int selectedCase = -1) {
     ix::initializeImageMemoryLimit();
     ix::configureImageStorage({false});
     QJsonArray cases;
@@ -92,9 +92,11 @@ QJsonObject profileResize(bool matrix = false, bool wide = false) {
         ix::ResampleFilter::Triangle,ix::ResampleFilter::Bell,ix::ResampleFilter::BSpline,
         ix::ResampleFilter::Mitchell,ix::ResampleFilter::Lanczos,ix::ResampleFilter::Nearest}
         : QVector<ix::ResampleFilter>{ix::ResampleFilter::Lanczos,ix::ResampleFilter::Triangle,ix::ResampleFilter::Nearest};
+    int caseIndex = -1;
     for (const auto &scenario : scenarios) {
         const auto source=resizeProfileSource(scenario.format,scenario.source);
         for (auto filter : filters) {
+            if (++caseIndex != selectedCase && selectedCase >= 0) continue;
             QJsonArray resizeTimes,displayTimes,paintTimes;
             QByteArray hash;
             ix::ResizeOptions options; options.size=scenario.target; options.filter=filter;
@@ -110,11 +112,12 @@ QJsonObject profileResize(bool matrix = false, bool wide = false) {
                 QImage canvas(view.size(),QImage::Format_RGB32);
                 timer.restart(); view.viewport()->render(&canvas);
                 paintTimes.append(timer.nsecsElapsed()/1e6);
+                if (selectedCase >= 0 && sample < 2) continue;
                 const auto current=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char *>(resized.constBits()),resized.sizeInBytes()),QCryptographicHash::Sha256).toHex();
                 if (!hash.isEmpty() && hash!=current) return {{QStringLiteral("error"),QStringLiteral("Resize output changed between runs")}};
                 hash=current;
             }
-            cases.append(QJsonObject{{QStringLiteral("format"),int(scenario.format)}, {QStringLiteral("filter"),int(filter)},
+            cases.append(QJsonObject{{QStringLiteral("case_index"),caseIndex},{QStringLiteral("format"),int(scenario.format)}, {QStringLiteral("filter"),int(filter)},
                 {QStringLiteral("source_width"),source.width()},{QStringLiteral("source_height"),source.height()},
                 {QStringLiteral("target_width"),options.size.width()},{QStringLiteral("target_height"),options.size.height()},
                 {QStringLiteral("linear_light"),options.linearLight},
@@ -125,9 +128,11 @@ QJsonObject profileResize(bool matrix = false, bool wide = false) {
                              << "format" << int(scenario.format) << "filter" << int(filter) << "linear" << options.linearLight;
         }
     }
+    if (cases.isEmpty()) return {{QStringLiteral("error"),QStringLiteral("Resize case index is out of range")}};
     return {{QStringLiteral("cases"),cases},{QStringLiteral("source"),(matrix || wide) ? QStringLiteral("per case") : QStringLiteral("1920x1024")},
         {QStringLiteral("target"),(matrix || wide) ? QStringLiteral("per case") : QStringLiteral("10000x5333")},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
-        {QStringLiteral("note"),QStringLiteral("Three calls per scenario/filter; no decoding/encoding/IO; alpha varies in ARGB32/RGBA64; sharpening off; hashes exclude timing; scenario fields specify dimensions and gamma. Same profiler for before/after.")}};
+        {QStringLiteral("hash_samples"),selectedCase < 0 ? 3 : 1},
+        {QStringLiteral("note"),QStringLiteral("Three calls per scenario/filter; focused cases hash only the last output, full matrices compare all three; no decoding/encoding/IO; alpha varies in ARGB32/RGBA64; sharpening off; hashes exclude timing; scenario fields specify dimensions and gamma. Same profiler for before/after.")}};
 }
 QJsonObject probeLargeResize(int axis, int filter) {
     if ((axis!=50000 && axis!=100000) || filter<0 || filter>6)
@@ -1102,7 +1107,13 @@ int main(int argc, char **argv) {
         output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
     }
     if (app.arguments().contains(QStringLiteral("--profile-resize")) || app.arguments().contains(QStringLiteral("--profile-resize-matrix")) || app.arguments().contains(QStringLiteral("--profile-resize-wide"))) {
-        const auto result=profileResize(app.arguments().contains(QStringLiteral("--profile-resize-matrix")),app.arguments().contains(QStringLiteral("--profile-resize-wide")));
+        int selectedCase = -1;
+        for (const auto &value : app.arguments()) if (value.startsWith(QStringLiteral("--resize-case="))) {
+            bool valid = false;
+            selectedCase = value.sliced(14).toInt(&valid);
+            if (!valid || selectedCase < 0) return 4;
+        }
+        const auto result=profileResize(app.arguments().contains(QStringLiteral("--profile-resize-matrix")),app.arguments().contains(QStringLiteral("--profile-resize-wide")),selectedCase);
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
         output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
     }

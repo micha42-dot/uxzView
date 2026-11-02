@@ -1,5 +1,6 @@
 #include "core/image_storage.h"
 #include "core/image_document.h"
+#include "core/resize_transfer.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/codec_registry.h"
 #include "core/batch_pipeline.h"
@@ -30,6 +31,41 @@ class QualityTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_{QStringLiteral(IX_QUALITY_OUTPUT "/run-quality-XXXXXX")};
   private slots:
+    void gammaByteTransferMatchesLegacyAtBoundariesAndAcrossRange() {
+        const ix::detail::ResizeByteTransfer transfer;
+        const auto reference = [](double value) {
+            value = std::clamp(value, 0.0, 1.0);
+            const double srgb = value <= .0031308 ? value * 12.92 : 1.055 * std::pow(value, 1 / 2.4) - .055;
+            const auto word = quint16(std::clamp(std::lround(srgb * 65535), 0L, 65535L));
+            return QRgba64::fromRgba64(word, 0, 0, 0).red8();
+        };
+        for (int i = 0; i < 255; ++i) {
+            const double srgb = (i + .5) / 255;
+            const double boundary = srgb <= .04045 ? srgb / 12.92 : std::pow((srgb + .055) / 1.055, 2.4);
+            for (double offset : {-1e-8, -1e-10, -1e-12, -1e-16, 0., 1e-16, 1e-12, 1e-10, 1e-8})
+                QCOMPARE(transfer.convert(boundary + offset), reference(boundary + offset));
+            double below = boundary, above = boundary;
+            for (int step = 0; step < 16; ++step) {
+                below = std::nextafter(below, 0.);
+                above = std::nextafter(above, 1.);
+                QCOMPARE(transfer.convert(below), reference(below));
+                QCOMPARE(transfer.convert(above), reference(above));
+            }
+        }
+        for (int i = 0; i <= 65535; ++i)
+            QCOMPARE(transfer.convert(i / 65535.), reference(i / 65535.));
+        quint64 state = 37;
+        for (int i = 0; i < 100000; ++i) {
+            state = state * 6364136223846793005ULL + 1;
+            const double value = double(state >> 11) / 9007199254740992.;
+            QCOMPARE(transfer.convert(value), reference(value));
+        }
+        for (double value : {-1., 0., .0031308, 1., 2.})
+            QCOMPARE(transfer.convert(value), reference(value));
+        QCOMPARE(transfer.convert(std::numeric_limits<double>::quiet_NaN()), quint8(0));
+        QCOMPARE(transfer.convert(std::numeric_limits<double>::infinity()), quint8(255));
+        QCOMPARE(transfer.convert(-std::numeric_limits<double>::infinity()), quint8(0));
+    }
     void memoryPolicyCalculatesAutoAndOverrides() {
         QCOMPARE(ix::calculateImageMemoryLimit(16ULL*1024*ix::MiB), 8192*ix::MiB);
         QCOMPARE(ix::calculateImageMemoryLimit(4ULL*1024*ix::MiB), 2048*ix::MiB);
@@ -94,7 +130,7 @@ class QualityTests : public QObject {
         source.setColorSpace(QColorSpace::DisplayP3); source.setDevicePixelRatio(1.5);
         source.setOffset({7,-3}); source.setText(QStringLiteral("Comment"),QStringLiteral("nearest raw pixels"));
         const auto key=source.cacheKey(); const auto original=source.copy();
-        for (const auto size : {QSize(73,67),QSize(7,3),QSize(17,9),QSize(1,31)}) {
+        for (const auto size : {QSize(73,67),QSize(7,3),QSize(17,9),QSize(1,31),QSize(4097,2050)}) {
             ix::ResizeOptions options; options.size=size; options.filter=ix::ResampleFilter::Nearest;
             const auto actual=ix::resample(source,options), expected=ix::test::referenceResample(source,options);
             QCOMPARE(actual,expected); QCOMPARE(actual.format(),source.format());
@@ -108,11 +144,17 @@ class QualityTests : public QObject {
     void simultaneousResizesDoNotShareWritableRows() {
         const auto source=ix::test::filterPattern({19,13},QImage::Format_ARGB32);
         ix::ResizeOptions options; options.size={2048,1536};
-        const auto expected=ix::test::referenceResample(source,options);
-        auto first=QtConcurrent::run([source,options] { return ix::resample(source,options); });
-        auto second=QtConcurrent::run([source,options] { return ix::resample(source,options); });
-        QCOMPARE(first.result(),expected); QCOMPARE(second.result(),expected);
-        std::atomic_bool cancelled{true}; QVERIFY(ix::resample(source,options,&cancelled).isNull());
+        for (auto filter : {ix::ResampleFilter::Lanczos,ix::ResampleFilter::Nearest}) {
+            options.filter=filter;
+            const auto expected=ix::test::referenceResample(source,options);
+            auto first=QtConcurrent::run([source,options] { return ix::resample(source,options); });
+            auto second=QtConcurrent::run([source,options] { return ix::resample(source,options); });
+            QCOMPARE(first.result(),expected); QCOMPARE(second.result(),expected);
+            std::atomic_bool cancelled{true};
+            if (filter==ix::ResampleFilter::Nearest) {
+                QVERIFY_EXCEPTION_THROWN(ix::resample(source,options,&cancelled),std::runtime_error);
+            } else QVERIFY(ix::resample(source,options,&cancelled).isNull());
+        }
     }
     void hundredThousandPixelRowsMatchLegacy_data() {
         QTest::addColumn<int>("filter");

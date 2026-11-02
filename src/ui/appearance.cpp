@@ -3,6 +3,8 @@
 #include "platform_support.h"
 #include <QApplication>
 #include <QEvent>
+#include <QIcon>
+#include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
 #include <QStyleFactory>
@@ -98,7 +100,7 @@ class Appearance final : public QObject {
     }
   private:
     QString mode_;
-    bool initialized_ = false, fallbackDark_ = false, dark_ = false;
+    bool initialized_ = false, fallbackDark_ = false, dark_ = false, iconInitialized_ = false;
     void synchronizeFrame(QWidget *window) {
         if (!window || !window->isWindow() || !window->internalWinId() ||
             window->windowFlags().testFlag(Qt::FramelessWindowHint) ||
@@ -135,8 +137,21 @@ class Appearance final : public QObject {
     }
     void update() {
         const auto scheme = QGuiApplication::styleHints()->colorScheme();
-        dark_ = mode_ == QStringLiteral("dark") || (mode_ == QStringLiteral("system") &&
+        const bool dark = mode_ == QStringLiteral("dark") || (mode_ == QStringLiteral("system") &&
             (scheme == Qt::ColorScheme::Dark || (scheme == Qt::ColorScheme::Unknown && fallbackDark_)));
+        const bool iconChanged = !iconInitialized_ || dark != dark_;
+        dark_ = dark;
+        if (iconChanged) {
+            // Cache only when first needed; never reload branding while paging images.
+            static const QIcon light(QStringLiteral(":/ixview-light.svg"));
+            static const QIcon darkIcon(QStringLiteral(":/ixview-dark.svg"));
+            QGuiApplication::setWindowIcon(dark_ ? darkIcon : light);
+            iconInitialized_ = true;
+            for (auto *window : QApplication::topLevelWidgets())
+                if (auto *about = qobject_cast<QMessageBox *>(window);
+                    about && about->property("ixBrandLogo").toBool())
+                    about->setIconPixmap(QGuiApplication::windowIcon().pixmap(QSize(64,64), about->devicePixelRatioF()));
+        }
         const auto palette = colors(dark_);
         if (QApplication::palette() != palette)
             QApplication::setPalette(palette);

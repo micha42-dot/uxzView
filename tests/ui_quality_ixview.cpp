@@ -67,6 +67,66 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void brandIconsFollowThemeWithoutReplacingTheDocument() {
+        const auto restore = qScopeGuard([] {
+            ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+        });
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("ui/theme"));
+        const auto restoreSetting = qScopeGuard([&] {
+            if (previous.isValid()) settings.setValue(QStringLiteral("ui/theme"), previous);
+            else settings.remove(QStringLiteral("ui/theme"));
+        });
+        settings.setValue(QStringLiteral("ui/theme"), QStringLiteral("light"));
+        ix::MainWindow window;
+        window.show();
+        const auto path = temporary_.filePath(QStringLiteral("brand-image.png"));
+        QImage image(80,60,QImage::Format_RGB32); image.fill(Qt::green); QVERIFY(image.save(path));
+        window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        const auto source = window.document().pixels.cacheKey();
+        QDialog existing(&window); existing.show();
+        for (const auto &mode : {QStringLiteral("light"), QStringLiteral("dark"), QStringLiteral("light")}) {
+            ix::applyInterfaceTheme(mode);
+            QCoreApplication::processEvents();
+            const auto icon = QGuiApplication::windowIcon();
+            const auto expected = QIcon(QStringLiteral(":/ixview-%1.svg").arg(mode)).pixmap(250,250).toImage();
+            QVERIFY(!expected.isNull()); QVERIFY(expected.hasAlphaChannel());
+            QCOMPARE(expected.pixelColor(0,0).alpha(),0);
+            QCOMPARE(icon.pixmap(250,250).toImage(),expected);
+            QCOMPARE(window.windowIcon().pixmap(250,250).toImage(),expected);
+            QCOMPARE(existing.windowIcon().pixmap(250,250).toImage(),expected);
+            QCOMPARE(window.document().pixels.cacheKey(),source);
+            const auto cached = icon.cacheKey();
+            ix::applyInterfaceTheme(mode);
+            QCOMPARE(QGuiApplication::windowIcon().cacheKey(),cached);
+            capture(&window,QStringLiteral("brand-")+mode);
+        }
+        bool inspected = false;
+        QTimer aboutTimer;
+        connect(&aboutTimer,&QTimer::timeout,&window,[&] {
+            for (auto *box : window.findChildren<QMessageBox *>()) {
+                if (!box->isVisible() || !box->property("ixBrandLogo").toBool()) continue;
+                aboutTimer.stop(); inspected = true;
+                const auto close = qScopeGuard([&] { box->accept(); });
+                const auto before = box->iconPixmap().toImage();
+                ix::applyInterfaceTheme(QStringLiteral("dark"));
+                QVERIFY(box->iconPixmap().toImage() != before);
+                QCOMPARE(box->iconPixmap().toImage(),QGuiApplication::windowIcon().pixmap(QSize(64,64),box->devicePixelRatioF()).toImage());
+                capture(box,QStringLiteral("brand-about-dark"));
+                return;
+            }
+        });
+        auto *about = window.findChild<QAction *>(QStringLiteral("about")); QVERIFY(about);
+        aboutTimer.start(25); about->trigger();
+        QTRY_VERIFY(inspected); aboutTimer.stop();
+        ix::applyInterfaceTheme(QStringLiteral("system"));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(window.palette().color(QPalette::Window),QApplication::palette().color(QPalette::Window));
+        const bool dark = window.palette().color(QPalette::Window).lightnessF() < .5;
+        QCOMPARE(window.windowIcon().pixmap(250,250).toImage(),
+            QIcon(dark ? QStringLiteral(":/ixview-dark.svg") : QStringLiteral(":/ixview-light.svg")).pixmap(250,250).toImage());
+    }
     void blackEntryCanLeaveFullscreen() {
         QSettings settings; QVariantMap previous;
         for (const auto &key : settings.allKeys()) previous.insert(key, settings.value(key));

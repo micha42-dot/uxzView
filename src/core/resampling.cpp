@@ -3,6 +3,7 @@
 #include "processing.h"
 #include "image_storage.h"
 #include "localization.h"
+#include "resize_transfer.h"
 #include <QCache>
 #include <QThread>
 #include <QScopeGuard>
@@ -93,23 +94,22 @@ Weights weights(int from, int to, ResampleFilter f, bool fast) {
     }
     return result;
 }
-double toLinear(double x) {
-    return x <= .04045 ? x / 12.92 : std::pow((x + .055) / 1.055, 2.4);
-}
+using detail::resizeToLinear;
+using detail::resizeToSrgb;
 const double *linearInputValues() {
     // Every normalized source channel is an integer RGBA64 sample. Evaluate
     // the original transfer function once for each possible sample, exactly;
     // no interpolation or approximation, and no allocation until gamma is used.
     static const auto values = [] {
         auto result = std::make_unique<std::array<double, 65536>>();
-        for (size_t i = 0; i < result->size(); ++i) (*result)[i] = toLinear(double(i) / 65535.0);
+        for (size_t i = 0; i < result->size(); ++i) (*result)[i] = resizeToLinear(double(i) / 65535.0);
         return result;
     }();
     return values->data();
 }
-double toSrgb(double x) {
-    x = std::clamp(x, 0.0, 1.0);
-    return x <= .0031308 ? x * 12.92 : 1.055 * std::pow(x, 1 / 2.4) - .055;
+const detail::ResizeByteTransfer *linearOutputBytes() {
+    static const auto table = std::make_unique<const detail::ResizeByteTransfer>();
+    return table.get();
 }
 quint16 u16(double x) {
     return quint16(std::clamp(std::lround(x * 65535), 0L, 65535L));
@@ -177,7 +177,7 @@ QImage resampleRows(const QImage &src, const ResizeOptions &o, const std::atomic
         for (int x = 0; x < out.width(); ++x) {
             auto [r,g,b,a] = sums[x];
             if (a > 1e-10) { r /= a; g /= a; b /= a; } else r = g = b = 0;
-            if (o.linearLight) { r = toSrgb(r); g = toSrgb(g); b = toSrgb(b); }
+            if (o.linearLight) { r = resizeToSrgb(r); g = resizeToSrgb(g); b = resizeToSrgb(b); }
             const auto pixel = QRgba64::fromRgba64(u16(r), u16(g), u16(b), u16(a));
             if (out.depth() == 64) wide[x] = pixel;
             else target[x] = hasAlpha ? pixel.toArgb32() : pixel.toArgb32() | 0xff000000u;
@@ -259,12 +259,17 @@ QRgb resizePixel32(double r, double g, double b, double a) {
 }
 void writeNormalizedRow(uchar *destination, int width, const ResizePixel *sums,
                         bool wideOutput, bool hasAlpha, bool linearLight) {
+    const auto *transfer = linearLight && !wideOutput ? linearOutputBytes() : nullptr;
     auto *target = reinterpret_cast<QRgb *>(destination);
     auto *wide = reinterpret_cast<QRgba64 *>(destination);
     for (int x = 0; x < width; ++x) {
         auto [r, g, b, a] = sums[x];
         if (a > 1e-10) { r /= a; g /= a; b /= a; } else r = g = b = 0;
-        if (linearLight) { r = toSrgb(r); g = toSrgb(g); b = toSrgb(b); }
+        if (transfer) {
+            target[x] = qRgba(transfer->convert(r), transfer->convert(g), transfer->convert(b), hasAlpha ? resizeU8(a) : 255);
+            continue;
+        }
+        if (linearLight) { r = resizeToSrgb(r); g = resizeToSrgb(g); b = resizeToSrgb(b); }
         if (wideOutput)
             wide[x] = QRgba64::fromRgba64(resizeU16(r), resizeU16(g), resizeU16(b), resizeU16(a));
         else target[x] = resizePixel32(r, g, b, hasAlpha ? a : 1);
@@ -297,6 +302,95 @@ class ResizeWorkerSlots {
     }
     int extra_ = 0;
 };
+template <typename Work>
+void runResizeWorkers(int workers, std::atomic_bool &stopped, Work &&work) {
+    std::exception_ptr failure;
+    std::mutex failureMutex;
+    const auto guarded = [&](int index) {
+        try { work(index); }
+        catch (...) {
+            { std::lock_guard lock(failureMutex); if (!failure) failure = std::current_exception(); }
+            stopped.store(true);
+        }
+    };
+    {
+        // Also supported by the libc++ in older Xcode versions. Join on every
+        // exit, including thread-creation failure, before buffers are released.
+        std::vector<std::thread> threads;
+        const auto joined = qScopeGuard([&] {
+            for (auto &thread : threads) if (thread.joinable()) thread.join();
+        });
+        threads.reserve(workers - 1);
+        try {
+            for (int i = 1; i < workers; ++i) threads.emplace_back(guarded, i);
+        } catch (...) {
+            stopped.store(true);
+            throw;
+        }
+        guarded(0);
+    }
+    if (failure) std::rethrow_exception(failure);
+}
+QImage resampleNearest(const QImage &src, const ResizeOptions &o, const std::atomic_bool *cancel) {
+    if (cancel && cancel->load()) throw std::runtime_error("Abgebrochen.");
+    QImage out = allocateImage(o.size, src.format(), (imageIsFileBacked(src) ? 0 : src.sizeInBytes()) + qint64(o.size.width()) * sizeof(int));
+    if (out.isNull()) throw std::runtime_error("Nicht genügend Speicher.");
+    out.setColorTable(src.colorTable());
+    const int bytes = src.depth() / 8;
+    std::vector<int> columns(out.width());
+    for (int x = 0; x < out.width(); ++x)
+        columns[x] = int((qint64(2 * x + 1) * src.width()) / (2 * out.width()));
+    auto *destination = out.bits();
+    const qsizetype stride = out.bytesPerLine();
+    const qsizetype rowBytes = (qsizetype(out.width()) * out.depth() + 7) / 8;
+    // Packed monochrome uses QImage's mutable pixel API and remains serial.
+    // All byte-addressable formats write disjoint rows of a unique raw buffer.
+    // Mapped bulk copies are dominated by page faults/storage. Multiple writers
+    // increased working set and CPU time in proportional 100k probes; keep one.
+    const int wanted = bytes && out.sizeInBytes() >= 8 * MiB && !imageIsFileBacked(out)
+        ? std::min(MaxResizeWorkers, out.height()) : 1;
+    ResizeWorkerSlots reservation(wanted);
+    const int workers = reservation.count();
+    const int blockHeight = workers == 1 ? out.height() : ResizeTileHeight;
+    std::atomic_int nextBlock{0};
+    std::atomic_bool stopped{false};
+    runResizeWorkers(workers, stopped, [&](int) {
+        for (;;) {
+            const int first = nextBlock.fetch_add(blockHeight);
+            const int last = std::min(out.height(), first + blockHeight);
+            if (first >= last || stopped.load()) return;
+            int previousY = -1;
+            for (int y = first; y < last; ++y) {
+                if (cancel && cancel->load()) stopped.store(true);
+                if (stopped.load()) return;
+                const int sourceY = int((qint64(2 * y + 1) * src.height()) / (2 * out.height()));
+                auto *target = destination + qsizetype(y) * stride;
+                if (sourceY == previousY) {
+                    std::memcpy(target, target - stride, size_t(rowBytes));
+                    continue;
+                }
+                previousY = sourceY;
+                const auto *source = src.constScanLine(sourceY);
+                switch (bytes) {
+                case 1: copyNearestRow<1>(target, source, columns); break;
+                case 2: copyNearestRow<2>(target, source, columns); break;
+                case 3: copyNearestRow<3>(target, source, columns); break;
+                case 4: copyNearestRow<4>(target, source, columns); break;
+                case 8: copyNearestRow<8>(target, source, columns); break;
+                case 16: copyNearestRow<16>(target, source, columns); break;
+                default:
+                    for (int x = 0; x < out.width(); ++x) if (bytes)
+                        std::memcpy(target + x * bytes, source + columns[x] * bytes, bytes);
+                    else
+                        out.setPixel(x, y, src.pixelIndex(columns[x], sourceY));
+                    break;
+                }
+            }
+        }
+    });
+    if (stopped.load()) throw std::runtime_error("Abgebrochen.");
+    return out;
+}
 QImage resampleNormalizedRows(const QImage &src, const ResizeOptions &o, const std::atomic_bool *cancel,
                               int plannedWorkers) {
     if (cancel && cancel->load()) return {};
@@ -323,96 +417,72 @@ QImage resampleNormalizedRows(const QImage &src, const ResizeOptions &o, const s
     std::atomic_bool stopped{false};
     std::atomic_int nextBlock{0};
     const int blockHeight = std::min(ResizeTileHeight, (o.size.height() + workers - 1) / workers);
-    std::exception_ptr failure;
-    std::mutex failureMutex;
     using Pixel = ResizePixel;
     using Row = QVector<Pixel>;
-    auto work = [&](int index) {
-        try {
-            QCache<int, Row> rows{int(cacheBudget)};
-            Row input(src.width()), sums(tileWidth);
-            const int first = int(qint64(o.size.height()) * index / workers);
-            const int end = int(qint64(o.size.height()) * (index + 1) / workers);
-            auto cancelled = [&] {
-                if (cancel && cancel->load()) stopped.store(true);
-                return stopped.load();
-            };
-            // Wide mapped outputs advance through neighboring stripes, so
-            // workers do not scatter dirty pages over multi-GB row bands.
-            // Keep full-width row bands for the ordinary in-cache path.
-            for (;;) {
-                const int block = tileWidth == o.size.width() ? first : nextBlock.fetch_add(blockHeight);
-                const int last = tileWidth == o.size.width() ? end : std::min(o.size.height(), block + blockHeight);
-                if (block >= last || cancelled()) break;
-                for (int left = 0; left < o.size.width(); left += tileWidth) {
-                    const int width = std::min(tileWidth, o.size.width() - left);
-                    rows.clear();
-                    for (int y = block; y < last; ++y) {
+    runResizeWorkers(workers, stopped, [&](int index) {
+        QCache<int, Row> rows{int(cacheBudget)};
+        Row input(src.width()), sums(tileWidth);
+        const int first = int(qint64(o.size.height()) * index / workers);
+        const int end = int(qint64(o.size.height()) * (index + 1) / workers);
+        auto cancelled = [&] {
+            if (cancel && cancel->load()) stopped.store(true);
+            return stopped.load();
+        };
+        // Wide mapped outputs advance through neighboring stripes, so
+        // workers do not scatter dirty pages over multi-GB row bands.
+        // Keep full-width row bands for the ordinary in-cache path.
+        for (;;) {
+            const int block = tileWidth == o.size.width() ? first : nextBlock.fetch_add(blockHeight);
+            const int last = tileWidth == o.size.width() ? end : std::min(o.size.height(), block + blockHeight);
+            if (block >= last || cancelled()) break;
+            for (int left = 0; left < o.size.width(); left += tileWidth) {
+                const int width = std::min(tileWidth, o.size.width() - left);
+                rows.clear();
+                for (int y = block; y < last; ++y) {
+                    if (cancelled()) return;
+                    std::fill_n(sums.data(), width, Pixel{});
+                    for (const auto vertical : wy[y]) {
                         if (cancelled()) return;
-                        std::fill_n(sums.data(), width, Pixel{});
-                        for (const auto vertical : wy[y]) {
-                            if (cancelled()) return;
-                            Row horizontal;
-                            if (const auto *cached = rows.object(vertical.index)) horizontal = *cached;
-                            else {
-                                QImage view(src.constScanLine(vertical.index), src.width(), 1, src.bytesPerLine(), src.format());
-                                if (!palette.isEmpty()) view.setColorTable(palette);
-                                const auto converted = view.convertToFormat(QImage::Format_RGBA64);
-                                if (converted.isNull()) throw std::runtime_error("Nicht genügend Speicher.");
-                                const auto *pixels = reinterpret_cast<const QRgba64 *>(converted.constBits());
-                                auto *normalized = input.data();
-                                for (int x = 0; x < src.width(); ++x) {
-                                    const auto pixel = pixels[x];
-                                    const double alpha = pixel.alpha() / 65535.0;
-                                    auto cv = [&](quint16 value) { return linearInput ? linearInput[value] : value / 65535.0; };
-                                    normalized[x] = {cv(pixel.red()) * alpha, cv(pixel.green()) * alpha,
-                                                     cv(pixel.blue()) * alpha, alpha};
-                                }
-                                horizontal.resize(width);
-                                auto *filtered = horizontal.data();
-                                for (int x = 0; x < width; ++x) {
-                                    Pixel sum{};
-                                    for (const auto tap : wx[left + x])
-                                        for (int c = 0; c < 4; ++c) sum[c] += normalized[tap.index][c] * tap.weight;
-                                    // Quantize at the same horizontal boundary as the
-                                    // legacy RGBA64 pass, then normalize once for reuse.
-                                    for (int c = 0; c < 4; ++c) filtered[x][c] = resizeU16(sum[c]) / 65535.0;
-                                }
-                                rows.insert(vertical.index, new Row(horizontal), int(qint64(horizontal.size()) * sizeof(Pixel)));
+                        Row horizontal;
+                        if (const auto *cached = rows.object(vertical.index)) horizontal = *cached;
+                        else {
+                            QImage view(src.constScanLine(vertical.index), src.width(), 1, src.bytesPerLine(), src.format());
+                            if (!palette.isEmpty()) view.setColorTable(palette);
+                            const auto converted = view.convertToFormat(QImage::Format_RGBA64);
+                            if (converted.isNull()) throw std::runtime_error("Nicht genügend Speicher.");
+                            const auto *pixels = reinterpret_cast<const QRgba64 *>(converted.constBits());
+                            auto *normalized = input.data();
+                            for (int x = 0; x < src.width(); ++x) {
+                                const auto pixel = pixels[x];
+                                const double alpha = pixel.alpha() / 65535.0;
+                                auto cv = [&](quint16 value) { return linearInput ? linearInput[value] : value / 65535.0; };
+                                normalized[x] = {cv(pixel.red()) * alpha, cv(pixel.green()) * alpha,
+                                                 cv(pixel.blue()) * alpha, alpha};
                             }
-                            const auto *row = horizontal.constData();
-                            auto *accumulated = sums.data();
-                            for (int x = 0; x < width; ++x)
-                                for (int c = 0; c < 4; ++c) accumulated[x][c] += row[x][c] * vertical.weight;
+                            horizontal.resize(width);
+                            auto *filtered = horizontal.data();
+                            for (int x = 0; x < width; ++x) {
+                                Pixel sum{};
+                                for (const auto tap : wx[left + x])
+                                    for (int c = 0; c < 4; ++c) sum[c] += normalized[tap.index][c] * tap.weight;
+                                // Quantize at the same horizontal boundary as the
+                                // legacy RGBA64 pass, then normalize once for reuse.
+                                for (int c = 0; c < 4; ++c) filtered[x][c] = resizeU16(sum[c]) / 65535.0;
+                            }
+                            rows.insert(vertical.index, new Row(horizontal), int(qint64(horizontal.size()) * sizeof(Pixel)));
                         }
-                        writeNormalizedRow(destination + qsizetype(y) * stride + qsizetype(left) * (wideOutput ? 8 : 4),
-                            width, sums.constData(), wideOutput, hasAlpha, o.linearLight);
+                        const auto *row = horizontal.constData();
+                        auto *accumulated = sums.data();
+                        for (int x = 0; x < width; ++x)
+                            for (int c = 0; c < 4; ++c) accumulated[x][c] += row[x][c] * vertical.weight;
                     }
+                    writeNormalizedRow(destination + qsizetype(y) * stride + qsizetype(left) * (wideOutput ? 8 : 4),
+                        width, sums.constData(), wideOutput, hasAlpha, o.linearLight);
                 }
-                if (tileWidth == o.size.width()) break;
             }
-        } catch (...) {
-            { std::lock_guard lock(failureMutex); if (!failure) failure = std::current_exception(); }
-            stopped.store(true);
+            if (tileWidth == o.size.width()) break;
         }
-    };
-    {
-        // std::thread also works with the libc++ shipped by older supported
-        // Xcode versions. Join on every exit, including thread-creation failure.
-        std::vector<std::thread> threads;
-        const auto joined = qScopeGuard([&] {
-            for (auto &thread : threads) if (thread.joinable()) thread.join();
-        });
-        threads.reserve(workers - 1);
-        try {
-            for (int i = 1; i < workers; ++i) threads.emplace_back(work, i);
-        } catch (...) {
-            stopped.store(true);
-            throw;
-        }
-        work(0);
-    }
-    if (failure) std::rethrow_exception(failure);
+    });
     return stopped.load() ? QImage() : out;
 }
 } // namespace
@@ -435,7 +505,7 @@ qint64 estimatedResizeBytes(QSize source, QImage::Format format, const ResizeOpt
         ? qint64(workers) * (qint64(source.width()) * 48 + qint64(normalizedResizeTileWidth(source, o, workers)) * 64)
         : qint64(source.width()) * 12 + qint64(o.size.width()) * 48;
     result += pixels * (channelBits(format) <= 8 ? 4 : 8) + rowWork + resizeRowCacheBudget() + taps;
-    if (o.linearLight) result += 65536 * qint64(sizeof(double));
+    if (o.linearLight) result += 65536 * qint64(sizeof(double)) + sizeof(detail::ResizeByteTransfer);
     if (o.sharpen) result = std::max(result, sourceBytes + pixels * (channelBits(format) <= 8 ? 24 : 16));
     return result;
 }
@@ -484,44 +554,7 @@ QImage resample(const QImage &src, const ResizeOptions &o, const std::atomic_boo
         throw std::runtime_error(sizeError());
     QImage out;
     if (o.filter == ResampleFilter::Nearest) {
-        out = allocateImage(o.size, src.format(), (imageIsFileBacked(src) ? 0 : src.sizeInBytes()) + qint64(o.size.width()) * sizeof(int));
-        if (out.isNull())
-            throw std::runtime_error("Nicht genügend Speicher.");
-        out.setColorTable(src.colorTable());
-        const int bytes = src.depth() / 8;
-        std::vector<int> columns(out.width());
-        for (int x = 0; x < out.width(); ++x)
-            columns[x] = int((qint64(2 * x + 1) * src.width()) / (2 * out.width()));
-        auto *destination = out.bits();
-        const qsizetype stride = out.bytesPerLine();
-        const qsizetype rowBytes = (qsizetype(out.width()) * out.depth() + 7) / 8;
-        int previousY = -1;
-        for (int y = 0; y < out.height(); ++y) {
-            if (cancel && cancel->load())
-                throw std::runtime_error("Abgebrochen.");
-            const int sourceY = int((qint64(2 * y + 1) * src.height()) / (2 * out.height()));
-            auto *target = destination + qsizetype(y) * stride;
-            if (sourceY == previousY) {
-                std::memcpy(target, target - stride, size_t(rowBytes));
-                continue;
-            }
-            previousY = sourceY;
-            const auto *source = src.constScanLine(sourceY);
-            switch (bytes) {
-            case 1: copyNearestRow<1>(target, source, columns); break;
-            case 2: copyNearestRow<2>(target, source, columns); break;
-            case 3: copyNearestRow<3>(target, source, columns); break;
-            case 4: copyNearestRow<4>(target, source, columns); break;
-            case 8: copyNearestRow<8>(target, source, columns); break;
-            case 16: copyNearestRow<16>(target, source, columns); break;
-            default:
-                for (int x = 0; x < out.width(); ++x) if (bytes)
-                    std::memcpy(target + x * bytes, source + columns[x] * bytes, bytes);
-                else
-                    out.setPixel(x, y, src.pixelIndex(columns[x], sourceY));
-                break;
-            }
-        }
+        out = resampleNearest(src, o, cancel);
     } else {
         const int workers = normalizedResizeWorkers(src.size(), o);
         out = workers ? resampleNormalizedRows(src, o, cancel, workers) : resampleRows(src, o, cancel);

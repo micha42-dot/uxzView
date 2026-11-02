@@ -2,6 +2,15 @@
 
 This describes the current implementation, including its remaining coupling. Update it when ownership, storage or an extension protocol changes. See [PLATFORMS.md](PLATFORMS.md) for builds and [DEVELOPMENT.md](DEVELOPMENT.md) for verification.
 
+`appearance.cpp` owns the runtime brand icon alongside the effective interface
+theme. Windows inherit the application icon instead of pinning an individual
+copy. The two transparent SVGs are cached; only an effective light/dark change
+replaces the application icon and updates an open About logo. Automatic mode
+uses Qt's system color-scheme notifications. Fixed launcher assets use the grey
+variant for contrast on both backgrounds. `scripts/build_icons.py` preserves
+the supplied PNG alpha and generates SVG/ICO/ICNS at build time; Pillow is not a
+runtime dependency. The original PNG variants are the canonical source assets.
+
 ## Targets and dependency direction
 
 ```mermaid
@@ -544,6 +553,15 @@ fast-math flag is introduced. Gamma input normalization lazily evaluates all
 shares the read-only 512 KiB table. Its size is included in gamma resize estimates;
 neither viewer startup nor ordinary non-gamma resizes allocate it.
 
+For normalized 8-bit gamma output, `core/resize_transfer.h` maps linear channels
+to quantized sRGB bytes through inverse byte boundaries. A 4096-entry guess table
+locates the neighboring boundaries; it never interpolates output values. Within
+1e-10 of a boundary, the original forward transfer and RGBA64-to-byte rounding
+decide the result. The immutable transfer object is initialized on first use and
+its approximately 6 KiB are included in gamma estimates. Sixteen-bit output and
+the compact-row fallback retain the continuous transfer. Boundary-adjacent,
+whole-range and independent full-image reference tests guard this specialization.
+
 Large outputs may use four disjoint row bands. A process-local atomic pool caps
 additional resize threads across concurrent caller jobs; the calling worker
 participates. std::thread plus a scope guard joins all children on every exit,
@@ -551,6 +569,16 @@ including creation failure. Exceptions stop peers and propagate after joining;
 shared cancellation never publishes partial output. QImage's unique writable
 buffer is obtained before launching threads; workers write raw, non-overlapping
 rows and never call mutable QImage accessors concurrently.
+
+Nearest-neighbor shares this worker reservation and join/exception handling.
+RAM-backed byte-addressable outputs of at least 8 MiB use adjacent blocks of 256 rows,
+reusing repeated source rows only inside the worker's own block. The source
+column map is shared read-only; workers need no additional pixel buffers.
+Packed monochrome stays serial because it uses QImage's mutable pixel API.
+Mapped nearest output also stays serial: proportional 100k probes showed more
+page pressure, CPU time and elapsed time with concurrent bulk-copy writers.
+A pre-cancelled nearest request throws before allocating its output, retaining
+the existing nearest cancellation contract.
 
 The row-cache cap is divided across actual workers. Planning includes the
 maximum worker-local source, accumulation and active-row storage. If normalized

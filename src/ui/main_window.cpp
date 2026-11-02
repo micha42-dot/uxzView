@@ -114,7 +114,6 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     setObjectName(QStringLiteral("mainWindow"));
     setLocale(uiLocale());
     setWindowTitle(QStringLiteral("üxzView"));
-    setWindowIcon(QIcon(QStringLiteral(":/ixview.svg")));
     setAcceptDrops(true);
     resize(980, 662);
     view_ = new ImageView(this);
@@ -346,13 +345,19 @@ void MainWindow::buildMenus() {
                 "Bibliotheken: siehe Lizenzinformationen im Programmverzeichnis.");
         const auto version = QCoreApplication::applicationVersion();
         const auto text = localized(source).arg(version);
+        const auto bindAbout = [this, source, version, text] {
+            for (auto *box : findChildren<QMessageBox *>())
+                if (box->text() == text) {
+                    box->setProperty("ixBrandLogo", true);
+                    box->setIconPixmap(QGuiApplication::windowIcon().pixmap(QSize(64,64), box->devicePixelRatioF()));
+                    bindUiText(box, "windowTitle", QStringLiteral("Über üxzView"));
+                    bindUiText(box, "text", source, {}, {}, {version});
+                }
+        };
+        QTimer::singleShot(0, this, bindAbout);
         QMessageBox::about(this, IX_TEXT("Über üxzView"), text);
         // macOS may retain a modeless About box after the static call returns.
-        for (auto *box : findChildren<QMessageBox *>())
-            if (box->text() == text) {
-                bindUiText(box, "windowTitle", QStringLiteral("Über üxzView"));
-                bindUiText(box, "text", source, {}, {}, {version});
-            }
+        bindAbout();
     });
     QFile bindings(QStringLiteral(":/shortcuts.de.json"));
     if (bindings.open(QIODevice::ReadOnly)) {

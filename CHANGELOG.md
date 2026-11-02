@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Use Michael Förtsch's transparent logo variants for light/dark app themes,
+  including live system-theme changes and the About dialog. Regenerate neutral
+  transparent launcher icons for Windows, Linux and macOS from the grey variant.
+- Accelerate 8-bit gamma resize output with inverse byte boundaries and an exact
+  fallback near rounding ties; retain continuous 16-bit output. Initialize the
+  small read-only lookup lazily and include it in the memory estimate.
+- Parallelize large RAM-backed nearest-neighbor outputs using the shared resize worker
+  allowance and adjacent row blocks, without extra pixel buffers. Share worker
+  joining/exception handling across filter paths; cancel before output allocation
+  for pre-cancelled nearest requests. Expand native-format and gamma-boundary
+  reference coverage, and support focused reproducible resize benchmarks.
+  Keep mapped nearest output serial after large probes showed higher page
+  pressure and slower bulk writes with several writers.
 - Keep wide resizes parallel with bounded column/row tiles, including 50,000-
   and 100,000-pixel axes. Account for tile-local work in the resize budget.
 - Accelerate nearest-neighbor copies with fixed-size pixel copies and reuse of

@@ -30,7 +30,7 @@ Die beiden Quellhinweisdateien liegen sowohl im Windows-ZIP als auch separat dir
 
 Die eigene Toolbar-Symbolsammlung und das Programmsymbol stehen unter der Projektlizenz; es gibt dafür keine zusätzliche Icon-Font- oder Bildbibliothek.
 
-Das Programmsymbol basiert auf dem von Michael Förtsch bereitgestellten Pixel-Logo (`resources/logo.png`); SVG-, ICO- und ICNS-Versionen bewahren dessen Formen. Die Toolbar verwendet eigene SVG-Konturen aus `src/ui/icons.cpp`. Diese Grafiken stehen unter der Projektlizenz.
+Das Programmsymbol basiert auf den von Michael Förtsch bereitgestellten transparenten Pixel-Logos (`resources/logo-light.png` für helle und `resources/logo-dark.png` für dunkle Oberflächen); SVG-, ICO- und ICNS-Versionen bewahren deren Formen und Transparenz. Die App wechselt ihre Logo-Variante mit dem wirksamen Oberflächentheme. Das feste Desktop-/Dateisymbol verwendet die graue Variante für beide Hintergründe. Die Toolbar verwendet eigene SVG-Konturen aus `src/ui/icons.cpp`. Diese Grafiken stehen unter der Projektlizenz.
 
 `python scripts/build_icons.py` erzeugt die Plattform-Symbole neu. Pillow wird dafür nur als Entwicklungswerkzeug benötigt und gehört nicht zur Anwendungslaufzeit.
 

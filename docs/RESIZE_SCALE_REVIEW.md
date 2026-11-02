@@ -1,5 +1,8 @@
 # Resize scaling review
 
+For the subsequent gamma-output and parallel nearest-neighbor changes, see
+[the byte-transfer follow-up](RESIZE_TRANSFER_REVIEW.md).
+
 The follow-up targets all seven resize methods and 50,000/100,000-pixel axes.
 The source baseline is d51c094, after the first resize optimization and Settings
 changes. Public processing APIs, filter weights and output precision remain.
