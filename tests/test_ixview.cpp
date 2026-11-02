@@ -141,6 +141,8 @@ class IxTests : public QObject {
     void init() {
         ix::configureImageStorage({false});
         QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+        // Existing workflow fixtures deliberately exercise the configured discard mode.
+        QSettings().setValue(QStringLiteral("navigation/askToSave"), false);
     }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
@@ -734,15 +736,15 @@ class IxTests : public QObject {
             ix::SettingsDialog dialog;
             auto *ask = dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"));
             QVERIFY(ask);
-            QVERIFY(!ask->isChecked());
-            ask->setChecked(true);
+            QVERIFY(ask->isChecked());
+            ask->setChecked(false);
             dialog.findChild<QComboBox *>(QStringLiteral("preview/background"))->setCurrentIndex(2);
             dialog.findChild<QSpinBox *>(QStringLiteral("preview/previous"))->setValue(4);
             dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip"))->setChecked(true);
             dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
             QCOMPARE(settings.value(QStringLiteral("preview/previous")).toInt(), 2);
             QVERIFY(!settings.value(QStringLiteral("view/previewStrip")).toBool());
-            QVERIFY(!settings.value(QStringLiteral("navigation/askToSave"), false).toBool());
+            QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
             QCOMPARE(settings.value(QStringLiteral("preview/background")).toString(), QStringLiteral("theme"));
         }
         {
@@ -2280,10 +2282,10 @@ class IxTests : public QObject {
         QTRY_COMPARE(largeView->fit(), ix::ImageView::Fit::Original);
         QCOMPARE(largeView->zoom(), .25);
     }
-    void imageChangesAndClosingDiscardEditsByDefault() {
+    void imageChangesAndClosingDiscardEditsWhenConfigured() {
         QSettings settings;
         const auto old = settings.value(QStringLiteral("navigation/askToSave"));
-        settings.remove(QStringLiteral("navigation/askToSave"));
+        settings.setValue(QStringLiteral("navigation/askToSave"), false);
         auto restore = qScopeGuard([&] { settings.setValue(QStringLiteral("navigation/askToSave"), old); });
         const auto folder = dir(QStringLiteral("discard-on-navigation"));
         QVERIFY(QDir().mkpath(folder));

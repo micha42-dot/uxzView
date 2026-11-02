@@ -5,11 +5,20 @@ import sys
 
 
 def report_test_logs(build: Path, stream):
+    suites = sorted(build.glob('*test-results.txt'))
+    if suites:
+        print('\n===== Last recorded suite checkpoints =====', file=stream, flush=True)
+        for path in suites:
+            lines = path.read_text(encoding='utf-8', errors='replace').splitlines()
+            checkpoint = next((line for line in reversed(lines)
+                               if line.startswith(('INFO ', 'PASS ', 'FAIL!', 'QFATAL', 'Totals:'))),
+                              'No test checkpoint recorded.')
+            print(f'{path.name}: {checkpoint}', file=stream, flush=True)
     reports = [build / name for name in ('configure.log', 'build.log', 'install.log', 'package.log',
                                        'installed-version.log', 'installed-image-probe.log',
                                        'installed-modules.log')
                if (build / name).is_file()]
-    reports.extend(sorted(build.glob('*test-results.txt')))
+    reports.extend(suites)
     ctest = build / 'Testing/Temporary/LastTest.log'
     if ctest.is_file():
         reports.append(ctest)

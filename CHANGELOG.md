@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Coordinate estimated pipeline memory across simultaneous batch runs before
+  decoding; keep small jobs parallel and serialize unknown/oversized work.
+  Cancel queued jobs without decoding or publishing, release reservations on
+  every exit and recheck sources after waiting. Retain existing disk-backed,
+  image-quality, revision and atomic-save safeguards. Add a real 16-bit PNG
+  batch memory/time profiler and admission/cancellation/rewrite regressions.
+- Stabilize the Qt 6.8 file-open regression driver with focused filename input,
+  Unicode/space paths and bounded dialog diagnostics. Retain the 300-second
+  suite limits; print last-entered test checkpoints before full CI logs.
+- Query macOS backing space on the opened file's filesystem, avoiding Qt's
+  volume-URL resolution for APFS firmlinks. Retain the free-space reserve,
+  real preallocation, private permissions and failure cleanup.
+- Ask before discarding edits when no preference is stored; retain explicit
+  choices. Use one discard decision for document replacement and closing;
+  cancellation, unidentified answers and failed saves never authorize discard.
+- Join non-cancellable save/file workers through the future event loop, with
+  progress shown only after 200 ms. Avoid short-operation progress flashes and
+  completion-during-show races; retain GUI timers, transaction gates and input
+  suppression. Add a reproducible real-PNG save/progress benchmark.
 - Use Michael Förtsch's transparent logo variants for light/dark app themes,
   including live system-theme changes and the About dialog. Regenerate neutral
   transparent launcher icons for Windows, Linux and macOS from the grey variant.

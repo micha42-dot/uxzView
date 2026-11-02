@@ -137,7 +137,10 @@ jobs:
           set -o pipefail
           cmake --build build/native --parallel 3 2>&1 | tee build/native/build.log
       - name: Test
-        run: ctest --test-dir build/native --output-on-failure
+        shell: bash
+        run: |
+          df -h . "${TMPDIR:-/tmp}"
+          ctest --test-dir build/native --output-on-failure
       - name: Install runtime
         shell: bash
         run: |

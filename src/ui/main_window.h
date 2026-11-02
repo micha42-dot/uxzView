@@ -137,8 +137,7 @@ class MainWindow : public QMainWindow {
     void refreshFiles(bool force = false);
     void navigate(int direction);
     void page(int direction);
-    enum class DiscardPolicy { Ask, UsePreference };
-    bool confirmDiscard(DiscardPolicy policy = DiscardPolicy::Ask);
+    bool confirmDiscard();
     bool saveImage(bool selection = false, bool forceDialog = false);
     void fileOperation(const QString &operation);
     void operation(std::function<QImage(const QImage &)> fn, bool streaming = false);

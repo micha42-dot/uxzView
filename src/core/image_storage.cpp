@@ -8,6 +8,7 @@
 #include <QLockFile>
 #include <QSettings>
 #include <QStorageInfo>
+#include <QDebug>
 #include <QUuid>
 #include <QtEndian>
 #include <cstring>
@@ -17,6 +18,9 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <algorithm>
+#ifdef Q_OS_MACOS
+#include <sys/mount.h>
+#endif
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -40,6 +44,35 @@ struct State {
 std::shared_ptr<State> state() { static auto value = std::make_shared<State>(); return value; }
 QString storageRoot(const ImageStorageOptions &o) {
     return o.root.isEmpty() ? QDir(AppStorage::cacheRoot()).filePath(QStringLiteral("swap")) : o.root;
+}
+void requireBackingSpace(QFile &file, qint64 required) {
+    bool valid = false, readOnly = false;
+    qint64 available = -1;
+#ifdef Q_OS_MACOS
+    // Qt 6.8 resolves the directory to its CF volume URL before statfs().
+    // APFS firmlinks may then refer to the sealed system volume instead of the
+    // writable data volume. Query the opened backing file's actual filesystem.
+    struct statfs info{};
+    if (::fstatfs(file.handle(), &info) == 0) {
+        readOnly = (info.f_flags & MNT_RDONLY) != 0;
+        const quint64 blocks = info.f_bavail, blockSize = info.f_bsize;
+        if (blockSize && blocks <= quint64(std::numeric_limits<qint64>::max()) / blockSize) {
+            available = qint64(blocks * blockSize);
+            valid = true;
+        }
+    }
+#else
+    const QStorageInfo disk(QFileInfo(file).absolutePath());
+    valid = disk.isValid() && disk.isReady();
+    readOnly = disk.isReadOnly();
+    available = disk.bytesAvailable();
+#endif
+    if (!valid || readOnly || available < required) {
+        qWarning().noquote() << "Image backing storage rejected:" << file.fileName()
+            << "valid=" << valid << "read_only=" << readOnly
+            << "available_bytes=" << available << "required_bytes=" << required;
+        throw std::runtime_error("Nicht genügend freier Speicherplatz für die Auslagerung.");
+    }
 }
 bool reserveFile(QFile &file, qint64 bytes) {
 #ifdef Q_OS_WIN
@@ -140,9 +173,6 @@ QImage allocateImage(QSize size, QImage::Format format, qint64 resident, bool fo
 #endif
     QLockFile gate(QDir(root).filePath(QStringLiteral("create.lock")));
     if (!gate.tryLock(3000)) throw std::runtime_error("Auslagerungsordner ist beschäftigt.");
-    const QStorageInfo disk(root);
-    if (!disk.isValid() || disk.isReadOnly() || disk.bytesAvailable() < total + 64 * MiB)
-        throw std::runtime_error("Nicht genügend freier Speicherplatz für die Auslagerung.");
     const auto path = QDir(root).filePath(QStringLiteral("pixels-%1.bin").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
     mapping->lock = std::make_unique<QLockFile>(path + QStringLiteral(".lock"));
     if (!mapping->lock->tryLock()) throw std::runtime_error("Auslagerungsdatei konnte nicht gesperrt werden.");
@@ -156,6 +186,7 @@ QImage allocateImage(QSize size, QImage::Format format, qint64 resident, bool fo
     if (!mapping->file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner))
         throw std::runtime_error("Auslagerungsdatei konnte nicht geschützt werden.");
 #endif
+    requireBackingSpace(mapping->file, total + 64 * MiB);
     // Write a recognizable header before reserving potentially large extents:
     // crash cleanup can then remove even an incompletely extended owned file.
     QByteArray header(HeaderBytes, '\0');

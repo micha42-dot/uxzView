@@ -79,6 +79,19 @@ Deferred explicit choices take priority over automatic skip continuations.
 
 `MainWindow` currently coordinates the active document, commands, history and asynchronous completion. `DocumentActivity` is the single GUI-thread gate for loading/editing, saving, file transactions and delayed capture. Saving and file operations hold it across nested dialog event loops. Mutating commands must acquire the appropriate phase; queued opens/navigation run after the transaction finishes. `WorkMode` tells completion how to install a result and update history. Changing it while its worker runs is unsafe.
 
+Discard confirmation has one policy for document replacement and closing:
+the existing `navigation/askToSave` preference, defaulting to true when absent.
+Only an explicit Discard or a successful Save authorizes replacement. Cancel,
+dialog rejection and unsuccessful saves preserve the document and history.
+Fixtures for the legacy discard mode set that preference explicitly.
+
+Uncancellable save/trash/move/copy transactions use the progress overload in
+`worker_wait.h`. It joins the future through the existing GUI event loop, showing
+progress after 200 ms only if work remains. It does not enter QDialog::exec, so
+completion during native show cannot close a dialog before its event loop starts.
+The activity gate and input suppression remain active. Cancellable extraction
+uses a separate path and is not covered by this overload.
+
 The load service reads no settings and installs no document. Its optional preview callback runs only after a full-image cache miss, outside the cache lock, on the calling worker; GUI consumers queue it and check their generation/lifetime. Color management and display sharpening affect only the returned display image.
 
 `MainWindow::openPath` takes its path by value. Modal save questions process
@@ -168,6 +181,24 @@ replacements receive a content hash. Repeated watermark paths share one hash.
 Existing target revisions are rechecked after hashing. Execution still verifies
 reviewed revisions/content before atomic output; skipping an ineligible
 target's hash must not weaken those commit guards.
+
+`core/batch_memory.*` admits pipeline jobs before full decoding. A process-local
+weighted FIFO gate shares the immutable image-memory budget across simultaneous
+pipeline runs, independently of their requested worker count (still at most four
+per run). Header dimensions/format, both axis orientations and all chain steps
+estimate a job's peak live work; shared watermark pixels are conservatively charged
+to every job. Unknown headers/configured codecs and estimates above the budget
+take the whole capacity and run alone. Oversized jobs retain their existing
+disk-backed path and per-operation guards; admission does not reject them merely
+because their estimate exceeds RAM.
+
+The move-only lease spans decoding through export and is released after image
+buffers on success, cancellation or exceptions. Waiting workers hold no decoded
+source, poll cancellation every 20 ms and recheck source identity after admission.
+Never acquire a second lease while holding one. This coordinates estimated batch
+work, not RSS: cache/history/active-document buffers, watermark resource loading,
+decoder-internal allocations, plugin header probes and mapped-page residency remain outside the gate.
+There is no GUI wait or new startup worker. See [batch memory review](BATCH_MEMORY_2026-11-02.md).
 
 PipelineDialog clears previous results when inputs/options change and captures a
 new job only when Start is pressed. A new run resets cancellation after previous

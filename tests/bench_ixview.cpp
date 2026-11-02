@@ -20,6 +20,7 @@
 #include "ui/platform_support.h"
 #include "ui/preview_strip.h"
 #include "ui/slideshow_controller.h"
+#include "ui/worker_wait.h"
 #include <QElapsedTimer>
 #include <QColorSpace>
 #include <QCryptographicHash>
@@ -36,6 +37,48 @@
 #include <qt_windows.h>
 #endif
 namespace {
+QJsonObject profileSaveProgress() {
+    ix::initializeImageMemoryLimit(); ix::configureImageStorage({false});
+    QTemporaryDir directory; if (!directory.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary directory failed")}};
+    ix::ImageDocument document; document.pixels=QImage(128,96,QImage::Format_ARGB32);
+    for (int y=0;y<96;++y) for (int x=0;x<128;++x)
+        document.pixels.setPixel(x,y,qRgba((x*17+y*3)%256,(x*7+y*23)%256,(x*31+y*11)%256,(x*13+y*19)%256));
+    ix::CodecRegistry registry;
+    const auto warmup=registry.save(document,directory.filePath(QStringLiteral("warmup.png")),"png",95,true,QString());
+    if (!warmup.isEmpty()) return {{QStringLiteral("error"),warmup}};
+    QJsonArray samples;
+    for (int sample=0;sample<20;++sample) for (bool legacy : {sample%2==0,sample%2!=0}) {
+        const auto path=directory.filePath(QStringLiteral("save-%1-%2.png").arg(sample).arg(legacy));
+        struct Progress final : QProgressDialog {
+            int shows=0;
+            void showEvent(QShowEvent *event) override { QProgressDialog::showEvent(event); ++shows; }
+        } progress;
+        progress.setCancelButton(nullptr); progress.setRange(0,0);
+        progress.setWindowModality(Qt::ApplicationModal);
+        QFutureWatcher<QString> watcher;
+        QObject::connect(&watcher,&QFutureWatcherBase::finished,&progress,&QDialog::accept);
+        bool timedOut=false; QTimer watchdog; watchdog.setSingleShot(true);
+        QObject::connect(&watchdog,&QTimer::timeout,&progress,[&] { timedOut=true; progress.reject(); });
+        watchdog.start(2000);
+        QElapsedTimer elapsed; elapsed.start();
+        watcher.setFuture(QtConcurrent::run([registry,document,path] {
+            return registry.save(document,path,"png",95,true,QString());
+        }));
+        if (legacy) { progress.exec(); ix::waitForGuiWorker(watcher); }
+        else ix::waitForGuiWorker(watcher,progress);
+        const double milliseconds=elapsed.nsecsElapsed()/1e6; watchdog.stop();
+        if (timedOut && !legacy) return {{QStringLiteral("error"),QStringLiteral("New progress wait exceeded the watchdog")}};
+        const auto error=watcher.future().takeResult();
+        if (!error.isEmpty() || QImage(path)!=document.pixels)
+            return {{QStringLiteral("error"),error.isEmpty() ? QStringLiteral("Saved pixels differ") : error}};
+        samples.append(QJsonObject{{QStringLiteral("sample"),sample},{QStringLiteral("legacy"),legacy},
+            {QStringLiteral("milliseconds"),milliseconds},{QStringLiteral("progress_shows"),progress.shows},
+            {QStringLiteral("watchdog_fired"),timedOut}});
+    }
+    return {{QStringLiteral("samples"),samples},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("platform"),QGuiApplication::platformName()},
+        {QStringLiteral("note"),QStringLiteral("20 alternating pairs; real 128x96 alpha PNG atomic saves; warm writer; GUI-thread waiting included; decoding validation outside timer. Timed-out legacy waits are failures, not speedup samples. No whole-app startup/navigation claim.")}};
+}
 QImage resizeProfileSource(QImage::Format format, QSize size = {1920,1024}) {
     QImage source(size,format);
     for (int y=0;y<source.height();++y) {
@@ -1093,6 +1136,11 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if (app.arguments().contains(QStringLiteral("--profile-save-progress"))) {
+        const auto result=profileSaveProgress();
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(result).toJson()); return result.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--check-resize"))) {
         const auto result=checkResize(); QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
         output.write(QJsonDocument(result).toJson()); return result.value(QStringLiteral("different_pixels")).toDouble() == 0 ? 0 : 5;

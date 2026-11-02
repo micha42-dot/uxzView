@@ -26,21 +26,18 @@ void applySource(ImageDocument &document, const SourceFileState &source) {
     document.fileBytes = source.bytes;
 }
 } // namespace
-bool MainWindow::confirmDiscard(DiscardPolicy policy) {
+bool MainWindow::confirmDiscard() {
     if (!document_.modified ||
-        (policy == DiscardPolicy::UsePreference &&
-         !QSettings().value(QStringLiteral("navigation/askToSave"), false).toBool()))
+        !QSettings().value(QStringLiteral("navigation/askToSave"), true).toBool())
         return true;
     slideshow_.stop();
     stopAnimation();
     auto answer = QMessageBox::question(
         this, QStringLiteral("üxzView"), IX_TEXT("Änderungen am aktuellen Bild speichern?"),
         QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
-    if (answer == QMessageBox::Cancel)
-        return false;
     if (answer == QMessageBox::Save)
         return saveImage();
-    return true;
+    return answer == QMessageBox::Discard;
 }
 bool MainWindow::saveImage(bool selection, bool forceDialog) {
     if (document_.empty() || activity_.busy())
@@ -124,8 +121,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             result.source = observeSource(path);
         return result;
     }));
-    progress.exec();
-    waitForGuiWorker(watcher);
+    waitForGuiWorker(watcher, progress);
     const auto result = watcher.future().takeResult();
     if (!result.error.isEmpty()) {
         showError(result.error);
@@ -195,8 +191,7 @@ void MainWindow::fileOperation(const QString &op) {
             QtConcurrent::run([source, revision] {
                 return FileOperations().perform(QStringLiteral("delete"), source, {}, revision);
             }));
-        progress.exec();
-        waitForGuiWorker(watcher);
+        waitForGuiWorker(watcher, progress);
         const auto result = watcher.future().takeResult();
         if (result.applied) {
             ImageLoadCache::invalidate({source});
@@ -251,8 +246,7 @@ void MainWindow::fileOperation(const QString &op) {
         }
         return result;
     }));
-    progress.exec();
-    waitForGuiWorker(watcher);
+    waitForGuiWorker(watcher, progress);
     const auto result = watcher.future().takeResult();
     if (!result.operation.applied) {
         if (!result.operation.error.isEmpty()) showError(result.operation.error);

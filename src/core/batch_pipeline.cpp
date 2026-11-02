@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_storage.h"
 #include "batch_pipeline.h"
+#include "batch_memory.h"
 #include "file_operations.h"
 #include "preview_service.h"
 #include "processing.h"
@@ -296,6 +297,12 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
         return failed;
     }
     std::atomic_int next = 0, done = 0;
+    // Shared by simultaneous batch runs. Reserve before decoding and keep the
+    // lease until pixels and export temporaries have been released. No GUI wait.
+    static BatchMemoryGate memory(imageMemoryLimit());
+    qint64 resourceBytes = 0;
+    for (const auto &image : resources)
+        resourceBytes += std::min(image.sizeInBytes(), qsizetype(imageMemoryLimit() - resourceBytes));
     const int threads = std::min(int(eligible), std::clamp(job.parallelism, 1, 4));
     std::vector<std::thread> workers;
     auto joinWorkers = qScopeGuard([&] {
@@ -316,6 +323,23 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                         checkCancel(cancel);
                         if (imageFileKey(entry.input) != entry.inputStamp)
                             throw std::runtime_error("Quelle wurde seit der Vorschau geändert.");
+                        qint64 estimate = imageMemoryLimit();
+                        // A configured codec may interpret even a PNG path
+                        // differently. Unknown headers conservatively run alone.
+                        if (!codecs) {
+                            QImageReader header(entry.input);
+                            const auto size = header.size();
+                            const auto format = header.imageFormat();
+                            estimate = estimatedPipelineMemory(size, format, job.profile, imageMemoryLimit());
+                            // EXIF orientation may exchange the axes before resizing.
+                            estimate = std::max(estimate, estimatedPipelineMemory(size.transposed(), format,
+                                job.profile, imageMemoryLimit()));
+                        }
+                        estimate += std::min(resourceBytes, imageMemoryLimit() - estimate);
+                        const auto lease = memory.acquire(estimate, cancel);
+                        checkCancel(cancel);
+                        if (imageFileKey(entry.input) != entry.inputStamp)
+                            throw std::runtime_error("Quelle wurde während des Wartens verändert.");
                         entry.inputBytes = QFileInfo(entry.input).size();
                         auto read = registry.read(entry.input);
                         if (!read.ok())

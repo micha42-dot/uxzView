@@ -97,7 +97,7 @@ xdg-mime default org.ixview.IxView.desktop image/jpeg image/png image/webp image
 
 Place the built `uxzView.app` in Applications and open it once. In Finder, select an image → **Get Info → Open with → üxzView → Change All**. Repeat for each image type you want to associate.
 
-Development: [contributing](CONTRIBUTING.md), [architecture](docs/ARCHITECTURE.md), [tests and maintenance](docs/DEVELOPMENT.md).
+Development: [contributing](CONTRIBUTING.md), [architecture](docs/ARCHITECTURE.md), [tests and maintenance](docs/DEVELOPMENT.md), [stabilization review and remaining work](docs/STABILIZATION_2026-11-02.md).
 
 ## License
 

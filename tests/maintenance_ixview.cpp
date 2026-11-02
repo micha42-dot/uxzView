@@ -6,6 +6,7 @@
 #include "core/image_memory.h"
 #include "core/jpeg_transform.h"
 #include "core/batch_pipeline.h"
+#include "core/batch_memory.h"
 #include <QColorSpace>
 #include "ui/main_window.h"
 #include <QClipboard>
@@ -16,6 +17,9 @@
 #include <QtWidgets>
 #include <thread>
 #include <limits>
+#include <future>
+#include <vector>
+#include <stdexcept>
 #ifdef IX_TEST_ARCHIVE
 #include <KZip>
 #endif
@@ -88,6 +92,144 @@ class MaintenanceTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_;
   private slots:
+    void batchMemoryEstimatesCoverWidePixelsAndUnknownHeaders() {
+        ix::PipelineProfile profile;
+        profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        const auto limit = 512 * ix::MiB;
+        QVERIFY(ix::estimatedPipelineMemory({64,48}, QImage::Format_ARGB32, profile, limit) < limit / 4);
+        const auto narrow = ix::estimatedPipelineMemory({3000,2000}, QImage::Format_ARGB32, profile, limit);
+        const auto wide = ix::estimatedPipelineMemory({3000,2000}, QImage::Format_RGBA64, profile, limit);
+        QVERIFY(wide > narrow);
+        QCOMPARE(ix::estimatedPipelineMemory({}, QImage::Format_ARGB32, profile, limit), limit);
+        QCOMPARE(ix::estimatedPipelineMemory({1,1}, QImage::Format_Invalid, profile, limit), limit);
+        QCOMPARE(ix::estimatedPipelineMemory({ix::ImageAxisLimit,ix::ImageAxisLimit}, QImage::Format_RGBA32FPx4, profile, limit), limit);
+        QCOMPARE(ix::estimatedPipelineMemory({ix::ImageAxisLimit+1,1}, QImage::Format_RGB32, profile, limit), limit);
+        profile.steps.prepend({QStringLiteral("resize"), {{QStringLiteral("width"),100000},{QStringLiteral("height"),100000}}});
+        QCOMPARE(ix::estimatedPipelineMemory({64,48}, QImage::Format_RGBA64, profile, limit), limit);
+        profile.steps[0].parameters = {{QStringLiteral("width"),4096},{QStringLiteral("height"),3072},
+            {QStringLiteral("proportional"),false},{QStringLiteral("filter"),5}};
+        const auto roomy = 2048 * ix::MiB;
+        const auto normalizedWide = ix::estimatedPipelineMemory({64,48}, QImage::Format_RGBA64, profile, roomy);
+        // 16-bit gray and RGB30 use 64-bit normalized resize output too.
+        QCOMPARE(ix::estimatedPipelineMemory({64,48}, QImage::Format_Grayscale16, profile, roomy), normalizedWide);
+        QCOMPARE(ix::estimatedPipelineMemory({64,48}, QImage::Format_RGB30, profile, roomy), normalizedWide);
+        QVERIFY(ix::estimatedPipelineMemory({64,48}, QImage::Format_ARGB32, profile, roomy) < normalizedWide);
+        profile.steps[0].parameters.insert(QStringLiteral("filter"),6);
+        const auto floating = ix::estimatedPipelineMemory({64,48}, QImage::Format_RGBA32FPx4, profile, roomy);
+        profile.steps.prepend({QStringLiteral("watermark"), {{QStringLiteral("text"),QStringLiteral("mark")}}});
+        QCOMPARE(ix::estimatedPipelineMemory({64,48}, QImage::Format_RGBA32FPx4, profile, roomy), floating);
+    }
+    void batchMemoryAdmissionCancelsAndReleasesMovedLeases() {
+        ix::BatchMemoryGate budget(100);
+        std::atomic_bool cancel = false, waiterCancel = false, finished = false, admitted = false;
+        QSemaphore entered;
+        {
+            auto original = budget.acquire(60, cancel);
+            auto moved = std::move(original);
+            QVERIFY(!original); QVERIFY(moved);
+            auto remainder = budget.acquire(40, cancel);
+            QVERIFY(remainder);
+            std::thread waiter([&] {
+                entered.release();
+                auto lease = budget.acquire(1, waiterCancel);
+                admitted = bool(lease);
+                finished = true;
+            });
+            const auto join = qScopeGuard([&] { waiterCancel = true; waiter.join(); });
+            QVERIFY(entered.tryAcquire(1, 1000));
+            QVERIFY(!finished.load());
+            waiterCancel = true;
+            QTRY_VERIFY_WITH_TIMEOUT(finished.load(), 1000);
+            QVERIFY(!admitted.load());
+        }
+        // The canceled queue entry and both moved/remaining leases must be gone.
+        try {
+            auto oversized = budget.acquire(1000, cancel);
+            QVERIFY(oversized);
+            throw std::runtime_error("simulated decoder failure");
+        } catch (const std::runtime_error &) {}
+        auto all = budget.acquire(100, cancel);
+        QVERIFY(all);
+        QVERIFY(!budget.acquire(1, waiterCancel));
+    }
+    void batchMemoryAdmissionBoundsConcurrentEstimatedBytes() {
+        ix::BatchMemoryGate budget(96);
+        std::atomic_bool cancel = false;
+        std::atomic_int used = 0, peak = 0, completed = 0;
+        std::vector<std::thread> threads;
+        const auto join = qScopeGuard([&] { for (auto &thread : threads) if (thread.joinable()) thread.join(); });
+        for (int worker = 0; worker < 8; ++worker) threads.emplace_back([&, worker] {
+            for (int i = 0; i < 50; ++i) {
+                const int cost = 1 + (worker * 13 + i * 7) % 70;
+                auto lease = budget.acquire(cost, cancel);
+                const int active = used.fetch_add(cost) + cost;
+                auto maximum = peak.load();
+                while (active > maximum && !peak.compare_exchange_weak(maximum, active)) {}
+                std::this_thread::yield();
+                used -= cost;
+                ++completed;
+            }
+        });
+        for (auto &thread : threads) thread.join();
+        QCOMPARE(completed.load(), 400); QCOMPARE(used.load(), 0);
+        QVERIFY(peak.load() <= 96); QVERIFY(peak.load() > 0);
+    }
+    void waitingBatchDoesNotDecodeCanceledOrChangedSources_data() {
+        QTest::addColumn<bool>("cancelWaiting");
+        QTest::newRow("cancel") << true;
+        QTest::newRow("source-rewritten") << false;
+    }
+    void waitingBatchDoesNotDecodeCanceledOrChangedSources() {
+        QFETCH(bool, cancelWaiting);
+        class HoldingCodec final : public ix::ImageCodec {
+          public:
+            mutable QSemaphore entered, resume;
+            mutable std::atomic_int reads = 0;
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &, int) const override {
+                ++reads; entered.release();
+                if (!resume.tryAcquire(1, 5000)) return {{}, QStringLiteral("test decoder deadline")};
+                ix::ImageDocument document;
+                document.pixels = QImage(8, 6, QImage::Format_RGBA64); document.pixels.fill(Qt::green);
+                return {document, {}};
+            }
+        };
+        auto codec = std::make_shared<HoldingCodec>();
+        ix::CodecRegistry registry; registry.add(codec);
+        ix::PipelineJob job;
+        job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        QList<ix::PipelineFile> plan;
+        for (int i = 0; i < 2; ++i) {
+            ix::PipelineFile file;
+            file.input = temporary_.filePath(QStringLiteral("queued-%1-%2.owned").arg(cancelWaiting).arg(i));
+            file.output = temporary_.filePath(QStringLiteral("queued-%1-%2.png").arg(cancelWaiting).arg(i));
+            QFile input(file.input); QVERIFY(input.open(QIODevice::WriteOnly)); input.write("owned"); input.close();
+            file.inputStamp = ix::imageFileKey(file.input); plan.append(file);
+        }
+        std::atomic_bool firstCancel = false, secondCancel = false;
+        auto first = std::async(std::launch::async, [&] { return ix::BatchPipeline::run(job, {plan[0]}, firstCancel, {}, &registry); });
+        const auto release = qScopeGuard([&] { codec->resume.release(4); if (first.valid()) first.wait(); });
+        QVERIFY(codec->entered.tryAcquire(1, 2000));
+        auto second = std::async(std::launch::async, [&] { return ix::BatchPipeline::run(job, {plan[1]}, secondCancel, {}, &registry); });
+        const auto cancelSecond = qScopeGuard([&] { secondCancel = true; if (second.valid()) second.wait(); });
+        QVERIFY(!codec->entered.tryAcquire(1, 100));
+        if (cancelWaiting) secondCancel = true;
+        else {
+            QFile changed(plan[1].input); QVERIFY(changed.open(QIODevice::WriteOnly));
+            changed.write("externally changed while queued"); changed.close();
+            codec->resume.release();
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(second.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready, 2000);
+        QVERIFY(!second.get()[0].error.isEmpty());
+        QCOMPARE(codec->reads.load(), 1);
+        QVERIFY(!QFileInfo::exists(plan[1].output));
+        codec->resume.release();
+        const auto result = first.get();
+        QVERIFY2(result[0].error.isEmpty(), qPrintable(result[0].error));
+        const QImage output(plan[0].output);
+        QCOMPARE(output.size(), QSize(8,6)); QCOMPARE(output.pixelColor(0,0), QColor(Qt::green));
+    }
     void init() {
         ix::configureImageStorage({false});
         QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);

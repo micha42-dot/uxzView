@@ -18,6 +18,10 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Unreleased: Verarbeitungsketten koordinieren ihren geschätzten Speicherbedarf jetzt über parallele Läufe hinweg. Wartende Jobs lassen sich ohne Dekodierung abbrechen; geänderte Quellen werden vor dem Lesen zurückgewiesen. Beim großen 16-Bit-Vergleich mit 512 MiB Bildbudget sank die private Speicherspitze um rund 53 %, bei längerer Laufzeit. 681 Qt-Fälle und 47 Python-Tests bestehen lokal. [Messwerte und Grenzen](docs/BATCH_MEMORY_2026-11-02.md).
+
+- Unreleased: Qt-6.8-Öffnen-Dialogtest stabilisiert, macOS-Auslagerung auf das tatsächlich geöffnete Dateisystem umgestellt, sichere Speicherabfrage bei fehlender Voreinstellung und gemeinsamer Fortschritts-Join. 676 Qt-Fälle und 47 Python-Tests bestehen lokal. Native CI-Bestätigung und weitere Architektur-/Speicher-/Format-/DLL-Arbeiten bleiben offen. [Stabilisierungsbericht und Messwerte](docs/STABILIZATION_2026-11-02.md).
+
 - Unreleased: Pixelverdopplung mit wiederverwendeten Ausgabezeilen, exakte
   SSE2-Byteausgabe, lazy Gamma-Tabelle und begrenzte Kacheln für breite Bilder.
   Echte proportionale Läufe bis 100000 × 53333 Pixel; benachbarte Zeilenblöcke

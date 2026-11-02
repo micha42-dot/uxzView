@@ -14,6 +14,7 @@
 #include <QPainter>
 #include <QProcess>
 #include <QTemporaryDir>
+#include <QStorageInfo>
 #include <QtConcurrent>
 #include <QtTest>
 #include <cstdlib>
@@ -38,7 +39,13 @@ class LargeImageTests : public QObject {
     Q_OBJECT
     QTemporaryDir temp_;
 private slots:
-    void initTestCase() { ix::initializeImageMemoryLimit(512); QVERIFY(temp_.isValid()); }
+    void initTestCase() {
+        ix::initializeImageMemoryLimit(512); QVERIFY(temp_.isValid());
+        const QStorageInfo disk(temp_.path());
+        qInfo() << "Temporary storage:" << temp_.path() << "Qt volume:" << disk.rootPath()
+            << "valid:" << disk.isValid() << "ready:" << disk.isReady()
+            << "read-only:" << disk.isReadOnly() << "available bytes:" << disk.bytesAvailable();
+    }
     void init() { QCOMPARE(ix::mappedImageBytes(),0); ix::configureImageStorage({true,32*ix::MiB,temp_.path(),1}); }
     void cleanup() { QCOMPARE(ix::mappedImageBytes(),0); }
     void lifetimeAndHeader() {
@@ -233,12 +240,17 @@ private slots:
 };
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
-    if (app.arguments().contains(QStringLiteral("--leave-swap"))) {
-        ix::configureImageStorage({true,32*ix::MiB,app.arguments().last(),1});
-        auto image=ix::allocateImage({20,20},QImage::Format_RGB32); image.fill(Qt::green);
-        const auto path=ix::imageBackingFile(image).toUtf8(); std::fwrite(path.constData(),1,size_t(path.size()),stdout); std::fflush(stdout);
-        std::_Exit(0);
+    try {
+        if (app.arguments().contains(QStringLiteral("--leave-swap"))) {
+            ix::configureImageStorage({true,32*ix::MiB,app.arguments().last(),1});
+            auto image=ix::allocateImage({20,20},QImage::Format_RGB32); image.fill(Qt::green);
+            const auto path=ix::imageBackingFile(image).toUtf8(); std::fwrite(path.constData(),1,size_t(path.size()),stdout); std::fflush(stdout);
+            std::_Exit(0);
+        }
+        LargeImageTests tests; return QTest::qExec(&tests,argc,argv);
+    } catch (const std::exception &error) {
+        qCritical().noquote() << "Large-image test exception:" << error.what();
+        return 1;
     }
-    LargeImageTests tests; return QTest::qExec(&tests,argc,argv);
 }
 #include "large_images_ixview.moc"

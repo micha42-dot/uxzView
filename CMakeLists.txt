@@ -23,7 +23,7 @@ add_library(ixcore STATIC
     src/core/codec_registry.cpp src/core/processing.cpp src/core/resampling.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
     src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
-    src/core/file_operations.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_plan.cpp src/core/batch_report.cpp src/core/plugin_store.cpp
+    src/core/file_operations.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_memory.cpp src/core/batch_plan.cpp src/core/batch_report.cpp src/core/plugin_store.cpp
     src/core/app_storage.cpp src/core/extension_storage.cpp src/core/tool_store.cpp src/core/recognition_input.cpp
     src/core/image_loading.cpp src/core/directory_index_service.cpp)
 target_include_directories(ixcore PUBLIC src)
@@ -181,6 +181,8 @@ if(BUILD_TESTING)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/output)
     qt_add_executable(ixview_benchmarks tests/bench_ixview.cpp resources/app.qrc)
     target_link_libraries(ixview_benchmarks PRIVATE ixui Qt6::Test)
+    qt_add_executable(ixview_batch_memory_benchmarks tests/bench_batch_memory.cpp)
+    target_link_libraries(ixview_batch_memory_benchmarks PRIVATE ixcore)
     qt_add_executable(ixview_tests tests/test_ixview.cpp resources/app.qrc)
     target_link_libraries(ixview_tests PRIVATE ixui Qt6::Test TIFF::TIFF)
     if(TARGET ixarchive)
@@ -212,7 +214,7 @@ if(BUILD_TESTING)
     target_compile_definitions(ixview_workflow_tests PRIVATE
         IX_WORKFLOW_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output"
         IX_WORKFLOW_RAW_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/build/quality-fixtures")
-    add_test(NAME ixview_workflow_tests COMMAND ixview_workflow_tests -platform offscreen
+    add_test(NAME ixview_workflow_tests COMMAND ixview_workflow_tests -v1 -platform offscreen
         -o ${CMAKE_CURRENT_BINARY_DIR}/workflow-test-results.txt,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/workflow-test-results.xml,junitxml)
     qt_add_executable(ixview_quality_tests tests/quality_ixview.cpp resources/app.qrc)
@@ -284,7 +286,7 @@ if(BUILD_TESTING)
         -o ${CMAKE_CURRENT_BINARY_DIR}/ui-quality-test-results.xml,junitxml)
     qt_add_executable(ixview_large_image_tests tests/large_images_ixview.cpp resources/app.qrc)
     target_link_libraries(ixview_large_image_tests PRIVATE ixui Qt6::Test)
-    add_test(NAME ixview_large_image_tests COMMAND ixview_large_image_tests -platform offscreen
+    add_test(NAME ixview_large_image_tests COMMAND ixview_large_image_tests -v1 -platform offscreen
         -o ${CMAKE_CURRENT_BINARY_DIR}/large-image-test-results.txt,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/large-image-test-results.xml,junitxml)
     set_tests_properties(ixview_tests ixview_workflow_tests ixview_quality_tests

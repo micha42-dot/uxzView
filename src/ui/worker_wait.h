@@ -4,6 +4,8 @@
 #include <QEventLoop>
 #include <QFutureWatcher>
 #include <QScopeGuard>
+#include <QProgressDialog>
+#include <QTimer>
 #include <QThread>
 #include <QtConcurrent>
 #include <type_traits>
@@ -18,6 +20,21 @@ template <class Result> void waitForGuiWorker(QFutureWatcher<Result> &watcher) {
     if (!watcher.isFinished()) loop.exec(QEventLoop::ExcludeUserInputEvents);
     // Application shutdown may end nested loops before a worker finishes.
     if (!watcher.isFinished()) watcher.waitForFinished();
+}
+
+// Non-cancellable transactions only. Fast saves/moves need no progress window.
+// Join the future's loop rather than a dialog loop: completion during show()
+// must not be lost before QDialog::exec() has started its nested event loop.
+template <class Result> void waitForGuiWorker(QFutureWatcher<Result> &watcher, QProgressDialog &progress) {
+    QTimer delayedShow;
+    delayedShow.setSingleShot(true);
+    QObject::connect(&delayedShow, &QTimer::timeout, &progress, [&] {
+        if (!watcher.isFinished()) progress.show();
+    });
+    delayedShow.start(200);
+    waitForGuiWorker(watcher);
+    delayedShow.stop();
+    progress.hide();
 }
 template <class Work> auto runGuiWorker(Work work) {
     QApplication::setOverrideCursor(Qt::BusyCursor);

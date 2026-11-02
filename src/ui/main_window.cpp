@@ -864,7 +864,7 @@ void MainWindow::openRequested(DeferredOpen request) {
     // the image the user has just chosen while the window was already idle.
     deferredOpenTimer_.stop();
     deferredOpen_.reset();
-    if (checkChanges && !confirmDiscard(DiscardPolicy::UsePreference))
+    if (checkChanges && !confirmDiscard())
         return;
     animationTimer_.stop();
     if (path != document_.path) {
@@ -1062,7 +1062,7 @@ void MainWindow::page(int direction) {
     const int index = document_.page + direction;
     if (index < 0 || index >= document_.pageCount || index == document_.page)
         return;
-    if (document_.modified && !confirmDiscard(DiscardPolicy::UsePreference))
+    if (document_.modified && !confirmDiscard())
         return;
     // Saving can collapse a multi-page document into a single output page.
     if (index < document_.pageCount && index != document_.page)
@@ -2161,7 +2161,7 @@ void MainWindow::dispatch(const QString &cmd) {
             animationPlaying_ = false;
             return;
         }
-        if (!confirmDiscard(DiscardPolicy::UsePreference) || !document_.animated)
+        if (!confirmDiscard() || !document_.animated)
             return;
         animationPlaying_ = true;
         if (animationEnded_) {
@@ -2311,7 +2311,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
         e->ignore();
         return;
     }
-    if (!confirmDiscard(DiscardPolicy::UsePreference)) {
+    if (!confirmDiscard()) {
         e->ignore();
         return;
     }

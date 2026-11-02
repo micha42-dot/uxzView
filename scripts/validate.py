@@ -21,7 +21,7 @@ NATIVE_GROUPS = {
         fileOpenDuringSaveIsDeferredUntilTransactionEnds keyboardFolderNavigation
         duplicateResultOpensWithoutManualDialogClosing fullscreenCloseKeepsWindowFitPreference
         saveReadOnlyFormatOffersSaveAs uppercaseJpegSaveRetainsLosslessCommands watermarkConvertsTaggedColorSpace
-        fittedImageHasNoPhantomScrollbarsAndWheelNavigates imageChangesAndClosingDiscardEditsByDefault
+        fittedImageHasNoPhantomScrollbarsAndWheelNavigates imageChangesAndClosingDiscardEditsWhenConfigured
         editedClosingFollowsSavePreference
         imageChangeSaveQuestionCanBeEnabled aspectRatioCropMenuAppliesAndUndoes fullscreenMouseNavigationAndDrags
         neighborPreviewsReuseWidgetsAndRefreshChangedFiles'''.split(),

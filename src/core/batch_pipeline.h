@@ -50,7 +50,9 @@ class BatchPipeline {
                                    const std::atomic_bool &cancel,
                                    const QList<PipelineFile> &reviewedPlan = {});
     // Optional configured codecs are copied into workers; run joins all workers
-    // before returning. Custom readers must support the requested parallelism.
+    // before returning. Estimated live batch work shares a process-wide memory
+    // admission budget. Unknown headers/configured codecs run alone because
+    // ImageCodec has no header-size contract. This is not a process RSS cap.
     // Progress runs on workers, possibly concurrently/out of order. It must be
     // thread-safe, nonthrowing and must not wait for GUI work. Queue UI updates
     // with a guarded receiver lifetime. run joins callbacks, not queued delivery.

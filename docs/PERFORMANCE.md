@@ -1,5 +1,13 @@
 # Performance in üxzView
 
+## Batch memory admission
+
+The [batch memory review](BATCH_MEMORY_2026-11-02.md) compares real RGBA64 PNG
+chains before/after memory admission, including output hashes and sampled process
+private bytes. Tight-budget runs trade throughput for lower memory pressure;
+roomy-budget jobs retain parallel execution. The small-file sample adds about
+1.2 ms. This change is not a general batch-speed or process-RAM-limit claim.
+
 ## Large resizes
 
 The [resize review](RESIZE_PERFORMANCE_REVIEW.md) records the reproduced

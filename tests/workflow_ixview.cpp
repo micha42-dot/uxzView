@@ -60,6 +60,106 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
+    void freshProfileAsksBeforeDiscardingEdits_data() {
+        QTest::addColumn<QString>("route");
+        for (const auto *route : {"open","next","reload","page","close","escape","exit","clear","slideshow"})
+            QTest::newRow(route) << QString::fromLatin1(route);
+    }
+    void freshProfileAsksBeforeDiscardingEdits() {
+        QFETCH(QString,route);
+        QSettings settings; QVariantMap previous;
+        for (const auto &key : settings.allKeys()) previous.insert(key,settings.value(key));
+        const auto restore=qScopeGuard([&] {
+            settings.clear(); for (auto i=previous.cbegin();i!=previous.cend();++i) settings.setValue(i.key(),i.value());
+        });
+        for (bool configured : {false,true}) {
+            settings.setValue(QStringLiteral("navigation/askToSave"),configured);
+            ix::SettingsDialog dialog;
+            auto *ask=dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"));
+            QVERIFY(ask); QCOMPARE(ask->isChecked(),configured); dialog.reject();
+            QCOMPARE(settings.value(QStringLiteral("navigation/askToSave")).toBool(),configured);
+        }
+        settings.remove(QStringLiteral("navigation/askToSave"));
+        settings.setValue(QStringLiteral("slideshow/seconds"),.1);
+        settings.setValue(QStringLiteral("slideshow/fullscreen"),false);
+        settings.setValue(QStringLiteral("slideshow/random"),false);
+        settings.setValue(QStringLiteral("navigation/sort"),0);
+        settings.setValue(QStringLiteral("navigation/reverse"),false);
+        {
+            ix::SettingsDialog dialog;
+            auto *ask=dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"));
+            QVERIFY(ask); QVERIFY(ask->isChecked()); dialog.reject();
+            QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
+        }
+        const auto first=photo(QStringLiteral("fresh-%1/1.png").arg(route),Qt::red);
+        const auto second=photo(QStringLiteral("fresh-%1/2.png").arg(route),Qt::green);
+        if (route==QStringLiteral("page")) {
+            QFile file(first); QVERIFY(file.open(QIODevice::WriteOnly));
+            const auto frames=ix::test::apngFixture(2,{16,8},60000);
+            QCOMPARE(file.write(frames),qint64(frames.size()));
+        }
+        const auto original=ix::sha256File(first);
+        ix::MainWindow window; window.show(); window.openPath(first);
+        QTRY_VERIFY(!window.isBusy() && window.document().path==first);
+        auto *index=window.findChild<ix::DirectoryIndexService *>(); QVERIFY(index);
+        QTRY_VERIFY(!index->isBusy());
+        window.dispatch(QStringLiteral("grayscale")); QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        window.dispatch(QStringLiteral("negative")); QTRY_VERIFY(!window.isBusy());
+        window.dispatch(QStringLiteral("undo")); QTRY_VERIFY(!window.isBusy());
+        auto *view=window.findChild<ix::ImageView *>(); QVERIFY(view); view->setSelection({2,2,5,3});
+        const auto edited=window.document().pixels.cacheKey(), display=view->image().cacheKey();
+        const auto selection=view->selection(); const int page=window.document().page;
+        int questions=0;
+        QTimer driver;
+        connect(&driver,&QTimer::timeout,&window,[&] {
+            if (auto *box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                ++questions; box->reject();
+            }
+        }); driver.start(10);
+        if (route==QStringLiteral("open")) window.openPath(second);
+        else if (route==QStringLiteral("page")) window.findChild<QAction *>(QStringLiteral("nextPage"))->trigger();
+        else if (route==QStringLiteral("close")) QVERIFY(!window.close());
+        else if (route==QStringLiteral("escape")) QTest::keyClick(view,Qt::Key_Escape);
+        else window.dispatch(route==QStringLiteral("reload") ? QStringLiteral("reopen") : route);
+        QTRY_COMPARE(questions,1); driver.stop();
+        QVERIFY(window.isVisible()); QVERIFY(!window.isBusy()); QVERIFY(window.document().modified);
+        QCOMPARE(window.document().path,first); QCOMPARE(window.document().page,page);
+        QCOMPARE(window.document().pixels.cacheKey(),edited); QCOMPARE(view->image().cacheKey(),display);
+        QCOMPARE(view->selection(),selection); QCOMPARE(ix::sha256File(first),original);
+        QVERIFY(window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
+        QVERIFY(window.findChild<QAction *>(QStringLiteral("redo"))->isEnabled());
+        QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
+    }
+    void failedSaveDuringCloseRetainsEditsAndBothHistoryDirections() {
+        QSettings settings; const auto old=settings.value(QStringLiteral("navigation/askToSave"));
+        const auto restore=qScopeGuard([&] { settings.setValue(QStringLiteral("navigation/askToSave"),old); });
+        settings.remove(QStringLiteral("navigation/askToSave"));
+        const auto path=photo(QStringLiteral("failed-close/source.png"),Qt::red);
+        ix::MainWindow window; window.show(); window.openPath(path); QTRY_VERIFY(!window.isBusy());
+        window.dispatch(QStringLiteral("grayscale")); QTRY_VERIFY(!window.isBusy());
+        window.dispatch(QStringLiteral("negative")); QTRY_VERIFY(!window.isBusy());
+        window.dispatch(QStringLiteral("undo")); QTRY_VERIFY(!window.isBusy());
+        const auto edited=window.document().pixels.cacheKey();
+        int saves=0,overwrites=0,errors=0; QString replacementHash;
+        QTimer driver;
+        connect(&driver,&QTimer::timeout,&window,[&] {
+            auto *box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget()); if (!box) return;
+            if (box->button(QMessageBox::Save)) { ++saves; box->button(QMessageBox::Save)->click(); }
+            else if (box->button(QMessageBox::Yes)) {
+                ++overwrites;
+                QImage newer(113,71,QImage::Format_RGB32); newer.fill(Qt::blue);
+                if (!newer.save(path)) { box->reject(); return; }
+                replacementHash=ix::sha256File(path); box->button(QMessageBox::Yes)->click();
+            } else { ++errors; box->accept(); }
+        }); driver.start(10);
+        QVERIFY(!window.close()); driver.stop();
+        QCOMPARE(saves,1); QCOMPARE(overwrites,1); QCOMPARE(errors,1);
+        QVERIFY(!replacementHash.isEmpty()); QCOMPARE(ix::sha256File(path),replacementHash);
+        QVERIFY(window.isVisible()); QVERIFY(window.document().modified);
+        QCOMPARE(window.document().pixels.cacheKey(),edited);
+        QVERIFY(window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
+        QVERIFY(window.findChild<QAction *>(QStringLiteral("redo"))->isEnabled());
+    }
     void folderTraversalIsBoundedAndOwnsSnapshot() {
         QStringList files{QStringLiteral("a"),QStringLiteral("b"),QStringLiteral("c")};
         auto forward=ix::FolderTraversal::start(files,0,1,true,QStringLiteral("a")); QVERIFY(forward);
@@ -356,7 +456,7 @@ class WorkflowTests : public QObject {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,true);
         settings.setValue(QStringLiteral("navigation/askToSave"),false);
         const auto first=photo(QStringLiteral("prepared-picker/first.png"),Qt::red);
-        const auto second=photo(QStringLiteral("prepared-picker/second.png"),Qt::green);
+        const auto second=photo(QStringLiteral("prepared-picker/zweites Bild_日本語.png"),Qt::green);
         QVERIFY(!first.isEmpty() && !second.isEmpty());
         ix::MainWindow window; window.show(); window.openPath(first);
         QTRY_VERIFY(!window.isBusy() && window.document().path==first);
@@ -379,12 +479,24 @@ class WorkflowTests : public QObject {
         const auto remove=qScopeGuard([&] { qApp->removeEventFilter(&probe); });
         bool handled=false, hiddenDetails=false, genericIcons=false, nativeAllowed=false;
         bool rightDirectory=false, compactLabel=false;
+        QString dialogError;
+        QElapsedTimer deadline; deadline.start();
         QSize shownSize;
         QTimer timer;
         connect(&timer,&QTimer::timeout,&window,[&] {
-            auto *picker=qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+            if (deadline.elapsed()>10000 && dialogError.isEmpty())
+                dialogError=QStringLiteral("Open dialog did not complete within 10 seconds");
+            auto *modal=QApplication::activeModalWidget();
+            if (auto *message=qobject_cast<QMessageBox *>(modal)) {
+                dialogError=QStringLiteral("Unexpected open dialog message: ")+message->text();
+                message->reject();
+            }
+            auto *picker=qobject_cast<QFileDialog *>(modal);
+            if (!dialogError.isEmpty()) {
+                if (probe.dialog) probe.dialog->reject();
+                return;
+            }
             if (!picker || handled) return;
-            handled=true;
             shownSize=picker->size();
             hiddenDetails=picker->testOption(QFileDialog::HideNameFilterDetails);
             genericIcons=picker->testOption(QFileDialog::DontUseCustomDirectoryIcons);
@@ -392,14 +504,20 @@ class WorkflowTests : public QObject {
             rightDirectory=picker->directory().absolutePath()==QFileInfo(second).absolutePath();
             if (auto *types=picker->findChild<QComboBox *>(QStringLiteral("fileTypeCombo")))
                 compactLabel=types->count()>1 && !types->itemText(0).contains(QLatin1Char('*'));
-            if (accept) picker->selectFile(second);
-            QTimer::singleShot(40,picker,[picker,accept] {
-                if (accept) QMetaObject::invokeMethod(picker,"accept",Qt::DirectConnection); else picker->reject();
-            });
+            if (!accept) { handled=true; picker->reject(); return; }
+            auto *editor=picker->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+            if (!editor) { dialogError=QStringLiteral("Missing Qt filename editor"); picker->reject(); return; }
+            // Qt 6.8 selectFile() deliberately leaves a focused filename editor
+            // unchanged. Type the path as a user would, rather than waiting an
+            // arbitrary 40 ms and accepting an empty selection on some hosts.
+            editor->setFocus(); editor->setText(second);
+            handled=true;
+            QMetaObject::invokeMethod(picker,"accept",Qt::QueuedConnection);
         });
         timer.start(10);
         window.dispatch(QStringLiteral("open"));
         timer.stop();
+        QVERIFY2(dialogError.isEmpty(),qPrintable(dialogError));
         QVERIFY(handled && hiddenDetails && genericIcons && nativeAllowed && rightDirectory && compactLabel);
         QVERIFY(probe.firstSize.isValid());
         QCOMPARE(probe.firstSize,shownSize);
@@ -929,6 +1047,8 @@ class WorkflowTests : public QObject {
     void init() {
         ix::configureImageStorage({false});
         QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+        // Existing workflow fixtures deliberately exercise the configured discard mode.
+        QSettings().setValue(QStringLiteral("navigation/askToSave"), false);
     }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);

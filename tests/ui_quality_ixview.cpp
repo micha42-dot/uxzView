@@ -19,6 +19,7 @@
 #include "ui/platform_support.h"
 #include <QLockFile>
 #include <QSemaphore>
+#include <QPromise>
 #include <QAccessible>
 #include <QScopeGuard>
 #include <QtTest>
@@ -67,6 +68,37 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void progressJoinHandlesFastAndShowTimeCompletion() {
+        for (int mode=0;mode<4;++mode) {
+            QPromise<int> promise; promise.start();
+            QFutureWatcher<int> watcher; watcher.setFuture(promise.future());
+            struct Progress final : QProgressDialog {
+                int shows=0;
+                std::function<void()> duringShow;
+                void showEvent(QShowEvent *event) override {
+                    QProgressDialog::showEvent(event); ++shows;
+                    if (duringShow) duringShow();
+                }
+            } progress;
+            progress.setCancelButton(nullptr); progress.setRange(0,0);
+            progress.setWindowModality(Qt::ApplicationModal);
+            connect(&watcher,&QFutureWatcherBase::finished,&progress,&QDialog::accept);
+            const auto finish=[&] { promise.addResult(42); promise.finish(); };
+            if (mode==0) finish();
+            else if (mode==1) QTimer::singleShot(1,&watcher,finish);
+            else if (mode==2) progress.duringShow=[&] {
+                finish(); QCoreApplication::sendPostedEvents(&watcher);
+            };
+            else QTimer::singleShot(350,&watcher,finish);
+            bool timedOut=false;
+            QTimer watchdog; watchdog.setSingleShot(true);
+            connect(&watchdog,&QTimer::timeout,&progress,[&] { timedOut=true; finish(); progress.reject(); });
+            watchdog.start(2000);
+            ix::waitForGuiWorker(watcher,progress);
+            watchdog.stop(); QVERIFY(!timedOut); QCOMPARE(watcher.future().takeResult(),42);
+            QCOMPARE(progress.shows,mode<2 ? 0 : 1); QVERIFY(!progress.isVisible());
+        }
+    }
     void brandIconsFollowThemeWithoutReplacingTheDocument() {
         const auto restore = qScopeGuard([] {
             ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
@@ -303,6 +335,8 @@ class UiQualityTests : public QObject {
     void init() {
         ix::configureImageStorage({false});
         QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+        // Existing workflow fixtures deliberately exercise the configured discard mode.
+        QSettings().setValue(QStringLiteral("navigation/askToSave"), false);
     }
     void initTestCase() {
         ix::initializeImageMemoryLimit(512);
