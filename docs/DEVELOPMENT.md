@@ -126,6 +126,14 @@ child processes, not in the calling shell. These traced, nonactivating-window
 runs are diagnostics rather than a direct comparison to earlier untraced
 benchmarks. Keep the raw evidence for failures as well as successes.
 
+That benchmark starts timing in an already-running empty window. For delays
+before the window appears, enable `IX_PROFILE_IMAGE_LOAD=1` and
+`QT_FORCE_STDERR_LOGGING=1` on the actual application and retain stderr.
+`ix-startup` now separates initialization/window setup from image-worker stages;
+the clock starts at `main()`, excluding earlier DLL loading. See the
+[startup/clipboard review](STARTUP_CLIPBOARD_2026-11-03.md) for the native
+regression command, controlled contention test and remaining cold-start limits.
+
 Toolbar artwork lives in `src/ui/icons.cpp`: original 24-unit vectors with rounded 1.25-unit strokes and roughly 18-unit silhouettes. Keep counters open at the smallest 20 px setting; distinguish related commands by shape, not color. Use the desktop palette for active/disabled states and retain the DPI-aware pixmap cache. Bump its artwork revision when changing paths. The existing `outlineIconsAndZoomSemantics` check produces `tests/output/icon-set.png` in light/dark colors and checks 20/24/28/32 px at 100/125/150/200 percent scaling; inspect it alongside the `renderUi` toolbar capture. The image placeholder stays at most 32 logical pixels, centered in larger thumbnail canvases; its raster cache revision is `v5`. Keep icon keys stable so action wiring and accessibility names remain intact. [UI_STYLE.md](UI_STYLE.md) records field, focus and status-bar conventions.
 
 - Preserve a small reproducible fixture and record dimensions, format, profile and the triggering command sequence.

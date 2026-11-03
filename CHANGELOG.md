@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- Keep Windows Paste availability checks off the external clipboard data path:
+  query advertised native formats without retrieving payloads or waiting for
+  another process's clipboard lock. Retain actual Qt paste behavior and add
+  image/URL/text and locked-clipboard regressions. Extend optional image-load
+  diagnostics through application startup and window construction.
+- Sharpen RGB32/ARGB32 directly with an exact byte kernel, using baseline SSE2
+  for groups of four interior pixels and a portable scalar path elsewhere.
+  Remove the two RGBA64 working buffers and format round trips. Preserve alpha,
+  padding/source data, metadata, legacy DPR/offset behavior and conservative
+  admission checks. Add exhaustive byte/sum and scalar/SIMD validation.
+- Skip obsolete queued full-image opens and unnecessary presentation work after
+  a newer explicit request. Preserve current image/history/selection on cancelled
+  completion, keep unreadable errors distinct, and deliver deferred requests at
+  worker completion without an extra polling delay. Retain dirty-document,
+  RAW-preview, page/animation, save and relative-navigation ordering safeguards.
+- Share overlapping eligible PNG/BMP pixel decodes between foreground opening
+  and thumbnails. Keep per-reader metadata/revision checks, cancellable preview
+  waits, independent generations and reader-specific error retries. Restore
+  preview worker priority after foreground joins. Add race/failure regressions
+  and concurrent decode CPU/private-memory profiling.
+- Reuse full pixels already decoded for eligible PNG/BMP neighbor thumbnails
+  when opening that file. Keep foreground metadata and revision checks; share
+  existing cache limits and prioritize originals and nearest neighbors.
+  Retain efficient reduced JPEG decoding and all animation/RAW/PDF paths.
+- Reuse prepared color-managed/sharpened display pixels when revisiting cached
+  originals. Keep ordinary sRGB/unmanaged display on its direct path. Share the
+  existing image-cache allowance, reclaim presentation buffers before originals
+  and bound combined image/preview ownership by the image-memory budget.
+  Account for retained cache cost when admitting new batch work. Add native
+  window navigation profiling and low-budget/race/policy regressions.
 - Coordinate estimated pipeline memory across simultaneous batch runs before
   decoding; keep small jobs parallel and serialize unknown/oversized work.
   Cancel queued jobs without decoding or publishing, release reservations on

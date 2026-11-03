@@ -17,6 +17,8 @@
 #include <QTimer>
 #include <functional>
 #include <optional>
+#include <atomic>
+#include <memory>
 class QToolBar;
 class QComboBox;
 class QLabel;
@@ -156,5 +158,7 @@ class MainWindow : public QMainWindow {
     void showError(const QString &error);
     void stopAnimation();
     void displayCurrent();
+    void deliverDeferredOpen();
+    std::shared_ptr<std::atomic_bool> loadCancelled_;
 };
 } // namespace ix

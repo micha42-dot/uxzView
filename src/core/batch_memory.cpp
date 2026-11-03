@@ -50,7 +50,8 @@ qint64 estimatedPipelineMemory(QSize size, QImage::Format format,
     }
     return peak >= limit - std::min(limit, 16 * MiB) ? limit : peak + 16 * MiB;
 }
-BatchMemoryGate::BatchMemoryGate(qint64 limit) : limit_(std::max<qint64>(1, limit)) {}
+BatchMemoryGate::BatchMemoryGate(qint64 limit, std::function<qint64()> retained)
+    : limit_(std::max<qint64>(1, limit)), retained_(std::move(retained)) {}
 BatchMemoryGate::Lease::~Lease() { if (owner_) owner_->release(bytes_); }
 BatchMemoryGate::Lease BatchMemoryGate::acquire(qint64 bytes, const std::atomic_bool &cancel) {
     bytes = std::clamp<qint64>(bytes, 1, limit_);
@@ -63,7 +64,10 @@ BatchMemoryGate::Lease BatchMemoryGate::acquire(qint64 bytes, const std::atomic_
         changed_.notify_all();
     });
     while (!cancel.load()) {
-        if (waiting_.front() == &bytes && bytes <= limit_ - used_) {
+        const auto capacity = limit_ - (retained_ ? std::clamp<qint64>(retained_(), 0, limit_ - 1) : 0);
+        // Existing work is never preempted. An oversized sole job may proceed
+        // using the existing per-operation/disk-backed guards rather than hang.
+        if (waiting_.front() == &bytes && (used_ == 0 || bytes <= capacity - used_)) {
             waiting_.pop_front();
             used_ += bytes;
             changed_.notify_all();

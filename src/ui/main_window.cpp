@@ -170,6 +170,15 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
         setCursor(Qt::ArrowCursor);
         auto r = worker_.future().takeResult();
         auto request = std::exchange(activeOpen_, std::nullopt);
+        const auto cancelled = std::exchange(loadCancelled_, {});
+        if (deferredOpen_) QTimer::singleShot(0, this, &MainWindow::deliverDeferredOpen);
+        if (cancelled && cancelled->load()) {
+            // Only loads over an unmodified static document, without a shown
+            // RAW preview, can be superseded. Keep document, display and history.
+            rawPreviewShown_ = false;
+            refreshState();
+            return;
+        }
         if (rawPreviewShown_ && !r.error.isEmpty())
             view_->setImage(document_.pixels);
         rawPreviewShown_ = false;
@@ -259,7 +268,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
         updatePreviews();
         updateStatus();
         refreshState();
-        if (!watchedFolder_.isEmpty() && pendingNavigation_ == 0 && !activity_.busy() && !QApplication::activeModalWidget() &&
+        if (!watchedFolder_.isEmpty() && !deferredOpen_ && pendingNavigation_ == 0 && !activity_.busy() && !QApplication::activeModalWidget() &&
             !document_.modified && !snapshot.latest.isEmpty() && snapshot.latest != document_.path) {
             openFolderPath(snapshot.latest, true, false);
             return;
@@ -271,16 +280,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     });
     deferredOpenTimer_.setSingleShot(true);
     deferredOpenTimer_.setInterval(50);
-    connect(&deferredOpenTimer_, &QTimer::timeout, this, [this] {
-        if (!deferredOpen_)
-            return;
-        if (activity_.busy() || QApplication::activeModalWidget()) {
-            deferredOpenTimer_.start();
-            return;
-        }
-        auto request = std::exchange(deferredOpen_, std::nullopt);
-        openRequested(std::move(*request));
-    });
+    connect(&deferredOpenTimer_, &QTimer::timeout, this, &MainWindow::deliverDeferredOpen);
     QSettings settings;
     if (settings.value(QStringLiteral("window/rememberGeometry"), true).toBool())
         restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
@@ -295,7 +295,18 @@ MainWindow::~MainWindow() {
     // Workers capture value inputs and only queue GUI delivery. Join before
     // member/child destruction so no preview callback can outlive this owner.
     disconnect(&worker_, nullptr, this, nullptr);
+    if (loadCancelled_) loadCancelled_->store(true);
     worker_.waitForFinished();
+}
+void MainWindow::deliverDeferredOpen() {
+    if (!deferredOpen_) return;
+    if (activity_.busy() || QApplication::activeModalWidget()) {
+        deferredOpenTimer_.start();
+        return;
+    }
+    deferredOpenTimer_.stop();
+    auto request = std::exchange(deferredOpen_, std::nullopt);
+    openRequested(std::move(*request));
 }
 QStringList MainWindow::implementedCommands() const {
     QStringList result;
@@ -856,6 +867,10 @@ void MainWindow::openRequested(DeferredOpen request) {
     if (checkChanges)
         pendingNavigation_ = 0;
     if (activity_.busy() || QApplication::activeModalWidget()) {
+        if (request.checkChanges && workMode_ == WorkMode::Load && activity_.workerActive() &&
+            !document_.modified && !document_.animated && !rawPreviewShown_ && activeOpen_ && loadCancelled_ &&
+            (request.path != activeOpen_->path || request.page != activeOpen_->page))
+            loadCancelled_->store(true);
         deferredOpen_ = std::move(request);
         deferredOpenTimer_.start();
         return;
@@ -880,20 +895,22 @@ void MainWindow::openRequested(DeferredOpen request) {
     const int generation = ++loadGeneration_;
     QPointer<MainWindow> self(this);
     activeOpen_ = std::move(request);
+    const auto cancel = loadCancelled_ = std::make_shared<std::atomic_bool>(false);
     beginWork(
         [=] {
             const ImageLoadRequest request{path, pageIndex, manage, sharp, rawPreview};
-            auto result = loadImage(registry, request, [self, generation](QImage preview) {
+            auto result = loadImage(registry, request, [self, generation, cancel](QImage preview) {
                 if (!self) return;
-                QMetaObject::invokeMethod(self, [self, preview = std::move(preview), generation] {
-                    if (self && self->activity_.workerActive() && self->loadGeneration_ == generation) {
+                QMetaObject::invokeMethod(self, [self, preview = std::move(preview), generation, cancel] {
+                    if (self && !cancel->load() && self->activity_.workerActive() && self->loadGeneration_ == generation) {
                         self->view_->setImage(preview);
                         self->rawPreviewShown_ = true;
                         self->status_[0]->setText(IX_TEXT("RAW-Vorschau – Original wird entwickelt …"));
                     }
                 }, Qt::QueuedConnection);
-            });
-            return WorkResult{std::move(result.document), std::move(result.display), std::move(result.error)};
+            }, cancel.get());
+            if (!result) return WorkResult{};
+            return WorkResult{std::move(result->document), std::move(result->display), std::move(result->error)};
         },
         same && pageIndex != document_.page && !document_.modified ? WorkMode::Page : WorkMode::Load);
 }
@@ -1152,9 +1169,7 @@ void MainWindow::refreshState() {
         if (key == QStringLiteral("redo"))
             enabled = history_.canRedo();
         if (key == QStringLiteral("paste"))
-            enabled =
-                QApplication::clipboard()->mimeData() && (QApplication::clipboard()->mimeData()->hasImage() ||
-                                                          QApplication::clipboard()->mimeData()->hasUrls());
+            enabled = clipboardHasImageOrUrls();
         if (key == QStringLiteral("restoreSelection"))
             enabled = !document_.empty() && !lastSelection_.isEmpty();
         if (key == QStringLiteral("maximizeSelection"))

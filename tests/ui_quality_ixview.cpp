@@ -25,6 +25,10 @@
 #include <QtTest>
 #include <QtWidgets>
 #include <cmath>
+#include <atomic>
+#include <future>
+#include <thread>
+#include <chrono>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
 #include <bit>
@@ -68,6 +72,73 @@ class UiQualityTests : public QObject {
         QVERIFY(widget->grab().save(QDir(output).filePath(name + QStringLiteral(".png"))));
     }
   private slots:
+    void pasteAvailabilityDoesNotReadPayloads_data() {
+        QTest::addColumn<int>("kind");
+        QTest::newRow("empty") << 0;
+        QTest::newRow("text") << 1;
+        QTest::newRow("image") << 2;
+        QTest::newRow("local-url") << 3;
+        QTest::newRow("remote-url") << 4;
+    }
+    void pasteAvailabilityDoesNotReadPayloads() {
+        QFETCH(int, kind);
+        class MimeData final : public QMimeData {
+          public:
+            mutable int reads = 0;
+          protected:
+            QVariant retrieveData(const QString &type, QMetaType preferred) const override {
+                ++reads;
+                return QMimeData::retrieveData(type, preferred);
+            }
+        };
+        auto *data = new MimeData;
+        QImage image(5, 3, QImage::Format_ARGB32); image.fill(QColor(17, 39, 83, 123));
+        if (kind == 1) data->setText(QStringLiteral("ordinary text"));
+        if (kind == 2) data->setImageData(image);
+        if (kind == 3) data->setUrls({QUrl::fromLocalFile(QStringLiteral("/test/image.png"))});
+        if (kind == 4) data->setUrls({QUrl(QStringLiteral("https://example.invalid/image.png"))});
+        auto *clipboard = QApplication::clipboard();
+        clipboard->setMimeData(data);
+        auto cleanup = qScopeGuard([&] { clipboard->clear(); });
+        QApplication::processEvents();
+        data->reads = 0;
+        QCOMPARE(ix::clipboardHasImageOrUrls(), kind >= 2);
+        QCOMPARE(data->reads, 0);
+#ifdef Q_OS_WIN
+        // Availability must not wait for an unrelated clipboard lock. The
+        // timeout bounds a regression; the assertion observes lock lifetime.
+        if (kind == 2 && QGuiApplication::platformName() == QStringLiteral("windows")) {
+            std::promise<bool> acquired;
+            std::promise<void> release;
+            auto done = release.get_future();
+            std::atomic_bool locked = false;
+            std::thread holder([&] {
+                const bool opened = OpenClipboard(nullptr);
+                locked.store(opened); acquired.set_value(opened);
+                if (opened) {
+                    done.wait_for(std::chrono::seconds(3));
+                    CloseClipboard(); locked.store(false);
+                }
+            });
+            auto unlock = qScopeGuard([&] { release.set_value(); holder.join(); });
+            QVERIFY(acquired.get_future().get());
+            QVERIFY(ix::clipboardHasImageOrUrls());
+            QVERIFY(locked.load());
+        }
+#endif
+        ix::MainWindow window;
+        QAction *paste = nullptr;
+        for (auto *action : window.findChildren<QAction *>())
+            if (action->data().toString() == QStringLiteral("paste")) paste = action;
+        QVERIFY(paste); QCOMPARE(paste->isEnabled(), kind >= 2);
+        QCOMPARE(data->reads, 0);
+        if (kind == 2) {
+            window.dispatch(QStringLiteral("paste"));
+            QCOMPARE(window.document().pixels, image);
+        }
+        clipboard->setText(QStringLiteral("changed to plain text"));
+        QTRY_VERIFY(!paste->isEnabled());
+    }
     void progressJoinHandlesFastAndShowTimeCompletion() {
         for (int mode=0;mode<4;++mode) {
             QPromise<int> promise; promise.start();

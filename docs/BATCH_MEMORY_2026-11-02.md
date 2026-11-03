@@ -110,3 +110,7 @@ failures/skips) without the SDK in PATH. Bundled QR/OCR engines, five OCR models
 relocated tools/profile startup and installed optional modules pass. Development
 and deployed executables match byte for byte. Results:
 `build/batch-memory-runtime-summary.json` and `build/batch-memory-portable.log`.
+
+Follow-up: [cache coordination and navigation](EVERYDAY_PERFORMANCE_2026-11-02.md)
+adds an atomic retained-cache observer to admission. New jobs account for cache
+ownership; active work is not preempted and a sole oversized job may still run.

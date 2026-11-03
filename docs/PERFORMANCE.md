@@ -1,5 +1,60 @@
 # Performance in üxzView
 
+## First-session startup and clipboard contention
+
+The [startup review](STARTUP_CLIPBOARD_2026-11-03.md) separates actual process
+startup from decoding the supplied 24 MP JPEG. Windows command-state updates
+now inspect advertised clipboard formats without requesting external OLE data.
+Optional startup checkpoints distinguish initialization and window construction
+from the existing codec/worker timings. The original intermittent first-start
+outlier remains distinct from the controlled clipboard-contention reproduction.
+
+## Native byte sharpening
+
+The [native sharpening review](NATIVE_SHARPEN_2026-11-03.md) compares the previous
+integer RGBA64 path with direct RGB32/ARGB32 processing and baseline SSE2. Local
+6/24 MP filter measurements are about 7.5–7.8 times faster with about 75% lower
+additional private commit. Pixel/alpha/property checks and the scalar branch
+pass. This targets standard sharpening, including enabled display/resize/batch
+sharpening; it does not establish faster decoding or an unsharpened first open.
+
+## Replacing obsolete queued image opens
+
+The [superseded-load review](SUPERSEDED_LOADS_2026-11-03.md) measures a newer
+explicit open overtaking an older queued request. In a controlled native Windows
+comparison, latest-image paint fell from 1058 to 226 ms and retained cache charge
+from 105.83 to 9.83 MB. This skips work, not decoder instructions: ordinary first
+opens, relative arrow navigation and native decoders already running have
+different limits. Cancellation/error, modal, history and display-state guards
+are documented with the measurements.
+## Concurrent thumbnail and foreground decoding
+
+The [concurrent decode review](CONCURRENT_DECODE_2026-11-03.md) examines opening
+a PNG/BMP while its thumbnail is still decoding. Sharing removes one full
+pixel decode and buffer. In local 24 MP overlapping cases, process CPU time fell
+by 39% for PNG and 50% for BMP; observed private-memory growth roughly halved.
+Foreground latency gains were modest and controls varied widely, so this is
+not a universal first-open or JPEG speed claim.
+
+## Opening neighbors after thumbnail decoding
+
+The [preview handoff review](PREVIEW_HANDOFF_2026-11-03.md) measures reuse of
+full pixels already decoded for static native PNG/BMP thumbnails. A local
+24 MP PNG opened after its preview reaches the first Qt paint in 67 ms instead
+of 335 ms; preview plus opening falls from 659 to 386 ms. This uses spare
+existing image-cache capacity and preserves foreground metadata checks.
+Untouched first images still require decoding; the JPEG control keeps reduced
+decoding. The report also documents why whole-file input buffering was rejected.
+
+## Repeat image visits and shared cache budgets
+
+The [cache/navigation review](EVERYDAY_PERFORMANCE_2026-11-02.md) measures the
+normal image-open path through installation and Qt paint completion in a shown
+Windows window. Original and prepared-presentation pixels share the existing
+image-cache allowance; originals reclaim optional converted buffers first.
+Batch admission observes current cache ownership. This targets repeat visits,
+not initial decoding or cold startup, and does not establish a process RAM cap.
+
 ## Batch memory admission
 
 The [batch memory review](BATCH_MEMORY_2026-11-02.md) compares real RGBA64 PNG
@@ -715,6 +770,9 @@ storage. Native Save-as/Undo also passes separately. See the review's retained
 evidence paths and remaining platform/resource limits.
 
 ## Exact integer standard sharpening — 2026-10-27
+
+Follow-up: [native byte sharpening](NATIVE_SHARPEN_2026-11-03.md) now removes
+RGBA64 round trips for RGB32/ARGB32. This section records the earlier step.
 
 The standard sharpening operation used a general 3×3 double-precision
 convolution, including four zero taps, repeated scanline lookups and per-channel

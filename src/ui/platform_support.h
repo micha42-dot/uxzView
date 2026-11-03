@@ -10,6 +10,8 @@ namespace ix {
 QFont referenceFont(int points = 8);
 void configureDesktopAppearance();
 void configureUiFont();
+// Availability only; do not ask an external clipboard owner to render payloads.
+bool clipboardHasImageOrUrls();
 // Existing native top-level windows only; never creates a handle or changes geometry.
 bool applyNativeWindowTheme(QWidget *window, bool dark);
 class WindowTransition {

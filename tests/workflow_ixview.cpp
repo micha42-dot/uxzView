@@ -439,6 +439,25 @@ class WorkflowTests : public QObject {
         QCOMPARE(window.document().pixels, pixels);
         QCOMPARE(window.document().path, path);
     }
+    void hotfolderPreservesDeferredExplicitOpen() {
+        const auto first=photo(QStringLiteral("hotfolder-explicit/1.png"),Qt::red),
+                   chosen=photo(QStringLiteral("hotfolder-explicit/2.png"),Qt::green),
+                   automatic=photo(QStringLiteral("hotfolder-explicit/3.png"),Qt::blue);
+        QVERIFY(!first.isEmpty() && !chosen.isEmpty() && !automatic.isEmpty());
+        ix::MainWindow window; auto *service=window.findChild<ix::DirectoryIndexService *>(); QVERIFY(service);
+        QSignalSpy ready(service,&ix::DirectoryIndexService::ready);
+        window.openPath(first); QTRY_VERIFY(!window.isBusy() && !ready.isEmpty());
+        window.dispatch(QStringLiteral("hotfolder")); service->cancel();
+        QDialog blocker(&window); blocker.setModal(true); blocker.show();
+        QTRY_COMPARE(QApplication::activeModalWidget(),&blocker);
+        window.openPath(chosen); blocker.hide(); QCOMPARE(QApplication::activeModalWidget(),nullptr);
+        ix::DirectorySnapshot snapshot;
+        snapshot.directory=QFileInfo(first).absolutePath(); snapshot.files={first,chosen,automatic};
+        snapshot.positions={{first,0},{chosen,1},{automatic,2}}; snapshot.latest=automatic;
+        emit service->ready(snapshot);
+        QTRY_VERIFY(!window.isBusy() && window.document().path==chosen);
+        QCOMPARE(window.document().pixels.pixelColor(0,0),QColor(Qt::green));
+    }
     void imageOpenDialogIsPreparedBeforeShowing_data() {
         QTest::addColumn<bool>("accept");
         QTest::newRow("cancel") << false;

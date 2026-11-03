@@ -27,16 +27,67 @@
 #include <QCollator>
 #include <QDirListing>
 #include <QImageReader>
+#include <QBuffer>
 #include <QLibrary>
 #include <QStorageInfo>
 #include <QJsonDocument>
 #include <QtTest>
 #include <QtWidgets>
 #include <vector>
+#include <barrier>
+#include <future>
+#include <chrono>
+#include <thread>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
+#include <psapi.h>
 #endif
 namespace {
+QJsonObject profileReaderInput(const QString &path) {
+    QJsonArray samples;
+    QByteArray expectedHash;
+    QImage expected;
+    for (int pair=0;pair<6;++pair) for (bool buffered : {pair%2==0,pair%2!=0}) {
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        QImageReader reader(path); reader.setAutoTransform(true);
+#ifdef Q_OS_WIN
+        IO_COUNTERS before{},after{};
+        GetProcessIoCounters(GetCurrentProcess(),&before);
+#endif
+        QElapsedTimer timer; timer.start();
+        if (!reader.canRead()) return {{QStringLiteral("error"),reader.errorString()}};
+        const auto format=reader.format();
+        const auto count=reader.imageCount(); const auto size=reader.size(); const auto pixelFormat=reader.imageFormat();
+        if (count!=1 || (format!="png" && format!="jpeg")) return {{QStringLiteral("error"),QStringLiteral("Expected static JPEG/PNG")}};
+        if (buffered) {
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly) || file.size()>128*ix::MiB) return {{QStringLiteral("error"),QStringLiteral("Input unavailable/too large")}};
+            bytes=file.readAll(); buffer.open(QIODevice::ReadOnly);
+            reader.setDevice(&buffer); reader.setFormat(format); reader.setAutoTransform(true);
+        }
+        auto image=reader.read();
+        const auto elapsed=timer.nsecsElapsed()/1e6;
+#ifdef Q_OS_WIN
+        GetProcessIoCounters(GetCurrentProcess(),&after);
+#endif
+        if(image.isNull()) return {{QStringLiteral("error"),reader.errorString()}};
+        const auto hash=QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char *>(image.constBits()),image.sizeInBytes()),QCryptographicHash::Sha256);
+        if(expectedHash.isEmpty()) { expectedHash=hash; expected=image; }
+        else if(hash!=expectedHash || image.colorSpace()!=expected.colorSpace() || image.textKeys()!=expected.textKeys() ||
+                image.dotsPerMeterX()!=expected.dotsPerMeterX() || image.dotsPerMeterY()!=expected.dotsPerMeterY())
+            return {{QStringLiteral("error"),QStringLiteral("Device changed decoded pixels/properties")}};
+        QJsonObject row{{QStringLiteral("buffered"),buffered},{QStringLiteral("ms"),elapsed},{QStringLiteral("input_bytes"),bytes.size()},
+            {QStringLiteral("width"),size.width()},{QStringLiteral("height"),size.height()},{QStringLiteral("pixel_format"),int(pixelFormat)}};
+#ifdef Q_OS_WIN
+        row.insert(QStringLiteral("read_operations"),qint64(after.ReadOperationCount-before.ReadOperationCount));
+        row.insert(QStringLiteral("read_bytes"),qint64(after.ReadTransferCount-before.ReadTransferCount));
+#endif
+        samples.append(row);
+    }
+    return {{QStringLiteral("samples"),samples},{QStringLiteral("pixel_sha256"),QString::fromLatin1(expectedHash.toHex())},
+        {QStringLiteral("note"),QStringLiteral("Six alternating QFile/QBuffer pairs; includes source snapshot reading, header and decode. Pixel/DPI/profile validation outside timer; no document cache, metadata extraction or GUI. Windows counters are process IO, not physical disk traffic.")}};
+}
 QJsonObject profileSaveProgress() {
     ix::initializeImageMemoryLimit(); ix::configureImageStorage({false});
     QTemporaryDir directory; if (!directory.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary directory failed")}};
@@ -534,6 +585,53 @@ QJsonObject profileGrayscale() {
     return {{QStringLiteral("samples"), rows}, {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
         {QStringLiteral("note"), QStringLiteral("24 MP RGB32/ARGB32, three alternating samples per arm. Includes allocation/conversion; excludes decode and GUI. Exact pixels and source properties checked outside timing.")}};
 }
+QJsonObject profileNativeSharpen(QImage::Format format,QSize size) {
+    ix::initializeImageMemoryLimit(2048); ix::configureImageStorage({false});
+    if((format!=QImage::Format_RGB32 && format!=QImage::Format_ARGB32 && format!=QImage::Format_RGBA64) ||
+       size.width()<1 || size.height()<1 || qint64(size.width())*size.height()>24000000)
+        return {{QStringLiteral("error"),QStringLiteral("Unsupported fixture")}};
+    QImage source(size,format);
+    if(source.isNull())return {{QStringLiteral("error"),QStringLiteral("Fixture allocation failed")}};
+    for(int y=0;y<size.height();++y) for(int x=0;x<size.width();++x) {
+        if(format==QImage::Format_RGBA64)
+            reinterpret_cast<QRgba64 *>(source.scanLine(y))[x]=QRgba64::fromRgba64(quint16(x*317+y*7),quint16(y*503+x*13),quint16(x*631+y*11),quint16(x*419+y*29));
+        else reinterpret_cast<QRgb *>(source.scanLine(y))[x]=qRgba((x*17+y*3)%256,(x*7+y*23)%256,(x*31+y*11)%256,
+            format==QImage::Format_RGB32 ? 255 : (x*13+y*19)%256);
+    }
+    source.setColorSpace(QColorSpace::DisplayP3); source.setDotsPerMeterX(4500); source.setDotsPerMeterY(8300);
+    source.setText(QStringLiteral("Comment"),QStringLiteral("Native sharpen measurement"));
+    const auto sourceKey=source.cacheKey();
+    const QVector<double> kernel{0,-1,0,-1,5,-1,0,-1,0};
+    QJsonValue privateGrowth=QJsonValue::Null,cpuMs=QJsonValue::Null;
+#ifdef Q_OS_WIN
+    const auto memory=[] { PROCESS_MEMORY_COUNTERS_EX data{}; data.cb=sizeof(data);
+        return GetProcessMemoryInfo(GetCurrentProcess(),reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&data),sizeof(data)) ? qint64(data.PrivateUsage) : qint64(-1); };
+    const auto cpu=[] { FILETIME created{},exited{},kernelTime{},user{};
+        if(!GetProcessTimes(GetCurrentProcess(),&created,&exited,&kernelTime,&user))return qint64(-1);
+        return qint64((quint64(kernelTime.dwHighDateTime)<<32)|kernelTime.dwLowDateTime)+
+            qint64((quint64(user.dwHighDateTime)<<32)|user.dwLowDateTime); };
+    const auto initialPrivate=memory(),initialCpu=cpu(); std::atomic<qint64> peak=initialPrivate;
+    std::atomic_bool stop=false;
+    std::thread sampler([&] { while(!stop.load()) { peak.store(std::max(peak.load(),memory())); std::this_thread::sleep_for(std::chrono::milliseconds(2)); } });
+    const auto stopSampler=qScopeGuard([&] { stop=true; if(sampler.joinable())sampler.join(); });
+#endif
+    QElapsedTimer timer; timer.start();
+    const auto result=ix::convolve(source,kernel,3); const double elapsed=timer.nsecsElapsed()/1e6;
+#ifdef Q_OS_WIN
+    const auto finalCpu=cpu(); stop=true; sampler.join(); peak.store(std::max(peak.load(),memory()));
+    if(initialPrivate>=0 && peak.load()>=initialPrivate)privateGrowth=peak.load()-initialPrivate;
+    if(initialCpu>=0 && finalCpu>=0)cpuMs=(finalCpu-initialCpu)/10000.0;
+#endif
+    const auto expected=ix::test::referenceConvolve(source,kernel,3);
+    if(result!=expected || result.colorSpace()!=expected.colorSpace() || result.text()!=expected.text() ||
+       result.dotsPerMeterX()!=expected.dotsPerMeterX() || result.dotsPerMeterY()!=expected.dotsPerMeterY() || source.cacheKey()!=sourceKey)
+        return {{QStringLiteral("error"),QStringLiteral("Pixels/properties/source changed")}};
+    return {{QStringLiteral("elapsed_ms"),elapsed},{QStringLiteral("cpu_ms"),cpuMs},{QStringLiteral("private_peak_delta"),privateGrowth},
+        {QStringLiteral("width"),size.width()},{QStringLiteral("height"),size.height()},{QStringLiteral("format"),int(format)},
+        {QStringLiteral("pixel_sha256"),QString::fromLatin1(QCryptographicHash::hash(QByteArrayView(
+            reinterpret_cast<const char *>(result.constBits()),result.sizeInBytes()),QCryptographicHash::Sha256).toHex())},
+        {QStringLiteral("note"),QStringLiteral("Fresh-process sharpen, native RGB32/ARGB32 or RGBA64 control; direct fixture generation before timer, scalar RGBA64 reference/hash verification after timer and memory sampling. Includes allocation/filter/conversions. Windows process private growth sampled every 2ms; unsupported counters null. No decode, resize, GUI or general first-open claim.")}};
+}
 QJsonObject profileSharpen() {
     QJsonArray rows;
     const QVector<double> kernel{0, -1, 0, -1, 5, -1, 0, -1, 0};
@@ -698,6 +796,227 @@ class FirstImagePaint final : public QObject {
         return false;
     }
 };
+QJsonObject profileSupersededOpen(const QString &stale, const QString &latest) {
+    QTemporaryDir folder(QDir::current().filePath(QStringLiteral("build/supersede-profile-XXXXXX")));
+    if(!folder.isValid() || !QFileInfo(stale).isFile() || !QFileInfo(latest).isFile())
+        return {{QStringLiteral("error"),QStringLiteral("Missing profile/fixtures")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,folder.path());
+    qApp->setProperty("ixStorageData",folder.path());
+    QSettings().setValue(QStringLiteral("view/previewStrip"),false);
+    QSettings().setValue(QStringLiteral("navigation/askToSave"),false);
+    ix::initializeImageMemoryLimit(1024); ix::configureImageStorage({false});
+    ix::MainWindow window; window.resize(1200,800);
+    window.setAttribute(Qt::WA_ShowWithoutActivating); window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+    window.show(); QTest::qWait(150); ix::ImageLoadCache::clear();
+    auto *view=window.findChild<ix::ImageView *>(); FirstImagePaint observer;
+    view->viewport()->installEventFilter(&observer);
+    auto *pool=QThreadPool::globalInstance(); pool->waitForDone(); const int threads=pool->maxThreadCount(); pool->setMaxThreadCount(1);
+    QSemaphore entered,resume; auto block=QtConcurrent::run([&] { entered.release(); resume.acquire(); });
+    const auto cleanup=qScopeGuard([&] { resume.release(); block.waitForFinished(); pool->waitForDone(); pool->setMaxThreadCount(threads); });
+    if(!entered.tryAcquire(1,3000)) return {{QStringLiteral("error"),QStringLiteral("Worker gate deadline")}};
+    QEventLoop loop; QTimer deadline; deadline.setSingleShot(true); QElapsedTimer elapsed;
+    double installed=-1,painted=-1; QStringList installedPaths;
+    QObject::connect(view,&ix::ImageView::selectionChanged,&loop,[&] {
+        if(!window.document().path.isEmpty()) installedPaths.append(window.document().path);
+        if(window.document().path==latest && installed<0) {
+            installed=elapsed.nsecsElapsed()/1e6; observer.pending=true;
+        }
+    });
+    observer.completed=[&] { painted=elapsed.nsecsElapsed()/1e6; loop.quit(); };
+    QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
+    window.openPath(stale);
+    if(!window.isBusy()) return {{QStringLiteral("error"),QStringLiteral("Initial load was not queued")}};
+    elapsed.start(); deadline.start(30000); window.openPath(latest); resume.release(); loop.exec(); observer.completed={};
+    if(painted<0 || window.document().path!=latest) return {{QStringLiteral("error"),QStringLiteral("Replacement paint deadline")}};
+    const auto retained=ix::ImageLoadCache::retainedBytes();
+    const auto hash=[](const QImage &image) { return QString::fromLatin1(QCryptographicHash::hash(
+        QByteArrayView(reinterpret_cast<const char *>(image.constBits()),image.sizeInBytes()),QCryptographicHash::Sha256).toHex()); };
+    const auto originalHash=hash(window.document().pixels),displayHash=hash(view->image());
+    ix::CodecRegistry registry; int staleMisses=0;
+    if(!ix::ImageLoadCache::read(registry,stale,0,[&] { ++staleMisses; }).ok())
+        return {{QStringLiteral("error"),QStringLiteral("Verification read failed")}};
+    return {{QStringLiteral("installed_ms"),installed},{QStringLiteral("paint_ms"),painted},
+        {QStringLiteral("stale_installed"),installedPaths.contains(stale)},{QStringLiteral("stale_verification_misses"),staleMisses},
+        {QStringLiteral("retained_before_verification"),retained},{QStringLiteral("original_sha256"),originalHash},
+        {QStringLiteral("display_sha256"),displayHash},
+        {QStringLiteral("note"),QStringLiteral("Shown 1200x800 Windows window, already running; global worker gate queues the first open, then a newer explicit open is submitted before release. Time is newer request to Qt paint. 192+16MiB caches; previews hidden; warm OS caches. Post-timer cache-miss probe detects whether stale pixels were decoded. Not ordinary single-open or keyboard-navigation latency.")}};
+}
+QJsonObject profilePreviewHandoff(const QString &path) {
+    QTemporaryDir folder(QDir::current().filePath(QStringLiteral("build/handoff-profile-XXXXXX")));
+    if (!folder.isValid() || !QFileInfo(path).isFile()) return {{QStringLiteral("error"),QStringLiteral("Missing fixture/profile")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,folder.path());
+    qApp->setProperty("ixStorageData",folder.path());
+    QSettings().setValue(QStringLiteral("view/previewStrip"),false);
+    ix::initializeImageMemoryLimit(1024); ix::configureImageStorage({false});
+    ix::MainWindow window; window.resize(1200,800);
+    window.setAttribute(Qt::WA_ShowWithoutActivating); window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+    window.show(); QTest::qWait(200);
+    ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true);
+    QElapsedTimer timer; timer.start();
+    const auto preview=ix::loadPreview(path,{68,50});
+    const double previewMs=timer.nsecsElapsed()/1e6;
+    if(preview.isNull()) return {{QStringLiteral("error"),QStringLiteral("Preview failed")}};
+    const auto retained=ix::ImageLoadCache::retainedBytes();
+    auto *view=window.findChild<ix::ImageView *>(); FirstImagePaint observer;
+    view->viewport()->installEventFilter(&observer);
+    QEventLoop loop; QTimer deadline; deadline.setSingleShot(true);
+    double installed=-1,painted=-1;
+    QObject::connect(view,&ix::ImageView::selectionChanged,&loop,[&] {
+        if(window.document().path==path && !window.document().empty() && installed<0) {
+            installed=timer.nsecsElapsed()/1e6; observer.pending=true;
+        }
+    });
+    observer.completed=[&] { painted=timer.nsecsElapsed()/1e6; loop.quit(); };
+    QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
+    timer.restart(); deadline.start(30000); window.openPath(path); loop.exec(); observer.completed={};
+    if(painted<0) return {{QStringLiteral("error"),QStringLiteral("Foreground paint deadline")}};
+    const auto hash=[](const QImage &image) { return QString::fromLatin1(QCryptographicHash::hash(
+        QByteArrayView(reinterpret_cast<const char *>(image.constBits()),image.sizeInBytes()),QCryptographicHash::Sha256).toHex()); };
+    const auto &document=window.document();
+    return {{QStringLiteral("preview_ms"),previewMs},{QStringLiteral("installed_ms"),installed},{QStringLiteral("paint_ms"),painted},
+        {QStringLiteral("combined_ms"),previewMs+painted},{QStringLiteral("retained_before_open"),retained},
+        {QStringLiteral("original_sha256"),hash(document.pixels)},{QStringLiteral("display_sha256"),hash(view->image())},
+        {QStringLiteral("preview_sha256"),hash(preview)},{QStringLiteral("dpi_x"),document.dpiX()},
+        {QStringLiteral("dpi_y"),document.dpiY()},{QStringLiteral("format"),QString::fromLatin1(document.format)},
+        {QStringLiteral("metadata_tags"),document.metadata ? QJsonObject::fromVariantMap([&] {
+            QVariantMap tags; for(auto it=document.metadata->tags.cbegin();it!=document.metadata->tags.cend();++it) tags.insert(it.key(),it.value()); return tags;
+        }()) : QJsonObject()},
+        {QStringLiteral("note"),QStringLiteral("One real thumbnail followed by first foreground open in a shown, already-running 1200x800 window; warm OS caches. Preview and foreground times separately and combined. Qt paint events, not compositor latency. Hashing outside timers; 192+16MiB caches, 1GiB image budget.")}};
+}
+QJsonObject profileConcurrentPreview(const QString &path, bool uncontended) {
+    ix::initializeImageMemoryLimit(1024); ix::configureImageStorage({false});
+    ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true);
+    ix::CodecRegistry registry; std::barrier start(uncontended ? 2 : 3);
+    QElapsedTimer elapsed;
+    double foregroundMs=0,previewMs=0;
+    std::future<QImage> thumbnail;
+    if (!uncontended) thumbnail=std::async(std::launch::async,[&] {
+        start.arrive_and_wait(); const auto result=ix::loadPreview(path,{68,50});
+        previewMs=elapsed.nsecsElapsed()/1e6; return result;
+    });
+    auto foreground=std::async(std::launch::async,[&] {
+        start.arrive_and_wait(); auto result=ix::loadImage(registry,{path,0,true,false,false});
+        foregroundMs=elapsed.nsecsElapsed()/1e6; return result;
+    });
+    qint64 privateBefore=0,privatePeak=0,cpuBefore=0,cpuAfter=0;
+#ifdef Q_OS_WIN
+    const auto memory=[] { PROCESS_MEMORY_COUNTERS_EX data{}; data.cb=sizeof(data);
+        return GetProcessMemoryInfo(GetCurrentProcess(),reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&data),sizeof(data)) ? qint64(data.PrivateUsage) : qint64(-1); };
+    const auto cpu=[] { FILETIME created{},exited{},kernel{},user{};
+        if(!GetProcessTimes(GetCurrentProcess(),&created,&exited,&kernel,&user))return qint64(-1);
+        return qint64((quint64(kernel.dwHighDateTime)<<32)|kernel.dwLowDateTime)+
+            qint64((quint64(user.dwHighDateTime)<<32)|user.dwLowDateTime); };
+    privatePeak=privateBefore=memory(); cpuBefore=cpu();
+#endif
+    elapsed.start(); start.arrive_and_wait();
+    while(foreground.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready ||
+          (thumbnail.valid() && thumbnail.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready)) {
+#ifdef Q_OS_WIN
+        privatePeak=std::max(privatePeak,memory());
+#endif
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    const auto document=foreground.get(); const auto preview=thumbnail.valid() ? thumbnail.get() : QImage();
+    const auto wallMs=elapsed.nsecsElapsed()/1e6;
+#ifdef Q_OS_WIN
+    cpuAfter=cpu(); privatePeak=std::max(privatePeak,memory());
+#endif
+    if(!document.error.isEmpty() || (!uncontended && preview.isNull()))
+        return {{QStringLiteral("error"),document.error.isEmpty() ? QStringLiteral("Missing preview") : document.error}};
+    const auto hash=[](const QImage &image) { return QString::fromLatin1(QCryptographicHash::hash(
+        QByteArrayView(reinterpret_cast<const char *>(image.constBits()),image.sizeInBytes()),QCryptographicHash::Sha256).toHex()); };
+    QJsonValue cpuMs=QJsonValue::Null,peakBytes=QJsonValue::Null;
+#ifdef Q_OS_WIN
+    if(cpuBefore>=0 && cpuAfter>=0) cpuMs=(cpuAfter-cpuBefore)/10000.0;
+    if(privateBefore>=0 && privatePeak>=privateBefore) peakBytes=privatePeak-privateBefore;
+#endif
+    return {{QStringLiteral("foreground_ms"),foregroundMs},{QStringLiteral("preview_ms"),previewMs},
+        {QStringLiteral("wall_ms"),wallMs},{QStringLiteral("cpu_ms"),cpuMs},
+        {QStringLiteral("private_peak_delta"),peakBytes},{QStringLiteral("uncontended"),uncontended},
+        {QStringLiteral("original_sha256"),hash(document.document.pixels)},{QStringLiteral("display_sha256"),hash(document.display)},
+        {QStringLiteral("preview_sha256"),hash(preview)},
+        {QStringLiteral("note"),QStringLiteral("Real thumbnail and foreground worker load released by a barrier; fresh process, warm OS caches; 2ms private-commit sampling, process CPU time. No GUI painting/startup or whole-process RAM-cap claim. Hashing outside timers. uncontended runs only the foreground load.")}};
+}
+QJsonObject profileCachedNavigation() {
+    QTemporaryDir folder(QDir::current().filePath(QStringLiteral("build/navigation-profile-XXXXXX")));
+    if (!folder.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary profile failed")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,folder.path());
+    qApp->setProperty("ixStorageData",folder.filePath(QStringLiteral("profile")));
+    QSettings().setValue(QStringLiteral("navigation/askToSave"),false);
+    QSettings().setValue(QStringLiteral("view/previewStrip"),false);
+    ix::initializeImageMemoryLimit(1024); ix::configureImageStorage({false});
+    QJsonArray scenarios;
+    const auto hash=[](const QImage &image) {
+        return QString::fromLatin1(QCryptographicHash::hash(QByteArrayView(reinterpret_cast<const char *>(image.constBits()),image.sizeInBytes()),QCryptographicHash::Sha256).toHex());
+    };
+    const bool srgbOnly=QCoreApplication::arguments().contains(QStringLiteral("--navigation-srgb-only"));
+    for (int scenario=0;scenario<3;++scenario) {
+        if (srgbOnly && scenario!=0) continue;
+        ix::ImageLoadCache::clear();
+        const bool wide=scenario==2;
+        const auto root=folder.filePath(QStringLiteral("case-%1").arg(scenario)); QDir().mkpath(root);
+        QStringList paths;
+        for (int file=0;file<2;++file) {
+            QImage image(wide ? QSize(3000,2000) : QSize(1920,1280),wide ? QImage::Format_RGBA64 : QImage::Format_RGB32);
+            image.setColorSpace(scenario==0 ? QColorSpace::SRgb : QColorSpace::DisplayP3);
+            for (int y=0;y<image.height();++y) {
+                if (wide) {
+                    auto *row=reinterpret_cast<QRgba64 *>(image.scanLine(y));
+                    for (int x=0;x<image.width();++x) row[x]=QRgba64::fromRgba64(quint16(x*17+file*9000),quint16(y*29),quint16(x*3+y*11),quint16(30000+(x+y)%30000));
+                } else {
+                    auto *row=reinterpret_cast<QRgb *>(image.scanLine(y));
+                    for (int x=0;x<image.width();++x) row[x]=qRgb((x/8+file*40)%256,(y/7)%256,(x/13+y/11)%256);
+                }
+            }
+            const auto path=root+QStringLiteral("/%1.").arg(file)+(wide ? QStringLiteral("png") : QStringLiteral("jpg"));
+            if (!image.save(path)) return {{QStringLiteral("error"),QStringLiteral("Fixture write failed")}};
+            paths.append(path);
+        }
+        ix::MainWindow window; window.resize(1200,800);
+        window.setAttribute(Qt::WA_ShowWithoutActivating); window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+        window.show(); QTest::qWait(150);
+        auto *view=window.findChild<ix::ImageView *>();
+        FirstImagePaint observer; view->viewport()->installEventFilter(&observer);
+        QJsonArray first, warmed; QStringList originalHashes, displayHashes;
+        for (int pass=0;pass<22;++pass) {
+            const auto path=paths[pass%2];
+            QEventLoop loop; QTimer heartbeat,deadline; deadline.setSingleShot(true);
+            QElapsedTimer elapsed;
+            double installed=-1,painted=-1,previous=0,maxGap=0;
+            const auto ready=QObject::connect(view,&ix::ImageView::selectionChanged,&loop,[&] {
+                if (window.document().path==path && !window.document().empty() && installed<0) {
+                    installed=elapsed.nsecsElapsed()/1e6; observer.pending=true;
+                }
+            });
+            observer.completed=[&] { painted=elapsed.nsecsElapsed()/1e6; loop.quit(); };
+            QObject::connect(&heartbeat,&QTimer::timeout,&loop,[&] {
+                const auto now=elapsed.nsecsElapsed()/1e6; maxGap=std::max(maxGap,now-previous); previous=now;
+            });
+            QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
+            elapsed.start(); heartbeat.start(1); deadline.start(30000);
+            window.openPath(path); const auto submitted=elapsed.nsecsElapsed()/1e6;
+            loop.exec(); observer.completed={}; QObject::disconnect(ready);
+            if (painted<0 || window.document().path!=path) return {{QStringLiteral("error"),QStringLiteral("Navigation paint deadline")}};
+            const QJsonObject sample{{QStringLiteral("submit_ms"),submitted},{QStringLiteral("installed_ms"),installed},
+                {QStringLiteral("paint_ms"),painted},{QStringLiteral("max_gui_gap_ms"),maxGap}};
+            (pass<2 ? first : warmed).append(sample);
+            const auto original=hash(window.document().pixels), display=hash(view->image());
+            if (pass<2) { originalHashes.append(original); displayHashes.append(display); }
+            else if (original!=originalHashes[pass%2] || display!=displayHashes[pass%2])
+                return {{QStringLiteral("error"),QStringLiteral("Cached navigation changed original or display pixels")}};
+        }
+        scenarios.append(QJsonObject{{QStringLiteral("scenario"),scenario},{QStringLiteral("first_opens"),first},
+            {QStringLiteral("cached_switches"),warmed},{QStringLiteral("original_hashes"),QJsonArray::fromStringList(originalHashes)},
+            {QStringLiteral("display_hashes"),QJsonArray::fromStringList(displayHashes)}});
+    }
+    ix::ImageLoadCache::clear();
+    return {{QStringLiteral("scenarios"),scenarios},{QStringLiteral("qt"),QString::fromLatin1(qVersion())},
+        {QStringLiteral("srgb_only"),srgbOnly},
+        {QStringLiteral("note"),QStringLiteral("Shown 1200x800 Windows window, already running; 1GiB image budget, 192MiB original/presentation cache, 16MiB thumbnails, previews hidden. Alternating two real files: sRGB 2.4MP JPEG control, P3 2.4MP JPEG, P3 6MP RGBA64 PNG; srgb_only selects just the control. First two opens reported separately; 20 warm switches per case. Paint observed through Qt events, not compositor. Fixture generation and SHA256 validation excluded; OS cache not flushed.")}};
+}
 QJsonObject profileFirstOpen(const QString &path) {
     qInfo("ix-first-open profile-start");
     QTemporaryDir profile(QDir::current().filePath(QStringLiteral("build/first-open-XXXXXX")));
@@ -1136,6 +1455,39 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     ix::configureDesktopAppearance();
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("windows")));
+    if(app.arguments().contains(QStringLiteral("--profile-native-sharpen"))) {
+        const auto report=profileNativeSharpen(QImage::Format(app.arguments().value(3).toInt()),
+            {app.arguments().value(4).toInt(),app.arguments().value(5).toInt()});
+        QFile output(app.arguments().value(1)); if(!output.open(QIODevice::WriteOnly))return 4;
+        output.write(QJsonDocument(report).toJson()); return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if(app.arguments().contains(QStringLiteral("--profile-superseded-open"))) {
+        const auto report=profileSupersededOpen(QFileInfo(app.arguments().value(3)).absoluteFilePath(),
+            QFileInfo(app.arguments().value(4)).absoluteFilePath());
+        QFile output(app.arguments().value(1)); if(!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(report).toJson()); return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-concurrent-preview"))) {
+        const auto report=profileConcurrentPreview(QFileInfo(app.arguments().value(3)).absoluteFilePath(),
+            app.arguments().contains(QStringLiteral("--uncontended")));
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(report).toJson()); return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-preview-handoff"))) {
+        const auto report=profilePreviewHandoff(QFileInfo(app.arguments().value(3)).absoluteFilePath());
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(report).toJson()); return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-reader-input"))) {
+        const auto report=profileReaderInput(QFileInfo(app.arguments().value(3)).absoluteFilePath());
+        QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(report).toJson()); return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-cached-navigation"))) {
+        const auto report=profileCachedNavigation(); QFile output(app.arguments().value(1));
+        if (!output.open(QIODevice::WriteOnly)) return 4;
+        output.write(QJsonDocument(report).toJson()); return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-save-progress"))) {
         const auto result=profileSaveProgress();
         QFile output(app.arguments().value(1)); if (!output.open(QIODevice::WriteOnly)) return 4;

@@ -4,6 +4,7 @@
 #include "core/localization.h"
 #include <QAbstractNativeEventFilter>
 #include <QApplication>
+#include <QClipboard>
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -11,6 +12,7 @@
 #include <QFontDatabase>
 #include <QImage>
 #include <QLayout>
+#include <QMimeData>
 #include <QPointer>
 #include <QScreen>
 #include <QStyleFactory>
@@ -383,6 +385,26 @@ QString configureGlobalCaptureShortcut(QWidget *owner, const QKeySequence &seque
     Q_UNUSED(capture);
     return IX_TEXT("Globale Screenshot-Tastenkürzel werden derzeit nur unter Windows unterstützt.");
 #endif
+}
+bool clipboardHasImageOrUrls() {
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QStringLiteral("windows")) {
+        // Querying advertised formats does not open the clipboard or invoke
+        // an external OLE provider. mimeData() can retry for seconds while
+        // another process holds it, even though no paste was requested.
+        static const UINT registered[] = {
+            RegisterClipboardFormatW(L"PNG"), RegisterClipboardFormatW(L"UniformResourceLocatorW"),
+            RegisterClipboardFormatW(L"UniformResourceLocator"), RegisterClipboardFormatW(L"text/uri-list"),
+            RegisterClipboardFormatW(L"application/x-qt-image"), RegisterClipboardFormatW(L"image/png")};
+        for (const UINT format : {UINT(CF_DIB), UINT(CF_DIBV5), UINT(CF_BITMAP), UINT(CF_HDROP)})
+            if (IsClipboardFormatAvailable(format)) return true;
+        for (const auto format : registered)
+            if (format && IsClipboardFormatAvailable(format)) return true;
+        return false;
+    }
+#endif
+    const auto *data = QApplication::clipboard()->mimeData();
+    return data && (data->hasImage() || data->hasUrls());
 }
 QFont referenceFont(int points) {
     const bool korean = uiLanguage() == QStringLiteral("ko");

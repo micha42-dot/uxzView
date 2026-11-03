@@ -7,8 +7,11 @@
 #include "file_revision.h"
 #include "localization.h"
 #include "plugin_store.h"
+#include "preview_service.h"
 #include <QBuffer>
 #include <QColorSpace>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
@@ -91,6 +94,14 @@ class QtCodec final : public ImageCodec {
         return true;
     }
     ImageResult read(const QString &path, int page) const override {
+        const bool profile=qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD")!=0;
+        QElapsedTimer timer; if(profile) timer.start();
+        qint64 previous=0;
+        const auto stage=[&](const char *name) {
+            if (!profile) return;
+            const auto now=timer.nsecsElapsed();
+            qInfo("ix-codec %s %.3f ms",name,(now-previous)/1e6); previous=now;
+        };
         ImageResult out;
         QImageReader reader(path);
         reader.setAutoTransform(true);
@@ -158,7 +169,25 @@ class QtCodec final : public ImageCodec {
                 }
         }
         auto &d = out.document;
-        if (large) {
+        stage("header");
+        std::optional<ImageLoadCache::PreviewPixels> preview;
+        if (!large && page == 0 && count == 1 && (detectedFormat == "png" || detectedFormat == "bmp") &&
+            reader.transformation() == QImageIOHandler::TransformationNone)
+            preview = ImageLoadCache::takePreviewPixels(path, dimensions, pixelFormat, detectedFormat);
+        if (preview && profile) qInfo("ix-codec reused preview pixels");
+        if (!preview && !large && page == 0 && count == 1 && pixelBytes >= MiB && pixelBytes <= 96 * MiB &&
+            (detectedFormat == "png" || detectedFormat == "bmp") &&
+            reader.transformation() == QImageIOHandler::TransformationNone &&
+            !reader.supportsOption(QImageIOHandler::ScaledSize) &&
+            (detectedFormat != "png" || !ApngCodec().accepts(path))) {
+            preview = ImageLoadCache::decodePreviewPixels(path, dimensions, pixelFormat, detectedFormat, [&] {
+                auto pixels = reader.read();
+                return ImageLoadCache::PreviewPixels{pixels, std::max(20, reader.nextImageDelay()), reader.loopCount()};
+            });
+        }
+        if (preview) {
+            d.pixels = std::move(preview->pixels);
+        } else if (large) {
             try {
                 const auto transformation = reader.transformation();
                 reader.setAutoTransform(false);
@@ -179,18 +208,20 @@ class QtCodec final : public ImageCodec {
             d.pixels = {};
             return out;
         }
+        stage("pixels");
         d.path = QFileInfo(path).absoluteFilePath();
         // Some handlers clear their format after reading the final image.
         d.format = detectedFormat;
         d.page = page;
         d.pageCount = std::max(1, count);
         d.animated = reader.supportsAnimation() && (count != 1);
-        d.delayMs = std::max(20, reader.nextImageDelay());
-        d.loopCount = reader.loopCount();
+        d.delayMs = preview ? preview->delayMs : std::max(20, reader.nextImageDelay());
+        d.loopCount = preview ? preview->loopCount : reader.loopCount();
         for (const auto &key : d.pixels.textKeys())
             d.text.insert(key, d.pixels.text(key));
         QFile file(path);
         d.fileBytes = file.size();
+        stage("properties");
         d.metadata = readMetadata(path, d.metadataWarning);
         if (d.metadata) {
             d.sourceHasExif = d.metadata->hasExif || d.metadata->hasIptc || d.metadata->hasXmp;
@@ -202,6 +233,7 @@ class QtCodec final : public ImageCodec {
             d.sourceHasExif = head.contains("Exif\0\0") || head.contains("http://ns.adobe.com/xap/") ||
                               head.contains("Photoshop 3.0");
         }
+        stage("metadata");
         return out;
     }
     QStringList extensions() const override {

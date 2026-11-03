@@ -1,15 +1,19 @@
 #include "core/image_storage.h"
+#include "animation_fixture.h"
 #include "core/image_document.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/preview_service.h"
 #include "core/document_history.h"
 #include "core/image_memory.h"
+#include "core/image_loading.h"
+#include "core/file_operations.h"
 #include "core/jpeg_transform.h"
 #include "core/batch_pipeline.h"
 #include "core/batch_memory.h"
 #include <QColorSpace>
 #include "ui/main_window.h"
 #include <QClipboard>
+#include <QImageReader>
 #include <QSemaphore>
 #include <QSettings>
 #include <QtConcurrent>
@@ -20,6 +24,7 @@
 #include <future>
 #include <vector>
 #include <stdexcept>
+#include <cstdio>
 #ifdef IX_TEST_ARCHIVE
 #include <KZip>
 #endif
@@ -29,6 +34,40 @@
 #endif
 
 namespace {
+QJsonObject checkSmallCacheBudget() {
+    ix::initializeImageMemoryLimit(8);
+    QTemporaryDir folder;
+    if (!folder.isValid()) return {{QStringLiteral("error"),QStringLiteral("Temporary folder failed")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,folder.path());
+    qApp->setProperty("ixStorageData",folder.filePath(QStringLiteral("profile")));
+    ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(512,64,true);
+    QImage pixels(512,384,QImage::Format_RGB32); pixels.fill(Qt::blue);
+    QStringList paths;
+    for (int i=0;i<12;++i) {
+        const auto path=folder.filePath(QStringLiteral("source-%1.bmp").arg(i));
+        if (!pixels.save(path)) return {{QStringLiteral("error"),QStringLiteral("Fixture failed")}};
+        paths.append(path);
+    }
+    for (int i=0;i<3;++i) if (ix::loadPreview(paths[i],{512,384}).isNull())
+        return {{QStringLiteral("error"),QStringLiteral("Preview failed")}};
+    const auto previewBefore=ix::ImageLoadCache::usage().previews;
+    ix::CodecRegistry registry;
+    qint64 maximum=0;
+    for (const auto &path:paths) {
+        const auto read=ix::ImageLoadCache::read(registry,path);
+        if (!read.ok()) return {{QStringLiteral("error"),read.error}};
+        const auto usage=ix::ImageLoadCache::usage(); maximum=std::max(maximum,usage.total());
+        if (usage.total()>8*ix::MiB || usage.total()!=ix::ImageLoadCache::retainedBytes())
+            return {{QStringLiteral("error"),QStringLiteral("Aggregate cache budget exceeded")}};
+    }
+    const auto usage=ix::ImageLoadCache::usage();
+    if (previewBefore<=0 || usage.previews>=previewBefore || usage.budget!=8*ix::MiB)
+        return {{QStringLiteral("error"),QStringLiteral("Original cache did not reclaim preview capacity")}};
+    ix::ImageLoadCache::clear();
+    if (ix::ImageLoadCache::retainedBytes()!=0) return {{QStringLiteral("error"),QStringLiteral("Cache charge leaked")}};
+    return {{QStringLiteral("maximum"),maximum},{QStringLiteral("budget"),usage.budget}};
+}
 QJsonObject processMemory() {
     QJsonObject result;
 #ifdef Q_OS_WIN
@@ -92,6 +131,494 @@ class MaintenanceTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_;
   private slots:
+    void cancelledLoadSkipsQueuedReadAndPreDecodeWork() {
+        ix::ImageLoadCache::clear(); ix::CodecRegistry registry;
+        const auto path=temporary_.filePath(QStringLiteral("cancel-before.png"));
+        QImage pixels(32,24,QImage::Format_RGB32); pixels.fill(Qt::green); QVERIFY(pixels.save(path));
+        std::atomic_bool cancel=true; int before=0;
+        QVERIFY(!ix::loadImage(registry,{path,0,true,true,true},{},&cancel));
+        QVERIFY(!ix::ImageLoadCache::read(registry,path,0,[&] { ++before; },&cancel));
+        QCOMPARE(before,0); QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+        cancel=false;
+        QVERIFY(!ix::ImageLoadCache::read(registry,path,0,[&] { ++before; cancel=true; },&cancel));
+        QCOMPARE(before,1); QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+        cancel=false;
+        const auto valid=ix::loadImage(registry,{path,0,true,false,false},{},&cancel);
+        QVERIFY(valid); QCOMPARE(valid->document.pixels,pixels);
+        const auto invalid=ix::loadImage(registry,{path+QStringLiteral(".missing"),0,true,false,false},{},&cancel);
+        QVERIFY(invalid); QVERIFY(!invalid->error.isEmpty());
+        ix::ImageLoadCache::clear();
+    }
+    void cancelledDecodedLoadSkipsDisplayAndKeepsBoundedOriginal_data() {
+        QTest::addColumn<bool>("cache"); QTest::newRow("cache") << true; QTest::newRow("no-cache") << false;
+    }
+    void cancelledDecodedLoadSkipsDisplayAndKeepsBoundedOriginal() {
+        QFETCH(bool,cache);
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(cache ? 16 : 0,0,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        const auto path=temporary_.filePath(QStringLiteral("cancel-after.owned"));
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("controlled source"); file.close();
+        class CancellingCodec final : public ix::ImageCodec {
+          public:
+            std::atomic_bool *cancel; mutable int reads=0; QImage pixels;
+            bool accepts(const QString &path) const override { return path.endsWith(QStringLiteral(".owned")); }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &,int) const override {
+                ++reads; cancel->store(true); ix::ImageDocument document;
+                document.pixels=pixels; document.format="png"; return {document,{}};
+            }
+        };
+        std::atomic_bool cancel=false; auto codec=std::make_shared<CancellingCodec>(); codec->cancel=&cancel;
+        codec->pixels=QImage(1024,768,QImage::Format_RGBA64); codec->pixels.fill(QColor(30,110,220,137));
+        codec->pixels.setColorSpace(QColorSpace::DisplayP3);
+        ix::CodecRegistry registry; registry.add(codec);
+        QVERIFY(!ix::loadImage(registry,{path,0,true,true,false},{},&cancel));
+        QCOMPARE(codec->reads,1); QCOMPARE(ix::ImageLoadCache::usage().presentations,0);
+        if(cache) {
+            QVERIFY(ix::ImageLoadCache::usage().originals>0); cancel=false;
+            const auto reused=ix::loadImage(registry,{path,0,false,false,false},{},&cancel);
+            QVERIFY(reused); QCOMPARE(reused->document.pixels.cacheKey(),codec->pixels.cacheKey()); QCOMPARE(codec->reads,1);
+        } else QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+    }
+    void supersededQueuedOpenKeepsLatestWithoutInstallingStale() {
+        ix::ImageLoadCache::clear();
+        QSettings settings; const auto oldCache=settings.value(QStringLiteral("performance/imageCacheMiB"));
+        settings.setValue(QStringLiteral("performance/imageCacheMiB"),32);
+        const auto restore=qScopeGuard([&] { settings.setValue(QStringLiteral("performance/imageCacheMiB"),oldCache); ix::ImageLoadCache::clear(); });
+        QStringList paths;
+        for (int i=0;i<3;++i) {
+            const auto path=temporary_.filePath(QStringLiteral("supersede-%1.png").arg(i));
+            QImage image(64,48,QImage::Format_RGB32); image.fill(i==2 ? Qt::blue : Qt::red); QVERIFY(image.save(path)); paths.append(path);
+        }
+        ix::MainWindow window;
+        QStringList installed; auto *view=window.findChild<ix::ImageView *>(); QVERIFY(view);
+        connect(view,&ix::ImageView::selectionChanged,&window,[&] { if(!window.document().path.isEmpty())installed.append(window.document().path); });
+        auto *pool=QThreadPool::globalInstance(); pool->waitForDone(); const int threads=pool->maxThreadCount(); pool->setMaxThreadCount(1);
+        QSemaphore entered,resume; auto block=QtConcurrent::run([&] { entered.release(); resume.acquire(); });
+        const auto unblock=qScopeGuard([&] { resume.release(); block.waitForFinished(); pool->waitForDone(); pool->setMaxThreadCount(threads); });
+        QVERIFY(entered.tryAcquire(1,3000));
+        window.openPath(paths[0]); QVERIFY(window.isBusy()); window.openPath(paths[1]); window.openPath(paths[2]);
+        resume.release(); block.waitForFinished();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path==paths[2],10000);
+        QVERIFY(!installed.contains(paths[0])); QVERIFY(!installed.contains(paths[1]));
+        QCOMPARE(window.document().pixels.pixelColor(0,0),QColor(Qt::blue));
+        ix::CodecRegistry registry; int misses=0;
+        QVERIFY(ix::ImageLoadCache::read(registry,paths[0],0,[&] { ++misses; }).ok()); QCOMPARE(misses,1);
+    }
+    void queuedArrowNavigationStillCompletesIntermediateLoad() {
+        QStringList paths; const auto folder=temporary_.filePath(QStringLiteral("queued-arrows")); QVERIFY(QDir().mkpath(folder));
+        for(int i=0;i<3;++i) {
+            const auto path=folder+QStringLiteral("/%1.png").arg(i);
+            QImage image(64,48,QImage::Format_RGB32); image.fill(Qt::green); QVERIFY(image.save(path)); paths.append(path);
+        }
+        ix::MainWindow window; window.openPath(paths[0]);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path==paths[0],10000);
+        auto *pool=QThreadPool::globalInstance(); pool->waitForDone(); const int threads=pool->maxThreadCount(); pool->setMaxThreadCount(1);
+        QSemaphore entered,resume; auto block=QtConcurrent::run([&] { entered.release(); resume.acquire(); });
+        const auto unblock=qScopeGuard([&] { resume.release(); block.waitForFinished(); pool->waitForDone(); pool->setMaxThreadCount(threads); });
+        QVERIFY(entered.tryAcquire(1,3000));
+        window.openPath(paths[1]); QVERIFY(window.isBusy()); window.dispatch(QStringLiteral("next"));
+        resume.release(); block.waitForFinished();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path==paths[2],10000);
+    }
+    void supersededOpenFailurePreservesVisibleDocument() {
+        const auto current=temporary_.filePath(QStringLiteral("replace-current.png")),
+                   stale=temporary_.filePath(QStringLiteral("replace-stale.png")),
+                   missing=temporary_.filePath(QStringLiteral("replace-missing.png"));
+        QImage pixels(64,48,QImage::Format_RGB32); pixels.fill(Qt::green); QVERIFY(pixels.save(current));
+        pixels.fill(Qt::red); QVERIFY(pixels.save(stale));
+        ix::MainWindow window; window.openPath(current);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path==current,10000);
+        auto *view=window.findChild<ix::ImageView *>(); QVERIFY(view); const auto visible=view->image();
+        view->setZoom(2); view->setSelection({2,3,10,9});
+        auto *pool=QThreadPool::globalInstance(); pool->waitForDone(); const int threads=pool->maxThreadCount(); pool->setMaxThreadCount(1);
+        QSemaphore entered,resume; auto block=QtConcurrent::run([&] { entered.release(); resume.acquire(); });
+        const auto unblock=qScopeGuard([&] { resume.release(); block.waitForFinished(); pool->waitForDone(); pool->setMaxThreadCount(threads); });
+        QVERIFY(entered.tryAcquire(1,3000));
+        QStringList messages; QTimer accept; accept.setInterval(10);
+        connect(&accept,&QTimer::timeout,&window,[&] {
+            if(auto *message=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                messages.append(message->text()); message->accept();
+            }
+        });
+        accept.start(); window.openPath(stale); window.openPath(missing); resume.release(); block.waitForFinished();
+        QTRY_VERIFY_WITH_TIMEOUT(!messages.isEmpty() && !window.isBusy(),10000); accept.stop();
+        QCOMPARE(messages.size(),1); QVERIFY(messages[0].contains(missing));
+        QCOMPARE(window.document().path,current); QCOMPARE(view->image().cacheKey(),visible.cacheKey());
+        QCOMPARE(view->selection(),QRect(2,3,10,9)); QCOMPARE(view->zoom(),2.0);
+    }
+    void dirtyDocumentRetainsExistingDeferredOpenFlow() {
+        QSettings settings; const auto oldAsk=settings.value(QStringLiteral("navigation/askToSave"));
+        settings.setValue(QStringLiteral("navigation/askToSave"),false);
+        const auto restore=qScopeGuard([&] {
+            if(oldAsk.isValid()) settings.setValue(QStringLiteral("navigation/askToSave"),oldAsk);
+            else settings.remove(QStringLiteral("navigation/askToSave"));
+        });
+        QStringList paths;
+        for(int i=0;i<3;++i) {
+            const auto path=temporary_.filePath(QStringLiteral("dirty-deferred-%1.png").arg(i));
+            QImage pixels(64,48,QImage::Format_RGB32); pixels.fill(Qt::green); QVERIFY(pixels.save(path)); paths.append(path);
+        }
+        ix::MainWindow window; window.openPath(paths[0]);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path==paths[0],10000);
+        window.dispatch(QStringLiteral("grayscale")); QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        QStringList installed; auto *view=window.findChild<ix::ImageView *>(); QVERIFY(view);
+        connect(view,&ix::ImageView::selectionChanged,&window,[&] { installed.append(window.document().path); });
+        auto *pool=QThreadPool::globalInstance(); pool->waitForDone(); const int threads=pool->maxThreadCount(); pool->setMaxThreadCount(1);
+        QSemaphore entered,resume; auto block=QtConcurrent::run([&] { entered.release(); resume.acquire(); });
+        const auto unblock=qScopeGuard([&] { resume.release(); block.waitForFinished(); pool->waitForDone(); pool->setMaxThreadCount(threads); });
+        QVERIFY(entered.tryAcquire(1,3000));
+        window.openPath(paths[1]); window.openPath(paths[2]); resume.release(); block.waitForFinished();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && window.document().path==paths[2],10000);
+        QVERIFY(installed.contains(paths[1]));
+    }
+    void simultaneousPixelReadsShareOneBuffer() {
+        ix::ImageLoadCache::clear();
+        const auto path=temporary_.filePath(QStringLiteral("shared-active.png"));
+        QImage pixels(1024,768,QImage::Format_RGB32); pixels.fill(Qt::red); QVERIFY(pixels.save(path));
+        QSemaphore entered,resume; std::atomic_int calls=0;
+        std::future<ix::ImageLoadCache::PreviewPixels> owner,waiting;
+        const auto join=qScopeGuard([&] { resume.release(); if(owner.valid())owner.wait(); if(waiting.valid())waiting.wait(); });
+        owner=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                ++calls; entered.release(); resume.acquire(); return ix::ImageLoadCache::PreviewPixels{pixels,37,2};
+            });
+        });
+        QVERIFY(entered.tryAcquire(1,3000));
+        waiting=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                ++calls; return ix::ImageLoadCache::PreviewPixels{pixels.copy(),99,4};
+            });
+        });
+        QTRY_COMPARE_WITH_TIMEOUT(ix::ImageLoadCache::decodeActivity().waiting,1,3000);
+        QCOMPARE(ix::ImageLoadCache::decodeActivity().active,1);
+        resume.release(); const auto first=owner.get(),second=waiting.get();
+        QCOMPARE(calls.load(),1); QCOMPARE(first.pixels.cacheKey(),second.pixels.cacheKey());
+        QCOMPARE(second.delayMs,37); QCOMPARE(second.loopCount,2);
+        QCOMPARE(ix::ImageLoadCache::decodeActivity().active,0); QCOMPARE(ix::ImageLoadCache::decodeActivity().waiting,0);
+        QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+    }
+    void cancelledPixelWaitDoesNotCancelOwner() {
+        const auto path=temporary_.filePath(QStringLiteral("shared-cancel.png"));
+        QImage pixels(1024,768,QImage::Format_RGB32); pixels.fill(Qt::green); QVERIFY(pixels.save(path));
+        QSemaphore entered,resume; std::atomic_bool cancel=false; std::atomic_int calls=0;
+        std::future<ix::ImageLoadCache::PreviewPixels> owner,waiting;
+        const auto join=qScopeGuard([&] { cancel=true; resume.release(); if(owner.valid())owner.wait(); if(waiting.valid())waiting.wait(); });
+        owner=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                ++calls; entered.release(); resume.acquire(); return ix::ImageLoadCache::PreviewPixels{pixels};
+            });
+        });
+        QVERIFY(entered.tryAcquire(1,3000));
+        waiting=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                ++calls; return ix::ImageLoadCache::PreviewPixels{pixels.copy()};
+            },&cancel);
+        });
+        QTRY_COMPARE_WITH_TIMEOUT(ix::ImageLoadCache::decodeActivity().waiting,1,3000);
+        cancel=true; QTRY_COMPARE_WITH_TIMEOUT(ix::ImageLoadCache::decodeActivity().waiting,0,3000);
+        QVERIFY(waiting.get().pixels.isNull()); QCOMPARE(ix::ImageLoadCache::decodeActivity().active,1);
+        resume.release(); QCOMPARE(owner.get().pixels,pixels); QCOMPARE(calls.load(),1);
+        QCOMPARE(ix::ImageLoadCache::decodeActivity().active,0);
+    }
+    void sharedPixelGenerationsStayIndependent_data() {
+        QTest::addColumn<int>("change");
+        QTest::newRow("clear") << 0; QTest::newRow("invalidate") << 1; QTest::newRow("rewrite") << 2;
+    }
+    void sharedPixelGenerationsStayIndependent() {
+        QFETCH(int,change);
+        const auto path=temporary_.filePath(QStringLiteral("shared-generation.png"));
+        QImage before(1024,768,QImage::Format_RGB32),after(before.size(),before.format());
+        before.fill(Qt::red); after.fill(Qt::blue); QVERIFY(before.save(path));
+        QSemaphore entered,oldResume,newEntered,newResume; std::atomic_int calls=0;
+        std::future<ix::ImageLoadCache::PreviewPixels> old,fresh,waiting;
+        const auto join=qScopeGuard([&] { oldResume.release(); newResume.release();
+            for(auto *future : {&old,&fresh,&waiting}) if(future->valid())future->wait(); });
+        old=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,before.size(),before.format(),"png",[&] {
+                ++calls; entered.release(); oldResume.acquire(); return ix::ImageLoadCache::PreviewPixels{before};
+            });
+        });
+        QVERIFY(entered.tryAcquire(1,3000));
+        if(change==0) ix::ImageLoadCache::clear();
+        else if(change==1) ix::ImageLoadCache::invalidate({path});
+        else QVERIFY(after.save(path));
+        fresh=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,after.size(),after.format(),"png",[&] {
+                ++calls; newEntered.release(); newResume.acquire(); return ix::ImageLoadCache::PreviewPixels{after};
+            });
+        });
+        QVERIFY(newEntered.tryAcquire(1,3000)); QCOMPARE(ix::ImageLoadCache::decodeActivity().active,2);
+        oldResume.release(); QCOMPARE(old.get().pixels,before);
+        // Finishing the old generation must not remove the fresh owner's entry.
+        waiting=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,after.size(),after.format(),"png",[&] {
+                ++calls; return ix::ImageLoadCache::PreviewPixels{before};
+            });
+        });
+        QTRY_COMPARE_WITH_TIMEOUT(ix::ImageLoadCache::decodeActivity().waiting,1,3000);
+        newResume.release(); const auto result=fresh.get(); QCOMPARE(waiting.get().pixels.cacheKey(),result.pixels.cacheKey());
+        QCOMPARE(result.pixels,after); QCOMPARE(calls.load(),2); QCOMPARE(ix::ImageLoadCache::decodeActivity().active,0);
+    }
+    void failedPixelOwnerWakesWaitersAndAllowsRetry_data() {
+        QTest::addColumn<bool>("exception"); QTest::newRow("null") << false; QTest::newRow("exception") << true;
+    }
+    void failedPixelOwnerWakesWaitersAndAllowsRetry() {
+        QFETCH(bool,exception);
+        const auto path=temporary_.filePath(QStringLiteral("shared-failure.png"));
+        QImage pixels(1024,768,QImage::Format_RGB32); pixels.fill(Qt::blue); QVERIFY(pixels.save(path));
+        QSemaphore entered,resume; std::atomic_int calls=0;
+        std::future<ix::ImageLoadCache::PreviewPixels> owner,waiting;
+        const auto join=qScopeGuard([&] { resume.release(); if(owner.valid())owner.wait(); if(waiting.valid())waiting.wait(); });
+        owner=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&]() -> ix::ImageLoadCache::PreviewPixels {
+                ++calls; entered.release(); resume.acquire(); if(exception) throw std::runtime_error("test decode failure"); return {};
+            });
+        });
+        QVERIFY(entered.tryAcquire(1,3000));
+        waiting=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                ++calls; return ix::ImageLoadCache::PreviewPixels{pixels};
+            });
+        });
+        QTRY_COMPARE_WITH_TIMEOUT(ix::ImageLoadCache::decodeActivity().waiting,1,3000); resume.release();
+        if(exception) QVERIFY_THROWS_EXCEPTION(std::runtime_error,owner.get()); else QVERIFY(owner.get().pixels.isNull());
+        QCOMPARE(waiting.get().pixels,pixels); QCOMPARE(calls.load(),2);
+        QCOMPARE(ix::ImageLoadCache::decodeActivity().active,0); QCOMPARE(ix::ImageLoadCache::decodeActivity().waiting,0);
+    }
+    void recursivePixelDecodeDoesNotWaitOnItself() {
+        const auto path=temporary_.filePath(QStringLiteral("shared-recursive.png"));
+        QImage pixels(1024,768,QImage::Format_RGB32); pixels.fill(Qt::blue); QVERIFY(pixels.save(path));
+        int calls=0;
+        const auto result=ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+            ++calls; return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                ++calls; return ix::ImageLoadCache::PreviewPixels{pixels};
+            });
+        });
+        QCOMPARE(result.pixels,pixels); QCOMPARE(calls,2); QCOMPARE(ix::ImageLoadCache::decodeActivity().active,0);
+    }
+    void sharedPixelOwnerRestoresWorkerPriority() {
+        const auto path=temporary_.filePath(QStringLiteral("shared-priority.png"));
+        QImage pixels(1024,768,QImage::Format_RGB32); pixels.fill(Qt::blue); QVERIFY(pixels.save(path));
+        QSemaphore entered,resume; std::atomic_int restored=-1;
+        std::future<ix::ImageLoadCache::PreviewPixels> waiting;
+        const auto thread=std::unique_ptr<QThread>(QThread::create([&] {
+            ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                entered.release(); resume.acquire(); return ix::ImageLoadCache::PreviewPixels{pixels};
+            });
+            restored=int(QThread::currentThread()->priority());
+        }));
+        const auto join=qScopeGuard([&] { resume.release(); thread->wait(); if(waiting.valid())waiting.wait(); });
+        thread->start(QThread::LowPriority); QVERIFY(entered.tryAcquire(1,3000));
+        waiting=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::decodePreviewPixels(path,pixels.size(),pixels.format(),"png",[&] {
+                return ix::ImageLoadCache::PreviewPixels{pixels.copy()};
+            });
+        });
+        QTRY_COMPARE_WITH_TIMEOUT(ix::ImageLoadCache::decodeActivity().waiting,1,3000);
+#ifdef Q_OS_WIN
+        QCOMPARE(thread->priority(),QThread::NormalPriority);
+#endif
+        resume.release(); QCOMPARE(waiting.get().pixels.cacheKey(),pixels.cacheKey());
+        QVERIFY(thread->wait(3000));
+#ifdef Q_OS_WIN
+        QCOMPARE(restored.load(),int(QThread::LowPriority));
+#endif
+        QCOMPARE(ix::ImageLoadCache::decodeActivity().active,0);
+    }
+    void decodedPreviewPreservesPixelsAndForegroundProperties_data() {
+        QTest::addColumn<QByteArray>("codec"); QTest::addColumn<int>("format");
+        QTest::newRow("png-rgb") << QByteArray("png") << int(QImage::Format_RGB32);
+        QTest::newRow("png-rgba64") << QByteArray("png") << int(QImage::Format_RGBA64);
+        QTest::newRow("png-gray16") << QByteArray("png") << int(QImage::Format_Grayscale16);
+        QTest::newRow("bmp") << QByteArray("bmp") << int(QImage::Format_RGB32);
+    }
+    void decodedPreviewPreservesPixelsAndForegroundProperties() {
+        QFETCH(QByteArray,codec); QFETCH(int,format);
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(32,1,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        const auto path=temporary_.filePath(QStringLiteral("decoded-preview.")+QString::fromLatin1(codec));
+        QImage source(1024,768,QImage::Format(format));
+        for (int y=0;y<source.height();++y) for(int x=0;x<source.width();++x)
+            source.setPixelColor(x,y,QColor((x*17+y)%256,(x+y*29)%256,(x*3+y*7)%256,format==QImage::Format_RGBA64 ? (x+y)%256 : 255));
+        if (format!=QImage::Format_Grayscale16) source.setColorSpace(QColorSpace::DisplayP3);
+        source.setDotsPerMeterX(4300); source.setDotsPerMeterY(4700);
+        source.setText(QStringLiteral("Description"),QStringLiteral("Literal preview metadata <test>"));
+        QVERIFY(source.save(path,codec.constData())); const auto originalHash=ix::sha256File(path);
+        ix::CodecRegistry registry; const auto reference=registry.read(path); QVERIFY(reference.ok());
+        QImageReader legacy(path); legacy.setAutoTransform(true);
+        legacy.setScaledSize(legacy.size().scaled({68,50},Qt::KeepAspectRatio));
+        const auto expectedThumb=legacy.read().scaled({68,50},Qt::KeepAspectRatio,Qt::SmoothTransformation);
+        QCOMPARE(ix::loadPreview(path,{68,50}),expectedThumb);
+        QVERIFY(ix::ImageLoadCache::usage().decodedPreviews>=reference.document.pixels.sizeInBytes());
+        const auto taken=ix::ImageLoadCache::takePreviewPixels(path,source.size(),reference.document.pixels.format(),codec);
+        QVERIFY(taken); QCOMPARE(taken->pixels,reference.document.pixels);
+        // A second thumbnail size exercises a fresh decode rather than a cached thumbnail.
+        QVERIFY(!ix::loadPreview(path,{69,51}).isNull());
+        QVERIFY(ix::ImageLoadCache::usage().decodedPreviews>0);
+        const auto actual=ix::ImageLoadCache::read(registry,path); QVERIFY2(actual.ok(),qPrintable(actual.error));
+        const auto &a=actual.document, &b=reference.document;
+        QCOMPARE(a.pixels,b.pixels); QCOMPARE(a.pixels.format(),b.pixels.format());
+        QCOMPARE(a.pixels.colorSpace(),b.pixels.colorSpace()); QCOMPARE(a.text,b.text);
+        QCOMPARE(a.dpiX(),b.dpiX()); QCOMPARE(a.dpiY(),b.dpiY()); QCOMPARE(a.fileBytes,b.fileBytes);
+        QCOMPARE(a.pageCount,b.pageCount); QCOMPARE(a.delayMs,b.delayMs); QCOMPARE(a.loopCount,b.loopCount);
+        QCOMPARE(a.sourceHasExif,b.sourceHasExif); QCOMPARE(a.metadataWarning,b.metadataWarning);
+        QCOMPARE(bool(a.metadata),bool(b.metadata)); if(a.metadata) QCOMPARE(a.metadata->tags,b.metadata->tags);
+        QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+        QCOMPARE(ix::ImageLoadCache::read(registry,path).document.pixels.cacheKey(),a.pixels.cacheKey());
+        QCOMPARE(ix::sha256File(path),originalHash);
+    }
+    void decodedPreviewPriorityBudgetsAndInvalidation() {
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(4,1,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        const auto nearPath=temporary_.filePath(QStringLiteral("handoff-nearPath.png")), farPath=temporary_.filePath(QStringLiteral("handoff-farPath.png"));
+        QImage image(1024,768,QImage::Format_RGB32); image.fill(Qt::red); QVERIFY(image.save(nearPath)); QVERIFY(image.save(farPath));
+        QVERIFY(!ix::loadPreview(nearPath,{68,50},nullptr,0).isNull());
+        QVERIFY(!ix::loadPreview(farPath,{68,50},nullptr,5).isNull());
+        QVERIFY(!ix::ImageLoadCache::takePreviewPixels(farPath,image.size(),image.format(),"png"));
+        QVERIFY(ix::ImageLoadCache::takePreviewPixels(nearPath,image.size(),image.format(),"png"));
+        QVERIFY(!ix::loadPreview(nearPath,{69,51}).isNull());
+        ix::CodecRegistry registry; QVERIFY(ix::ImageLoadCache::read(registry,farPath).ok());
+        const auto usage=ix::ImageLoadCache::usage(); QCOMPARE(usage.decodedPreviews,0);
+        QVERIFY(usage.originals>0); QVERIFY(usage.total()<=usage.budget);
+        QCOMPARE(usage.total(),ix::ImageLoadCache::retainedBytes());
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(16,1,true);
+        QVERIFY(!ix::loadPreview(nearPath).isNull()); QVERIFY(!ix::loadPreview(farPath).isNull());
+        ix::ImageLoadCache::invalidate({farPath}); QVERIFY(ix::ImageLoadCache::usage().decodedPreviews>0);
+        image.fill(Qt::blue); QVERIFY(image.save(nearPath));
+        QVERIFY(!ix::ImageLoadCache::takePreviewPixels(nearPath,image.size(),image.format(),"png"));
+        QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+        QCOMPARE(ix::ImageLoadCache::read(registry,nearPath).document.pixels,image);
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(16,0,true);
+        QVERIFY(!ix::loadPreview(nearPath).isNull()); QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+        ix::ImageLoadCache::configure(16,1,true);
+        std::atomic_bool cancel=true; QVERIFY(ix::loadPreview(nearPath,{68,50},&cancel).isNull());
+        QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+        QVERIFY(image.save(temporary_.filePath(QStringLiteral("reduced.jpg"))));
+        QVERIFY(!ix::loadPreview(temporary_.filePath(QStringLiteral("reduced.jpg"))).isNull());
+        QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+        const auto animated=temporary_.filePath(QStringLiteral("handoff-animated.png"));
+        QFile animation(animated); QVERIFY(animation.open(QIODevice::WriteOnly));
+        const auto bytes=ix::test::apngFixture(2,{1024,768}); QCOMPARE(animation.write(bytes),bytes.size()); animation.close();
+        QVERIFY(!ix::loadPreview(animated).isNull()); QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+        QVERIFY(!ix::loadPreview(nearPath,{70,52}).isNull());
+        QVERIFY(!ix::ImageLoadCache::takePreviewPixels(nearPath,{10,10},image.format(),"png"));
+        QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+        QVERIFY(!ix::loadPreview(nearPath,{71,53}).isNull());
+        QVERIFY(!ix::ImageLoadCache::takePreviewPixels(nearPath,image.size(),image.format(),"bmp"));
+        QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+        ix::ImageLoadCache::configure(0,1,true);
+        QVERIFY(!ix::loadPreview(nearPath,{72,54}).isNull());
+        QCOMPARE(ix::ImageLoadCache::usage().decodedPreviews,0);
+    }
+    void presentationsReuseExactPixelsAndRespectPolicy() {
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(16,1,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        const auto path=temporary_.filePath(QStringLiteral("presentation.png"));
+        QImage source(128,96,QImage::Format_RGBA64); source.fill(QColor(25,110,210,157));
+        for (int y=0;y<source.height();++y) {
+            auto *row=reinterpret_cast<QRgba64 *>(source.scanLine(y));
+            for (int x=0;x<source.width();++x)
+                row[x]=QRgba64::fromRgba64(quint16(x*1193+y*7),quint16(y*1709+x*13),quint16(x*419+y*811),quint16(30000+(x+y)*71));
+        }
+        source.setColorSpace(QColorSpace::DisplayP3); source.setDotsPerMeterX(4300);
+        QVERIFY(source.save(path)); const auto hash=ix::sha256File(path);
+        ix::CodecRegistry registry;
+        const auto first=ix::loadImage(registry,{path,0,true,false,false}); QVERIFY(first.error.isEmpty());
+        const auto expected=ix::displayImage(first.document.pixels,true,false);
+        QCOMPARE(first.display,expected);
+        const auto second=ix::loadImage(registry,{path,0,true,false,false});
+        QCOMPARE(second.document.pixels.cacheKey(),first.document.pixels.cacheKey());
+        QCOMPARE(second.display.cacheKey(),first.display.cacheKey());
+        QCOMPARE(second.document.pixels.colorSpace(),QColorSpace(QColorSpace::DisplayP3));
+        QVERIFY(ix::ImageLoadCache::usage().presentations>0);
+        const auto plain=ix::loadImage(registry,{path,0,false,false,false});
+        QCOMPARE(plain.display.cacheKey(),plain.document.pixels.cacheKey());
+        const auto sharpened=ix::loadImage(registry,{path,0,true,true,false});
+        QCOMPARE(sharpened.display,ix::displayImage(first.document.pixels,true,true));
+        QVERIFY(sharpened.display!=first.display);
+        const auto again=ix::loadImage(registry,{path,0,true,false,false});
+        QCOMPARE(again.display,expected); QCOMPARE(again.display.dotsPerMeterX(),4300);
+        ix::ImageLoadCache::configure(16,1,true);
+        QCOMPARE(ix::loadImage(registry,{path,0,true,false,false}).display.cacheKey(),again.display.cacheKey());
+        QCOMPARE(ix::sha256File(path),hash);
+        const auto usage=ix::ImageLoadCache::usage();
+        QVERIFY(usage.originals+usage.presentations<=16*ix::MiB);
+        QCOMPARE(usage.total(),ix::ImageLoadCache::retainedBytes());
+    }
+    void originalCacheTakesPriorityOverPreparedDisplays() {
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(4,1,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        QImage source(512,384,QImage::Format_RGBA64); source.fill(Qt::red); source.setColorSpace(QColorSpace::DisplayP3);
+        const auto first=temporary_.filePath(QStringLiteral("priority-1.png")), second=temporary_.filePath(QStringLiteral("priority-2.png"));
+        QVERIFY(source.save(first)); QVERIFY(source.save(second));
+        ix::CodecRegistry registry;
+        QVERIFY(ix::loadImage(registry,{first,0,true,false,false}).error.isEmpty());
+        QVERIFY(ix::ImageLoadCache::usage().presentations>0);
+        QVERIFY(ix::loadImage(registry,{second,0,true,false,false}).error.isEmpty());
+        int decodes=0;
+        QVERIFY(ix::ImageLoadCache::read(registry,first,0,[&] { ++decodes; }).ok());
+        QVERIFY(ix::ImageLoadCache::read(registry,second,0,[&] { ++decodes; }).ok());
+        QCOMPARE(decodes,0);
+        const auto usage=ix::ImageLoadCache::usage();
+        QVERIFY(usage.originals+usage.presentations<=4*ix::MiB); QVERIFY(usage.total()<=5*ix::MiB);
+        QCOMPARE(usage.presentations,0);
+    }
+    void clearDuringPresentationCannotRepopulateCache() {
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(16,1,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        const auto path=temporary_.filePath(QStringLiteral("inflight-display.png"));
+        QImage image(64,48,QImage::Format_RGB32); image.fill(Qt::green); QVERIFY(image.save(path));
+        ix::CodecRegistry registry; const auto read=ix::ImageLoadCache::read(registry,path); QVERIFY(read.ok());
+        QSemaphore started,resume;
+        auto work=std::async(std::launch::async,[&] {
+            return ix::ImageLoadCache::prepareDisplay(path,0,read.document,true,false,[&] {
+                started.release(); resume.tryAcquire(1,3000); return read.document.pixels.copy();
+            });
+        });
+        const auto join=qScopeGuard([&] { resume.release(); if (work.valid()) work.wait(); });
+        QVERIFY(started.tryAcquire(1,2000)); ix::ImageLoadCache::clear(); resume.release();
+        QVERIFY(!work.get().isNull()); QCOMPARE(ix::ImageLoadCache::usage().total(),0);
+        int decodes=0; QVERIFY(ix::ImageLoadCache::read(registry,path,0,[&] { ++decodes; }).ok()); QCOMPARE(decodes,1);
+    }
+    void preparedDisplayInvalidationAndRewriteKeepNeighbors() {
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(16,1,true);
+        const auto restore=qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192,16,true); });
+        QImage image(64,48,QImage::Format_RGBA64); image.fill(Qt::red); image.setColorSpace(QColorSpace::DisplayP3);
+        const auto path=temporary_.filePath(QStringLiteral("changed-display.png")), neighbor=temporary_.filePath(QStringLiteral("retained-display.png"));
+        QVERIFY(image.save(path)); QVERIFY(image.save(neighbor)); ix::CodecRegistry registry;
+        auto before=ix::loadImage(registry,{path,0,true,false,false});
+        const auto nearby=ix::loadImage(registry,{neighbor,0,true,false,false});
+        image.fill(Qt::blue); QVERIFY(image.save(path));
+        const auto after=ix::loadImage(registry,{path,0,true,false,false});
+        QVERIFY(after.document.sourceRevision!=before.document.sourceRevision);
+        QVERIFY(after.display!=before.display);
+        ix::ImageLoadCache::invalidate({path});
+        QCOMPARE(ix::loadImage(registry,{neighbor,0,true,false,false}).display.cacheKey(),nearby.display.cacheKey());
+        ix::ImageLoadCache::clear(); QCOMPARE(ix::ImageLoadCache::retainedBytes(),0);
+    }
+    void smallMemoryBudgetCoordinatesAllImageCaches() {
+        QProcess child;
+        child.start(QCoreApplication::applicationFilePath(),{QStringLiteral("--small-cache-budget"),QStringLiteral("-platform"),QStringLiteral("offscreen")});
+        QVERIFY(child.waitForFinished(20000));
+        QCOMPARE(child.exitStatus(),QProcess::NormalExit);
+        const auto output=child.readAllStandardOutput(), errors=child.readAllStandardError();
+        QVERIFY2(child.exitCode()==0,(errors+output).constData());
+        const auto report=QJsonDocument::fromJson(output).object();
+        QVERIFY(!report.isEmpty()); QCOMPARE(report.value(QStringLiteral("budget")).toInteger(),8*ix::MiB);
+    }
+    void batchAdmissionObservesRetainedCacheChanges() {
+        std::atomic<qint64> retained=50;
+        ix::BatchMemoryGate gate(100,[&] { return retained.load(); });
+        std::atomic_bool cancel=false;
+        auto first=gate.acquire(40,cancel); QVERIFY(first);
+        QSemaphore entered,acquired,resume;
+        std::thread worker([&] { entered.release(); auto second=gate.acquire(40,cancel); if(second) acquired.release(); resume.tryAcquire(1,3000); });
+        const auto join=qScopeGuard([&] { cancel=true; resume.release(); worker.join(); });
+        QVERIFY(entered.tryAcquire(1,1000)); QVERIFY(!acquired.tryAcquire(1,50));
+        retained=0;
+        QVERIFY(acquired.tryAcquire(1,2000));
+    }
     void batchMemoryEstimatesCoverWidePixelsAndUnknownHeaders() {
         ix::PipelineProfile profile;
         profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
@@ -525,6 +1052,14 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("IxViewMaintenanceTests"));
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
+    if (app.arguments().contains(QStringLiteral("--small-cache-budget"))) {
+        const auto report=checkSmallCacheBudget();
+        const auto bytes=QJsonDocument(report).toJson(QJsonDocument::Compact);
+        QFile output;
+        if (!output.open(stdout,QIODevice::WriteOnly) || output.write(bytes)!=bytes.size()) return 2;
+        output.close();
+        return report.contains(QStringLiteral("error")) ? 1 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--profile-memory"))) {
         const auto result = profileDocumentRelease();
         QFile output(app.arguments().value(1));

@@ -299,7 +299,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
     std::atomic_int next = 0, done = 0;
     // Shared by simultaneous batch runs. Reserve before decoding and keep the
     // lease until pixels and export temporaries have been released. No GUI wait.
-    static BatchMemoryGate memory(imageMemoryLimit());
+    static BatchMemoryGate memory(imageMemoryLimit(), &ImageLoadCache::retainedBytes);
     qint64 resourceBytes = 0;
     for (const auto &image : resources)
         resourceBytes += std::min(image.sizeInBytes(), qsizetype(imageMemoryLimit() - resourceBytes));
@@ -337,6 +337,7 @@ QList<PipelineFile> BatchPipeline::run(const PipelineJob &job, const QList<Pipel
                         }
                         estimate += std::min(resourceBytes, imageMemoryLimit() - estimate);
                         const auto lease = memory.acquire(estimate, cancel);
+                        if (!lease) throw std::runtime_error("Abgebrochen.");
                         checkCancel(cancel);
                         if (imageFileKey(entry.input) != entry.inputStamp)
                             throw std::runtime_error("Quelle wurde während des Wartens verändert.");

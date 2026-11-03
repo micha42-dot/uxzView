@@ -10,9 +10,14 @@
 #include <stdexcept>
 #include <cstring>
 namespace ix {
+namespace {
+bool needsColorConversion(const QImage &image, bool manageColor) {
+    return manageColor && image.colorSpace().isValid() && image.colorSpace() != QColorSpace(QColorSpace::SRgb);
+}
+}
 QImage displayImage(const QImage &image, bool manageColor, bool sharpen) {
     QImage out = image;
-    if (manageColor && image.colorSpace().isValid() && image.colorSpace() != QColorSpace(QColorSpace::SRgb))
+    if (needsColorConversion(image, manageColor))
     {
         if (!imageIsFileBacked(image)) out = image.convertedToColorSpace(QColorSpace::SRgb);
         else {
@@ -35,6 +40,12 @@ QImage displayImage(const QImage &image, bool manageColor, bool sharpen) {
 }
 PreparedImage loadImage(const CodecRegistry &registry, const ImageLoadRequest &request,
                         const std::function<void(QImage)> &preview) {
+    auto result = loadImage(registry, request, preview, nullptr);
+    return std::move(*result);
+}
+std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const ImageLoadRequest &request,
+                        const std::function<void(QImage)> &preview, const std::atomic_bool *cancel) {
+    if (cancel && cancel->load()) return {};
     const bool profile = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
     QElapsedTimer timer;
     if (profile) {
@@ -42,17 +53,27 @@ PreparedImage loadImage(const CodecRegistry &registry, const ImageLoadRequest &r
         qInfo("ix-load worker started");
     }
     auto result = ImageLoadCache::read(registry, request.path, request.page, [&] {
+        if (cancel && cancel->load()) return;
         // A cached original is already ready: avoid decoding/publishing a
         // smaller RAW preview before returning those full-resolution pixels.
         if (request.rawPreview && preview && request.page == 0 && isRawImage(request.path)) {
-            auto pixels = loadPreview(request.path, {1600, 1100});
-            if (!pixels.isNull()) preview(std::move(pixels));
+            auto pixels = loadPreview(request.path, {1600, 1100}, cancel);
+            if (!pixels.isNull() && !(cancel && cancel->load())) preview(std::move(pixels));
         }
-    });
+    }, cancel);
+    if (!result || (cancel && cancel->load())) return {};
     if (profile) qInfo("ix-load worker decode %.3f ms", timer.nsecsElapsed() / 1e6);
-    if (!result.ok()) return {{}, {}, result.error};
-    auto display = displayImage(result.document.pixels, request.manageColor, request.sharpenDisplay);
+    if (!result->ok()) return PreparedImage{{}, {}, result->error};
+    auto display = result->document.pixels;
+    if (request.sharpenDisplay || needsColorConversion(display, request.manageColor)) {
+        display = ImageLoadCache::prepareDisplay(request.path, request.page, result->document,
+            request.manageColor, request.sharpenDisplay, [&] {
+                if (cancel && cancel->load()) return QImage();
+                return displayImage(result->document.pixels, request.manageColor, request.sharpenDisplay);
+            });
+    }
+    if (cancel && cancel->load()) return {};
     if (profile) qInfo("ix-load worker prepared %.3f ms", timer.nsecsElapsed() / 1e6);
-    return {std::move(result.document), std::move(display), {}};
+    return PreparedImage{std::move(result->document), std::move(display), {}};
 }
 } // namespace ix

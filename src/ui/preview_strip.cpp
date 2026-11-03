@@ -144,10 +144,16 @@ void PreviewStrip::rebuild(bool reset) {
         button->setAutoRaise(flatButtons_);
         row_->addWidget(button);
         buttons_.insert(path, button);
-        // Revalidate cached pixels in the worker so edited/deleted files refresh.
-        service_.request(path, {68, 50}, generation_);
     }
     qDeleteAll(previousButtons);
     row_->addStretch();
+    // The row stays in file order. Decode nearest neighbors first, with the
+    // next image preferred; speculative full pixels retain that priority too.
+    int priority = 0;
+    for (int distance = 1; distance <= std::max(previous_, next_); ++distance)
+        for (int index : {current_ + distance, current_ - distance}) {
+            if (index < first || index > last) continue;
+            service_.request(files_.at(index), {68, 50}, generation_, priority++);
+        }
 }
 } // namespace ix

@@ -20,6 +20,7 @@
 #include <QtTest>
 #include <QtWidgets>
 #include <limits>
+#include <array>
 #include <stdexcept>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -500,6 +501,60 @@ class QualityTests : public QObject {
             const auto name = QByteArray("general-filter-") + QByteArray::number(variant);
             QTest::newRow(name.constData()) << int(QImage::Format_RGBA64) << QSize(13, 11) << variant;
         }
+    }
+    void nativeSharpenCoversEveryByteAndNeighborSum_data() {
+        QTest::addColumn<int>("format");
+        QTest::newRow("rgb32") << int(QImage::Format_RGB32);
+        QTest::newRow("argb32") << int(QImage::Format_ARGB32);
+    }
+    void nativeSharpenCoversEveryByteAndNeighborSum() {
+        QFETCH(int,format);
+        QImage source(256*3,1021*3,QImage::Format(format)); source.fill(Qt::black);
+        for(int sum=0;sum<=1020;++sum) for(int center=0;center<256;++center) {
+            const int x=center*3+1,y=sum*3+1;
+            source.setPixel(x,y,qRgba(center,255-center,(center*37)%256,(center+sum)%256));
+            std::array<int,3> remaining{sum,1020-sum,(sum*17)%1021};
+            const std::array<QPoint,4> offsets{QPoint(0,-1),QPoint(-1,0),QPoint(1,0),QPoint(0,1)};
+            for(int i=0;i<4;++i) {
+                std::array<int,3> value{};
+                for(int channel=0;channel<3;++channel) { value[channel]=std::min(255,remaining[channel]); remaining[channel]-=value[channel]; }
+                source.setPixel(x+offsets[i].x(),y+offsets[i].y(),qRgba(value[0],value[1],value[2],(center*13+sum*7+i)%256));
+            }
+        }
+        const QVector<double> kernel{0,-1,0,-1,5,-1,0,-1,0};
+        const auto key=source.cacheKey();
+        const auto expected=ix::test::referenceConvolve(source,kernel,3), actual=ix::convolve(source,kernel,3);
+        QCOMPARE(actual,expected); QCOMPARE(source.cacheKey(),key);
+    }
+    void nativeSharpenPreservesPaddingAlphaAndLegacyProperties_data() {
+        QTest::addColumn<int>("format");
+        QTest::newRow("rgb32") << int(QImage::Format_RGB32);
+        QTest::newRow("argb32") << int(QImage::Format_ARGB32);
+    }
+    void nativeSharpenPreservesPaddingAlphaAndLegacyProperties() {
+        QFETCH(int,format); constexpr int width=17,height=13,stride=width*4+24;
+        QByteArray bytes(stride*height,char(0x5a));
+        QImage source(reinterpret_cast<uchar *>(bytes.data()),width,height,stride,QImage::Format(format));
+        for(int y=0;y<height;++y) {
+            auto *row=reinterpret_cast<QRgb *>(source.scanLine(y));
+            for(int x=0;x<width;++x) row[x]=qRgba((x*71+y*17)%256,(y*53+x*3)%256,(x*29+y*31)%256,(x*13+y*19)%256);
+        }
+        source.setColorSpace(QColorSpace::DisplayP3); source.setDotsPerMeterX(4500); source.setDotsPerMeterY(8300);
+        source.setText(QStringLiteral("Comment"),QStringLiteral("Literal <native & alpha>"));
+        source.setDevicePixelRatio(2.5); source.setOffset({-7,13});
+        const QByteArray original(bytes.constData(),bytes.size()); const auto key=source.cacheKey();
+        const QVector<double> kernel{0,-1,0,-1,5,-1,0,-1,0};
+        const auto expected=ix::test::referenceConvolve(source,kernel,3), actual=ix::convolve(source,kernel,3);
+        QCOMPARE(actual,expected); QCOMPARE(actual.format(),expected.format());
+        QCOMPARE(actual.colorSpace(),expected.colorSpace()); QCOMPARE(actual.text(),expected.text());
+        QCOMPARE(actual.dotsPerMeterX(),expected.dotsPerMeterX()); QCOMPARE(actual.dotsPerMeterY(),expected.dotsPerMeterY());
+        QCOMPARE(actual.devicePixelRatio(),expected.devicePixelRatio()); QCOMPARE(actual.offset(),expected.offset());
+        for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
+            const auto value=reinterpret_cast<const QRgb *>(actual.constScanLine(y))[x];
+            QCOMPARE(value,reinterpret_cast<const QRgb *>(expected.constScanLine(y))[x]);
+            QCOMPARE(qAlpha(value),format==QImage::Format_RGB32 ? 255 : qAlpha(reinterpret_cast<const QRgb *>(source.constScanLine(y))[x]));
+        }
+        QCOMPARE(source.cacheKey(),key); QCOMPARE(bytes,original);
     }
     void convolutionRetainsReferencePixels() {
         QFETCH(int, format); QFETCH(QSize, size); QFETCH(int, variant);

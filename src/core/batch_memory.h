@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <utility>
 namespace ix {
@@ -28,7 +29,9 @@ class BatchMemoryGate {
         BatchMemoryGate *owner_ = nullptr;
         qint64 bytes_ = 0;
     };
-    explicit BatchMemoryGate(qint64 limit);
+    // Retained-memory observer must be nonblocking and must not acquire cache
+    // locks: it is sampled under this gate's mutex. Production uses an atomic.
+    explicit BatchMemoryGate(qint64 limit, std::function<qint64()> retained = {});
     // Only acquire once per job, before decoding; never while holding a lease.
     // Cancellation is polled while waiting and removes the request from the queue.
     Lease acquire(qint64 bytes, const std::atomic_bool &cancel);
@@ -37,6 +40,7 @@ class BatchMemoryGate {
   private:
     void release(qint64 bytes);
     const qint64 limit_;
+    const std::function<qint64()> retained_;
     qint64 used_ = 0;
     std::mutex mutex_;
     std::condition_variable changed_;

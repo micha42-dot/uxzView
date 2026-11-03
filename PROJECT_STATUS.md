@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.5.4 · Stand: 02.11.2026**
+**Version 0.5.4 · Stand: 03.11.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -17,6 +17,18 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KEYBOARD.md), [Einstellungen](docs/SETTINGS.md), [Portabelmodus](docs/PORTABLE.md), [Erweiterungen](docs/TOOL_EXTENSIONS.md).
 
 ## Letzte Änderungen
+
+- Unreleased: Windows-Befehlszustände fragen nur angebotene Zwischenablageformate ab, statt beim Fensteraufbau und Bildwechsel auf einen fremden OLE-Anbieter zu warten. Bei kontrolliert 1,5 Sekunden belegter Zwischenablage sank der vollständige Start mit dem bereitgestellten 24-MP-JPEG im Median von 1782 auf 437 ms. Tatsächliches Einfügen bleibt bei Qt; optionale Zeitmarken erfassen jetzt auch den Fensteraufbau. 718 Qt-Fälle bestehen lokal und im SDK-freien portablen Paket, dazu 47 Python-Tests. Der ursprüngliche einmalige 4,9-Sekunden-Ausreißer ist damit noch nicht vollständig erklärt. [Messung und Grenzen](docs/STARTUP_CLIPBOARD_2026-11-03.md).
+
+- Unreleased: Standard-Schärfen für RGB32/ARGB32 arbeitet direkt auf Byte-Pixeln, auf x64 zusätzlich mit SSE2. Im lokalen 24-MP-Vergleich sank die Filterzeit von 633 auf 83 ms beziehungsweise mit Transparenz von 696 auf 89 ms; der zusätzliche private Prozessspeicher von rund 385 auf 96 MB. Pixel, Alpha, Metadaten und bisherige Zulassungsgrenzen bleiben erhalten. 713 Qt-Fälle bestehen im Entwicklungsbuild und SDK-freien portablen Paket, dazu 47 Python-Tests. [Messwerte und Grenzen](docs/NATIVE_SHARPEN_2026-11-03.md).
+
+- Unreleased: Überholte explizite Öffnungsaufträge können vor dem Lesen entfallen; nach begonnener Dekodierung werden unnötige Anzeigeaufbereitung und Einbau des alten Bildes übersprungen. Ein vorgemerkter manueller Wunsch behält Vorrang vor Hotfolder-Updates. Im kontrollierten Windows-Vergleich sank die Zeit bis zum neuesten Bild von 1058 auf 226 ms. Bearbeitungen, sichtbare RAW-Vorschauen, Animationen und relative Navigation behalten ihre Schutzregeln. 709 Qt-Fälle und 47 Python-Tests bestehen lokal. [Messwerte und Grenzen](docs/SUPERSEDED_LOADS_2026-11-03.md).
+
+- Unreleased: Gleichzeitig laufende native PNG-/BMP-Pixeldekodierungen für Vorschau und Bildöffnung werden gebündelt. Bei überlappenden 24-MP-Dateien sank die lokal gemessene CPU-Zeit um 39 % (PNG) beziehungsweise 50 % (BMP), der zusätzliche private Prozessspeicher von rund 193 auf 97 MB. Latenzgewinne sind kleiner und schwanken; kein allgemeiner Erstöffnungs-/JPEG-Gewinn. Abbruch, Fehler, Dateirevisionen, Cache-Generationen und wiederhergestellte Worker-Priorität sind geprüft. 701 Qt-Fälle und 47 Python-Tests bestehen lokal. [Messwerte und Grenzen](docs/CONCURRENT_DECODE_2026-11-03.md).
+
+- Unreleased: Bereits für statische PNG-/BMP-Nachbarvorschauen dekodierte Vollbilder werden beim Öffnen wiederverwendet. Nahe Nachbarn laden zuerst; Originale behalten Vorrang im bestehenden Cachebudget. Bei einem 24-MP-PNG nach fertiger Vorschau sank die lokale Zeit bis zur ersten Qt-Zeichnung von 335 auf 67 ms, Vorschau plus Öffnen von 659 auf 386 ms. Kein allgemeiner Erstöffnungs-/JPEG-Gewinn. 692 Qt-Fälle und 47 Python-Tests bestehen lokal. [Messwerte und Grenzen](docs/PREVIEW_HANDOFF_2026-11-03.md).
+
+- Unreleased: Originale und vorbereitete Farbanzeigen teilen ihr Cachebudget; Original-, Anzeigevorbereitungs- und Miniaturcache berücksichtigen gemeinsam das Bildspeicherbudget, neue Batch-Jobs zusätzlich diesen Cachebestand. Beim Wiederbesuchen farbverwalteter Bilder sank die lokale Zeit bis zur ersten Qt-Zeichnung von 39 auf 29 ms (P3-JPEG) beziehungsweise 88 auf 48 ms (6-MP-PNG). Für sRGB und erstes Öffnen ist kein allgemeiner Gewinn belegt. 687 Qt-Fälle und 47 Python-Tests bestehen lokal. [Messwerte und Grenzen](docs/EVERYDAY_PERFORMANCE_2026-11-02.md).
 
 - Unreleased: Verarbeitungsketten koordinieren ihren geschätzten Speicherbedarf jetzt über parallele Läufe hinweg. Wartende Jobs lassen sich ohne Dekodierung abbrechen; geänderte Quellen werden vor dem Lesen zurückgewiesen. Beim großen 16-Bit-Vergleich mit 512 MiB Bildbudget sank die private Speicherspitze um rund 53 %, bei längerer Laufzeit. 681 Qt-Fälle und 47 Python-Tests bestehen lokal. [Messwerte und Grenzen](docs/BATCH_MEMORY_2026-11-02.md).
 
@@ -308,19 +320,19 @@ Die Änderungshistorie steht im [Changelog](CHANGELOG.md). Befunde, Messwerte un
 
 ## Prüfung
 
-Aktueller lokaler Kandidat auf Windows 11: **155 Funktions-, 13 Qualitäts-, 12 Speicher-, 17 Erweiterungs- und 51 Ablaufprüfungen** sowohl im Entwicklungsbuild als auch im portablen Paket ohne SDK-Pfade; insgesamt je 248 Qt-Prüfungen einschließlich Setup/Cleanup und datengetriebener Fälle. Dazu 35 Python-Tests und alle 20 Schritte des Entwicklungs-/Windows-Prüflaufs einschließlich 100/125/150/200 Prozent Skalierung. Keine Fehler oder übersprungenen Fälle. Erfolgreiche Fensterprüfungen auf diesem Rechner garantieren keine flackerfreie Ausgabe auf jeder GPU.
+Aktueller lokaler Kandidat auf Windows 11: **718 Qt-Prüfungen in neun Suiten** sowohl im Entwicklungsbuild als auch im portablen Paket ohne SDK-Pfade. Enthalten sind 200 Kern-, 165 Ablauf-, 152 Qualitäts-, 12 Profilspeicher-, 29 Dateioperations-, 17 Erweiterungs-, 47 Wartungs-, 56 Oberflächen- und 40 Großbildfälle einschließlich Setup/Cleanup und datengetriebener Fälle. Dazu bestehen 47 Python-Tests. Keine Fehler oder übersprungenen Fälle; RAW-/Erkennungsdaten sind verpflichtend. [Aktuelle Messung und Nachweise](docs/STARTUP_CLIPBOARD_2026-11-03.md). Frühere native DPI-/Vollbildprüfungen wurden in diesem Durchlauf nicht vollständig wiederholt; erfolgreiche Fensterprüfungen auf diesem Rechner garantieren keine flackerfreie Ausgabe auf jeder GPU.
 
 Die aktuelle SDK-freie portable Fassung besteht auch echte OCR-/QR-Prozesse mit allen fünf Modellen und den Profil-/Werkzeugumzug. Die bisherigen Datei-/Navigationsregressionen bleiben Bestandteil des Ablaufs. Der frühere einzelne native Mess-Timeout bleibt ungeklärt; sechs neue Diagnoseprozesse liefen erfolgreich durch und erhalten künftig bei Fehlern Checkpoints und Teilprotokolle.
 
-Fünf echte CR2-/NEF-/ARW-/PEF-/DNG-Dateien, vier unabhängige LittleCMS-Referenzen, HDR-/HEIC- und PSD-Composites sowie echte OCR-/QR-Prozesse sind enthalten. Der Windows-Codec-Bericht enthält 94 Formatschlüssel und 32 synthetische Encoder-Rundläufe. Das belegt keine vollständige Unterstützung sämtlicher Formatvarianten. Details: [Qualität](docs/QUALITY.md), [Formate](docs/FORMAT_COMPATIBILITY.md), [Plattformen](docs/PLATFORMS.md).
+Fünf echte CR2-/NEF-/ARW-/PEF-/DNG-Dateien, vier unabhängige LittleCMS-Referenzen, HDR-/HEIC- und PSD-Composites sowie echte OCR-/QR-Prozesse sind enthalten. Der aktuelle Windows-Codec-Bericht enthält 97 Fähigkeitseinträge mit 99 Endungsschlüsseln; 32 synthetische Encoder-Rundläufe bestehen. Das belegt keine vollständige Unterstützung sämtlicher Formatvarianten. Details: [Qualität](docs/QUALITY.md), [Formate](docs/FORMAT_COMPATIBILITY.md), [Plattformen](docs/PLATFORMS.md).
 
 ## Offene Grenzen und nächste Arbeit
 
 1. Native Windows-10-/Linux-/macOS-Läufe, breitere RAW-/OCR-/Barcode-Stichproben, kalibrierte Monitorprofile, HDR-Desktop und Mehrmonitorverhalten prüfen. Wayland-Screenshots benötigen noch die Portal-Anbindung. Muttersprachliche Prüfung der Übersetzungen steht aus.
-2. Die Auftragssteuerung der Ordnerindizierung ist ausgelagert. Laden, Navigation, Speichern und Dateiverwaltung aus dem weiterhin großen Hauptfenster weiter schrittweise entflechten. Erst darauf aufbauend gerichtetes Vorladen mit Abbruch und ohne doppelte Decodierung ergänzen.
+2. Die Auftragssteuerung der Ordnerindizierung ist ausgelagert. Laden, Navigation, Speichern und Dateiverwaltung aus dem weiterhin großen Hauptfenster weiter schrittweise entflechten. Fertige PNG-/BMP-Vorschaupixel und passende gleichzeitig laufende native Dekodierungen werden wiederverwendet; gerichtetes Vorladen weiterer Formate und das Bündeln weiterer Ladephasen bleiben offen.
 3. Ein gemeinsames RAM-Budget für aktive Decoder, Undo, Caches, Anzeige und Export schaffen. Die einzelnen Budgets sind keine Gesamtgrenze. Dynamisches RAM-Budget, dateibasierte Pixelpuffer und zeilenbasiertes 8-/16-Bit-Resize sind umgesetzt. PNG und sequenzielle JPEGs können direkt in ausgelagerte Originalpuffer lesen; progressive JPEGs und weitere riesige Codec-Varianten bleiben begrenzt. Siehe [Großbilder](docs/LARGE_IMAGES.md).
 4. Dateioperationen nutzen den Systempapierkorb; ein internes Journal oder Datei-Undo existiert nicht mehr. Revisionstest und Dateisystemmutation sind gegenüber anderen Programmen nicht atomar. Große JSON-Kataloge und synchrone Formatpaket-Installation benötigen weitere Arbeit.
-5. Paketgröße bleibt erheblich: rund 179,3 MB entpackt, davon etwa 24 MB Erkennungswerkzeuge. Weitere Einsparungen erfordern geprüfte optionale Formatpakete oder einen kleineren Qt-/ICU-Build.
+5. Paketgröße bleibt erheblich: rund 182,4 MB entpackt, davon etwa 24 MB Erkennungswerkzeuge. Weitere Einsparungen erfordern geprüfte optionale Formatpakete oder einen kleineren Qt-/ICU-Build.
 
 Weitere technische Einschränkungen: Export speichert nur die aktuelle Seite bzw. den aktuellen Frame; kein Animations-/Mehrseitenencoder. ICNS-Schreiben bleibt wegen stiller Größenänderungen gesperrt. PSD zeigt gespeicherte Composites; Ebenen/PSB/CMYK sind nicht umfassend geprüft. MakerNotes, große Metadaten und HDR-Bearbeitung sind nicht vollständig abgesichert. JPEG-Verlustfreioperationen unterstützen EXIF-Ausrichtung ungleich 1 noch nicht. Einzelne Decoder und Operationen sind nicht sofort abbrechbar. Ein vollständiger manueller Druck-/Zwischenablage-/Drag-and-drop-Durchlauf und sämtliche Referenzdialoge sind nicht nachgewiesen.
 

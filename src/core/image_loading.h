@@ -2,6 +2,8 @@
 #pragma once
 #include "codec_registry.h"
 #include <functional>
+#include <atomic>
+#include <optional>
 namespace ix {
 struct ImageLoadRequest {
     QString path;
@@ -23,4 +25,8 @@ QImage displayImage(const QImage &image, bool manageColor, bool sharpen);
 // No settings, widget access or document installation happens here.
 PreparedImage loadImage(const CodecRegistry &registry, const ImageLoadRequest &request,
                         const std::function<void(QImage)> &preview = {});
+// Nullopt means cancelled, distinct from an unreadable image. Native decoders
+// remain non-interruptible; cancellation skips work at pipeline boundaries.
+std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const ImageLoadRequest &request,
+                        const std::function<void(QImage)> &preview, const std::atomic_bool *cancel);
 } // namespace ix

@@ -224,15 +224,17 @@ reproduced in a clean VM in this block.
 No new image format or alias was registered. No ImageGlass parity claim is made.
 The requested extension-by-extension compatibility/license review remains open.
 No video subsystem was added. The full MainWindow extraction and coordinated RAM
-work also remain open. BatchPipeline still bounds worker count to four useful
-jobs, not to one combined live-memory reservation; caches, active documents,
-history, codecs and mapped pages can accumulate. Existing per-operation budgets
+work also remain open. At the end of this initial block, BatchPipeline bounded
+worker count to four useful jobs rather than combined live memory; caches,
+active documents, history, codecs and mapped pages could accumulate. Per-operation budgets
 are not a global RSS limit. This pass introduces no decoder process isolation or
 claim of complete protection from third-party crashes.
 
 Follow-up: [batch memory admission](BATCH_MEMORY_2026-11-02.md) now coordinates
 estimated decoder/transform/export work across pipeline runs. The global RSS,
 cache/history and third-party-allocation limitations above still apply.
+The later [cache/navigation step](EVERYDAY_PERFORMANCE_2026-11-02.md) also accounts
+for retained image-cache cost at batch admission; full process coordination remains open.
 
 ## Root DLL snapshot
 

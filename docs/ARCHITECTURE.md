@@ -94,6 +94,19 @@ uses a separate path and is not covered by this overload.
 
 The load service reads no settings and installs no document. Its optional preview callback runs only after a full-image cache miss, outside the cache lock, on the calling worker; GUI consumers queue it and check their generation/lifetime. Color management and display sharpening affect only the returned display image.
 
+The cancellable `loadImage`/cache-read overloads return an empty optional for
+cancellation, separate from reader errors. Checks surround pre-decode and
+presentation stages; native reads/conversions already running are not preempted.
+Completed unchanged originals may still enter the bounded cache. MainWindow
+cancels an older full-load request only for a different newer explicit open over
+an unmodified static current document with no RAW preview already shown. Edits,
+save/file phases, page/animation state and relative-arrow queues retain their
+existing ordering. RAW GUI callbacks also check the token. Cancelled completions
+retain the visible document/history/selection. `deliverDeferredOpen` rechecks
+busy/modal state, serves both polling and queued completion delivery, and never
+changes the polling timer to interval zero. Destruction cancels queued load work
+before joining. [State rules and measurements](SUPERSEDED_LOADS_2026-11-03.md).
+
 `MainWindow::openPath` takes its path by value. Modal save questions process
 events; directory snapshots or caller selections may change before loading
 starts. Keep an owned, implicitly shared QString across that boundary, not a
@@ -195,9 +208,11 @@ because their estimate exceeds RAM.
 The move-only lease spans decoding through export and is released after image
 buffers on success, cancellation or exceptions. Waiting workers hold no decoded
 source, poll cancellation every 20 ms and recheck source identity after admission.
-Never acquire a second lease while holding one. This coordinates estimated batch
-work, not RSS: cache/history/active-document buffers, watermark resource loading,
-decoder-internal allocations, plugin header probes and mapped-page residency remain outside the gate.
+Never acquire a second lease while holding one. Retained original/presentation/
+preview cache cost reduces admission headroom; later cache growth does not
+preempt active jobs. This coordinates estimated work, not RSS: history,
+active-document buffers, watermark resource loading, decoder-internal
+allocations, plugin header probes and mapped-page residency remain outside the gate.
 There is no GUI wait or new startup worker. See [batch memory review](BATCH_MEMORY_2026-11-02.md).
 
 PipelineDialog clears previous results when inputs/options change and captures a
@@ -242,7 +257,43 @@ The optional `ActionSearch` owns a persistent row per command and observes that 
 
 `PreviewService` separately owns two low-priority workers and a queue that drops obsolete requests before creating futures. On a thumbnail-cache miss, an unchanged, single-page, nonanimated PNG/BMP original at the same source revision can supply pixels through QImage implicit sharing. Borrow under the cache lock, then scale outside it; never use an edited/display image or apply this shortcut indiscriminately to decoder-scaled JPEGs, RAW or animation pages. Cancellation/null checks and a native revision recheck follow scaling too. Do not replace revision checks with timestamp-only assumptions.
 
-Document, thumbnail, display and animation caches have separate budgets. These are not a total RAM limit: active decoders, edits, encoders and undo also consume memory. Measure first decode, cached decode, indexing and repaint separately. [PERFORMANCE.md](PERFORMANCE.md) records comparisons and their limits.
+Original documents, prepared color/sharpen presentations and eligible full
+PNG/BMP pixels retained during thumbnail decoding share the configured
+image-cache allowance. Optional pixels may use only spare capacity; incoming
+originals reclaim them before their own LRU eviction. Thumbnails keep their own
+requested ceiling but all four kinds share a combined ceiling no greater than
+the image-memory budget. Viewport and animation caches remain separate. These
+limits are not a total RAM limit: active decoders, edits, encoders and undo also
+consume memory. Measure first decode, cached decode, indexing and repaint
+separately. [PERFORMANCE.md](PERFORMANCE.md) records comparisons and their limits.
+
+`ImageLoadCache::prepareDisplay` identifies one reusable presentation by the
+original's revision/page and QImage identity plus color-management/sharpen flags.
+It computes outside the cache mutex and rechecks identity/epoch before insertion.
+Alias presentations retain no second pixel entry. Clear, targeted invalidation
+and configuration changes prevent older workers from repopulating caches;
+unchanged requested budgets preserve already-cached presentations. A lock-free
+retained-cost snapshot feeds batch admission without a cache/gate lock inversion.
+Cache growth does not preempt active jobs; a sole oversized job retains its
+existing guarded/mapped path. See [the cache and navigation review](EVERYDAY_PERFORMANCE_2026-11-02.md).
+
+`takePreviewPixels` consumes revision/size/format-matched full pixels from a
+completed static unrotated PNG/BMP thumbnail decode. It supplies no document or
+metadata; foreground header checks, policy and metadata extraction remain in
+the codec. This path excludes animations, decoder-scaled formats and buffers
+outside 1–96 MiB. Nearest next/previous neighbors are submitted first and take
+retention priority over farther entries. Epoch and revision checks apply to
+both insertion and handoff. See [scope and measurements](PREVIEW_HANDOFF_2026-11-03.md).
+
+Simultaneous eligible native PNG/BMP full-pixel reads also share an active
+decode, keyed by revision, size, pixel format, codec and cache epoch. Each caller
+retains its reader/header/metadata workflow. An active record exists only until
+its owner completes; it is not another persistent cache. Condition waits release
+the cache mutex, preview waits remain cancellable, exceptions wake waiters and
+same-thread reentrancy bypasses waiting. Failed/rewritten results retry through
+the caller's reader. Old generations cannot remove newer entries. Foreground
+joins temporarily raise low-priority Qt owners, restoring their priority on exit.
+Activity counts cover coordinated owners/waiters only. [Evidence and limits](CONCURRENT_DECODE_2026-11-03.md).
 
 Document/thumbnail insertion costs include comments, text, ICC bytes and native
 metadata estimates in addition to pixels. `Metadata::nativeBytes` is collected
@@ -254,7 +305,7 @@ or editing limit. The [external review](EXTERNAL_REVIEW_2026-10-31.md) records a
 budget. Disabled caches skip cost preparation. Cost arithmetic rejects entries
 beyond the maximum supported budget rather than wrapping/saturating into it.
 
-Both caches capture an epoch under their shared mutex before releasing it for
+Cache operations capture an epoch under their shared mutex before releasing it for
 decode work. Clearing advances that epoch, so an older completion cannot
 repopulate a cleared cache or overwrite a newer entry. Already-running calls
 can still return to their original consumers; this does not replace UI request
@@ -264,7 +315,13 @@ Resize image-buffer estimates distinguish native nearest-neighbor copying from 1
 
 `convolve` recognizes only the exact standard 3×3 sharpening kernel (center 5,
 four neighbors −1, zero corners), divisor 1 and offset 0. It computes those
-bounded integer channel values directly in the existing RGBA64 working format.
+bounded integer channel values in native RGB32/ARGB32 when possible, otherwise
+in the existing RGBA64 working format. The byte path avoids both RGBA64 buffers
+and format round trips. SSE2 handles four interior pixels using signed-word
+arithmetic and saturating packing; original alpha is restored and RGB32 is opaque.
+Row borders and non-SSE2 targets use the same scalar byte calculation. No shared
+scratch state, new pool or dependency is involved. The current conservative
+memory-admission checks remain unchanged.
 Edge replication, unchanged center alpha, output conversion and inherited
 profile/text/DPI match the scalar path. Other kernels/divisors/offsets retain
 that path. `tests/convolution_reference.h` keeps the original scalar arithmetic
@@ -272,11 +329,12 @@ for independent comparisons; extend precision/edge coverage when changing this
 specialization. No additional image buffer, cache, thread pool or dependency is
 introduced. The shared operation serves explicit sharpening, resize sharpening,
 default-amount batch sharpening and optional display sharpening.
+See [native-path proof and measurements](NATIVE_SHARPEN_2026-11-03.md).
 
 ## First-image presentation
 
 Pixel transforms check source pixels plus overlapping working/output-conversion
-buffers against a 512 MiB image-buffer budget before allocating. Convolution
+buffers against the configured image-memory budget before allocating. Convolution
 releases its input before final conversion; auto levels releases its histogram
 input before pixel output. RGBA64 source sharing is accounted once. This is an
 operation-local image-buffer estimate, not a global RAM cap; histogram tables,
@@ -312,6 +370,19 @@ files). Discovery reuses the registry's thread-safe static key cache and does
 not instantiate every decoder. Folder results still obey cancellation and
 generation ownership. Recent-file and directory settings share one write scope
 when installing an image; unchanged values are not rewritten.
+
+Command availability must not fetch external clipboard payloads. On native
+Windows, `ui/platform_support.*::clipboardHasImageOrUrls()` checks advertised
+Win32 formats without opening the clipboard or querying an OLE data provider.
+Actual Paste still retrieves through Qt and applies normal document guards.
+Other backends use one Qt MIME availability pointer. The UI suite checks
+payload-free availability, later clipboard changes and real image paste; its
+native Windows branch also verifies a concurrently held clipboard lock.
+
+`IX_PROFILE_IMAGE_LOAD=1` adds optional `ix-startup` checkpoints in `main.cpp`
+before/after initialization and window setup, alongside existing codec/worker/
+document-install timings. DLL loading before entry to `main()` is outside that
+clock. See [startup diagnosis and limits](STARTUP_CLIPBOARD_2026-11-03.md).
 
 ## Recognition ownership
 

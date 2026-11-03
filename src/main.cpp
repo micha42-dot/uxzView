@@ -15,6 +15,8 @@
 #include <QApplication>
 #include <QColorSpace>
 #include <QCommandLineParser>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <QFile>
 #include <QFileInfo>
 #include <QIcon>
@@ -29,7 +31,22 @@
 #include <exception>
 #include <initializer_list>
 int main(int argc, char **argv) {
+    const bool profileStartup = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
+    QElapsedTimer startupTimer;
+    if (profileStartup) {
+        startupTimer.start();
+        qInfo("ix-startup main-entry");
+    }
+    qint64 previousStage = 0;
+    const auto startupStage = [&](const char *name) {
+        if (!profileStartup) return;
+        const auto now = startupTimer.nsecsElapsed();
+        qInfo("ix-startup %s %.3f ms total %.3f ms", name,
+              (now - previousStage) / 1e6, now / 1e6);
+        previousStage = now;
+    };
     ix::Application app(argc, argv);
+    startupStage("application");
     QCoreApplication::setOrganizationName(QStringLiteral("IxView"));
     QCoreApplication::setApplicationName(QStringLiteral("IxView"));
     // Keep the existing storage identity across the product rename.
@@ -38,6 +55,7 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationVersion(QStringLiteral(IXVIEW_VERSION));
 
     ix::configureDesktopAppearance();
+    startupStage("desktop-appearance");
     QGuiApplication::setDesktopFileName(QStringLiteral("org.ixview.IxView"));
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("üxzView - Image viewer"));
@@ -61,6 +79,7 @@ int main(int argc, char **argv) {
     parser.addPositionalArgument(QStringLiteral("image"), QStringLiteral("Bilddatei"),
                                  QStringLiteral("[image]"));
     parser.process(app);
+    startupStage("arguments");
     if (parser.isSet(QStringLiteral("version"))) {
         QTextStream output(stdout);
         output.setEncoding(QStringConverter::Utf8);
@@ -107,6 +126,7 @@ int main(int argc, char **argv) {
         return ok ? 0 : 2;
     }
     const auto storageError = ix::AppStorage::initialize({}, parser.isSet(QStringLiteral("portable")));
+    startupStage("storage");
     if (!storageError.isEmpty()) {
         QTextStream(stderr) << storageError << Qt::endl;
         if (!parser.isSet(QStringLiteral("storage-info")) && !parser.isSet(QStringLiteral("probe-image")))
@@ -125,6 +145,7 @@ int main(int argc, char **argv) {
     }
     ix::initializeImageMemoryLimit();
     ix::configureImageStorageFromSettings();
+    startupStage("image-memory");
     const auto swapRoot = QDir(ix::AppStorage::cacheRoot()).filePath(QStringLiteral("swap"));
     if (QFileInfo::exists(swapRoot)) (void)QtConcurrent::run([swapRoot] { ix::cleanupStaleImageStorage(swapRoot); });
     if (parser.isSet(QStringLiteral("memory-info"))) {
@@ -138,6 +159,7 @@ int main(int argc, char **argv) {
     }
     ix::ExtensionStorage::initialize();
     ix::PluginStore::prepareStartup();
+    startupStage("extensions");
     if (parser.isSet(QStringLiteral("probe-image"))) {
         QJsonObject result;
         int status = 0;
@@ -173,13 +195,18 @@ int main(int argc, char **argv) {
     // use their own locale for subsequent live language changes.
     QLocale::setDefault(ix::uiLocale());
     ix::applyInterfaceLanguage(language);
+    startupStage("language");
     ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+    startupStage("theme");
     ix::MainWindow window;
+    startupStage("main-window");
     app.fileOpened = [window = QPointer<ix::MainWindow>(&window)](const QString &path) {
         if (window) window->openPath(path);
     };
     window.show();
+    startupStage("show-window");
     if (!parser.positionalArguments().isEmpty())
         window.openPath(parser.positionalArguments().first());
+    startupStage("open-request");
     return app.exec();
 }

@@ -13,6 +13,10 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define IX_SHARPEN_SSE2
+#endif
 namespace ix {
 namespace {
 quint16 u16(double x) {
@@ -35,6 +39,25 @@ void checkWorkingSet(const QImage &src, int extraBytesPerPixel) {
 bool nativeRgb32(const QImage &image) {
     return image.format() == QImage::Format_RGB32 || image.format() == QImage::Format_ARGB32;
 }
+#ifdef IX_SHARPEN_SSE2
+__m128i sharpenFour(__m128i center, __m128i above, __m128i left, __m128i right, __m128i below,
+                    bool opaque) {
+    const auto zero = _mm_setzero_si128();
+    const auto channel = [](__m128i c, __m128i up, __m128i l, __m128i r, __m128i down) {
+        const auto neighbors = _mm_add_epi16(_mm_add_epi16(up, l), _mm_add_epi16(r, down));
+        return _mm_sub_epi16(_mm_add_epi16(_mm_slli_epi16(c, 2), c), neighbors);
+    };
+    // Each signed word stays within [-1020, 1275]. Saturating back to bytes
+    // matches the scalar clamp exactly; alpha comes from the original center.
+    const auto low = channel(_mm_unpacklo_epi8(center, zero), _mm_unpacklo_epi8(above, zero),
+        _mm_unpacklo_epi8(left, zero), _mm_unpacklo_epi8(right, zero), _mm_unpacklo_epi8(below, zero));
+    const auto high = channel(_mm_unpackhi_epi8(center, zero), _mm_unpackhi_epi8(above, zero),
+        _mm_unpackhi_epi8(left, zero), _mm_unpackhi_epi8(right, zero), _mm_unpackhi_epi8(below, zero));
+    const auto alphaMask = _mm_set1_epi32(-16777216);
+    const auto alpha = opaque ? alphaMask : _mm_and_si128(center, alphaMask);
+    return _mm_or_si128(_mm_andnot_si128(alphaMask, _mm_packus_epi16(low, high)), alpha);
+}
+#endif
 template <class F> QImage perPixel32(const QImage &src, F fn) {
     QImage out = allocateImage(src.size(), src.format(), imageIsFileBacked(src) ? 0 : src.sizeInBytes());
     if (out.isNull()) throw std::runtime_error("Speicher nicht verfügbar.");
@@ -156,6 +179,47 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
     const int convolutionBytes = (s.format() == QImage::Format_RGBA64 ? 0 : 8) + 8;
     const int finalBytes = 8 + (imageChannelBits(s) <= 8 ? 4 : 0);
     checkWorkingSet(s, std::max(convolutionBytes, finalBytes));
+    constexpr std::array<double, 9> sharpen{0, -1, 0, -1, 5, -1, 0, -1, 0};
+    const bool standardSharpen = side == 3 && div == 1 && offset == 0 &&
+        std::equal(k.cbegin(), k.cend(), sharpen.cbegin());
+    if (standardSharpen && nativeRgb32(s)) {
+        // Expanding each byte by 257, applying this integer kernel, clamping
+        // and converting back is exactly the same byte result. Avoid both
+        // RGBA64 working buffers and the input/output format conversions.
+        QImage out(s.size(), s.format());
+        if (out.isNull()) throw std::runtime_error("Ungültiger Filter oder nicht genügend Speicher.");
+        const bool opaque = s.format() == QImage::Format_RGB32;
+        const auto channel = [](int center, int above, int left, int right, int below) {
+            return std::clamp(5 * center - above - left - right - below, 0, 255);
+        };
+        for (int y = 0; y < s.height(); ++y) {
+            const auto *above = reinterpret_cast<const QRgb *>(s.constScanLine(std::max(0, y - 1)));
+            const auto *center = reinterpret_cast<const QRgb *>(s.constScanLine(y));
+            const auto *below = reinterpret_cast<const QRgb *>(s.constScanLine(std::min(y + 1, s.height() - 1)));
+            auto *target = reinterpret_cast<QRgb *>(out.scanLine(y));
+            const auto scalar = [&](int x) {
+                const auto p = center[x], up = above[x], down = below[x];
+                const auto left = center[std::max(0, x - 1)], right = center[std::min(x + 1, s.width() - 1)];
+                return qRgba(channel(qRed(p), qRed(up), qRed(left), qRed(right), qRed(down)),
+                    channel(qGreen(p), qGreen(up), qGreen(left), qGreen(right), qGreen(down)),
+                    channel(qBlue(p), qBlue(up), qBlue(left), qBlue(right), qBlue(down)), opaque ? 255 : qAlpha(p));
+            };
+            int x = 0;
+#ifdef IX_SHARPEN_SSE2
+            target[x] = scalar(x); ++x;
+            for (; x <= s.width() - 5; x += 4) {
+                const auto pixels = sharpenFour(_mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x)),
+                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(above + x)),
+                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x - 1)),
+                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x + 1)),
+                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(below + x)), opaque);
+                _mm_storeu_si128(reinterpret_cast<__m128i *>(target + x), pixels);
+            }
+#endif
+            for (; x < s.width(); ++x) target[x] = scalar(x);
+        }
+        return finish(s, std::move(out));
+    }
     auto input = s.convertToFormat(QImage::Format_RGBA64);
     QImage out(input.size(), input.format());
     int half = side / 2;
@@ -166,8 +230,7 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
         input = {};
         return finish(s, std::move(out));
     };
-    constexpr std::array<double, 9> sharpen{0, -1, 0, -1, 5, -1, 0, -1, 0};
-    if (side == 3 && div == 1 && offset == 0 && std::equal(k.cbegin(), k.cend(), sharpen.cbegin())) {
+    if (standardSharpen) {
         // This integer kernel is exact in the RGBA64 working format. Its
         // [-262140, 327675] channel range fits int; rounding yields the same
         // clamped 16-bit samples as the scalar double convolution below.
