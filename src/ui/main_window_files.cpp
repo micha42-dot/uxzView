@@ -60,12 +60,14 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         if (!path.isEmpty() && !writable)
             suggested = QFileInfo(path).dir().filePath(QFileInfo(path).completeBaseName() +
                                                        QStringLiteral(".png"));
+        // A single app-side question below covers Save, Save As and externally
+        // changed files; the native chooser must not confirm overwrites itself.
         path = QFileDialog::getSaveFileName(
             this, IX_TEXT("Speichern unter"),
             path.isEmpty() ? QSettings().value(QStringLiteral("files/directory")).toString() +
                                  QStringLiteral("/Bild.png")
                            : suggested,
-            registry_.saveFilter(), &selected);
+            registry_.saveFilter(), &selected, QFileDialog::DontConfirmOverwrite);
         if (path.isEmpty())
             return false;
         if (QFileInfo(path).suffix().isEmpty()) {
@@ -74,7 +76,9 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         }
     }
     const auto targetRevision = QFileInfo::exists(path) ? imageFileKey(path) : QString();
-    if (!targetRevision.isEmpty() && (!dialog || QFileInfo(path).absoluteFilePath() == document_.path)) {
+    // The chooser above never confirms overwrites, so ask exactly once here,
+    // including Save As onto a different existing file.
+    if (!targetRevision.isEmpty()) {
         const bool conflict = !document_.sourceRevision.isEmpty() &&
                               QFileInfo(path).absoluteFilePath() == document_.path &&
                               targetRevision != document_.sourceRevision;

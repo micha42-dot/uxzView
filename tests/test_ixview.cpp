@@ -3619,6 +3619,76 @@ class IxTests : public QObject {
         QCOMPARE(window.document().sourceHasExif, saved.document.sourceHasExif);
         QCOMPARE(ix::sha256File(source), originalHash);
     }
+    void saveAsOverCurrentFileAsksOnce() {
+        QTemporaryDir files(dir(QStringLiteral("save-once-XXXXXX")));
+        QVERIFY(files.isValid());
+        const auto path = files.filePath(QStringLiteral("current.png"));
+        QVERIFY(pattern().save(path));
+        const auto originalHash = ix::sha256File(path);
+        ix::MainWindow window;
+        window.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.document().empty(), 10000);
+        window.dispatch(QStringLiteral("right"));
+        QTRY_VERIFY_WITH_TIMEOUT(window.document().modified, 10000);
+        const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        auto restore =
+            qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
+        bool submitted = false;
+        bool chooserDisabledConfirm = false;
+        int overwriteQuestions = 0;
+        QString dialogError;
+        QElapsedTimer deadline;
+        deadline.start();
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *modal = QApplication::activeModalWidget();
+            if (deadline.elapsed() > 10000 && dialogError.isEmpty())
+                dialogError = QStringLiteral("Save did not finish within 10 seconds");
+            if (auto *message = qobject_cast<QMessageBox *>(modal)) {
+                if (!dialogError.isEmpty()) {
+                    message->reject();
+                } else if (message->standardButtons().testFlag(QMessageBox::Yes)) {
+                    ++overwriteQuestions;
+                    message->button(QMessageBox::Yes)->click();
+                } else {
+                    message->accept();
+                }
+            } else if (auto *dialog = qobject_cast<QFileDialog *>(modal)) {
+                if (!dialogError.isEmpty()) {
+                    dialog->reject();
+                } else if (!submitted) {
+                    // The chooser must not confirm overwrites itself: a Save As
+                    // onto the current file is answered by a single app question.
+                    chooserDisabledConfirm = dialog->testOption(QFileDialog::DontConfirmOverwrite);
+                    auto *editor = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+                    if (!editor) {
+                        dialogError = QStringLiteral("Expected a non-native save dialog with fileNameEdit");
+                        dialog->reject();
+                        return;
+                    }
+                    editor->setText(path);
+                    submitted = true;
+                    QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+                }
+            } else if (auto *dialog = qobject_cast<QDialog *>(modal);
+                       dialog && (!dialogError.isEmpty() || !qobject_cast<QProgressDialog *>(dialog))) {
+                if (dialogError.isEmpty())
+                    dialogError = QStringLiteral("Unexpected modal widget: %1").arg(dialog->windowTitle());
+                dialog->reject();
+            }
+        });
+        timer.start(20);
+        window.dispatch(QStringLiteral("saveAs"));
+        timer.stop();
+        QVERIFY2(dialogError.isEmpty(), qPrintable(dialogError));
+        QVERIFY(submitted);
+        QVERIFY(chooserDisabledConfirm);
+        QCOMPARE(overwriteQuestions, 1);
+        QVERIFY(!window.document().modified);
+        QCOMPARE(window.document().path, path);
+        QVERIFY(ix::sha256File(path) != originalHash);
+    }
     void batchPlanGuardsContentInAdditionToTimestamps() {
         const auto source = dir(QStringLiteral("hash-input.bmp"));
         const auto target = dir(QStringLiteral("hash-output.bmp"));

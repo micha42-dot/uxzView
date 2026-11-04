@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Ask only once before replacing an existing file: the save chooser no longer
+  confirms overwrites itself, so Save As onto the current or another existing
+  file shows a single app question with the changed-on-disk wording. Add a
+  regression that counts the overwrite questions for Save As over the current file.
 - Keep Windows Paste availability checks off the external clipboard data path:
   query advertised native formats without retrieving payloads or waiting for
   another process's clipboard lock. Retain actual Qt paste behavior and add
