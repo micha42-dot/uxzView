@@ -10,7 +10,9 @@ class TurboJpegCodec final : public ImageCodec {
 public:
     bool accepts(const QString &path) const override;
     ImageResult read(const QString &path, int page) const override;
-    QList<FormatCapability> capabilities() const override;
+    // Qt already advertises the JPEG capability (including ICC/rotated/CMYK
+    // variants handled by the fallback), so no separate row is reported.
+    QList<FormatCapability> capabilities() const override { return {}; }
 private:
     static ImageResult qtJpegFallback(QBuffer *io, const QByteArray &buffer,
                                      const QString &path);

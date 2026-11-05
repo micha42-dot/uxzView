@@ -10,16 +10,18 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <algorithm>
 #include <cstring>
 #include <turbojpeg.h>
 namespace ix {
 namespace {
-// Quick marker-level check for an embedded ICC profile inside a JPEG
-// buffer.  Scanning for the APP2 "ICC_PROFILE\0" marker is reliable
-// enough to decide the fallback path; false positives are extremely
-// unlikely in practice.
+// Marker-level checks only need the header region: APP0/APP2 always precede
+// the entropy-coded scan data. Bounding the scan keeps the cost constant even
+// for multi-megabyte files and avoids accidental matches inside scan data.
+constexpr qsizetype kHeaderScanLimit = 64 * 1024;
 bool hasEmbeddedIcc(const char *data, qsizetype len) {
-    for (qsizetype i = 0; i < len - 20; ++i)
+    const qsizetype limit = std::min<qsizetype>(len, kHeaderScanLimit);
+    for (qsizetype i = 0; i + 20 <= limit; ++i)
         if ((quint8)data[i] == 0xFF && (quint8)data[i + 1] == 0xE2 &&
             std::memcmp(data + i + 4, "ICC_PROFILE\0", 12) == 0)
             return true;
@@ -28,13 +30,15 @@ bool hasEmbeddedIcc(const char *data, qsizetype len) {
 // JFIF APP0 carries the pixel density that QImageReader would expose as
 // dotsPerMeter. Keep document DPI identical between both decode paths.
 void applyJfifDensity(QImage &image, const QByteArray &data) {
-    for (qsizetype i = 0; i + 18 < data.size(); ++i) {
-        if ((quint8)data[i] != 0xFF || (quint8)data[i + 1] != 0xE0 ||
-            data.mid(i + 4, 5) != QByteArrayLiteral("JFIF\0"))
+    const qsizetype limit = std::min<qsizetype>(data.size(), 4096);
+    const char *bytes = data.constData();
+    for (qsizetype i = 0; i + 16 <= limit; ++i) {
+        if ((quint8)bytes[i] != 0xFF || (quint8)bytes[i + 1] != 0xE0 ||
+            std::memcmp(bytes + i + 4, "JFIF\0", 5) != 0)
             continue;
-        const int units = (quint8)data[i + 11];
-        const int xd = (quint8(data[i + 12]) << 8) | quint8(data[i + 13]);
-        const int yd = (quint8(data[i + 14]) << 8) | quint8(data[i + 15]);
+        const int units = (quint8)bytes[i + 11];
+        const int xd = (quint8(bytes[i + 12]) << 8) | quint8(bytes[i + 13]);
+        const int yd = (quint8(bytes[i + 14]) << 8) | quint8(bytes[i + 15]);
         if (xd > 0 && yd > 0) {
             if (units == 1) { // dots per inch
                 image.setDotsPerMeterX(qRound(xd / 0.0254));
@@ -67,7 +71,8 @@ void finishDocument(ImageDocument &document, const QString &path,
 
 bool TurboJpegCodec::accepts(const QString &path) const {
     const auto suffix = QFileInfo(path).suffix().toLower();
-    if (suffix != QLatin1StringView("jpg") && suffix != QLatin1StringView("jpeg"))
+    if (suffix != QLatin1StringView("jpg") && suffix != QLatin1StringView("jpeg") &&
+        suffix != QLatin1StringView("jpe"))
         return false;
     // Large JPEGs and forced spills need Qt's mapped-buffer decode path.
     // Let QtCodec handle them; the turbo path serves the common case.
@@ -77,21 +82,15 @@ bool TurboJpegCodec::accepts(const QString &path) const {
     const auto size = reader.size();
     if (!size.isValid())
         return true; // can read but unknown size → try turbo
-    // JPEG is always 8-bit/ch, at most 4 channels (RGB, no alpha), but we
-    // match QtCodec's pixel-bytes calculation.
-    const auto fmt = reader.imageFormat();
-    const int depth = QImage::toPixelFormat(fmt).bitsPerPixel();
-    constexpr int safeBpp = 8; // safeSize default bpp — conservative
-    const bool fitsMemory = safeSize(size, std::max(1, depth / 8));
-    if (!fitsMemory)
+    // JPEG always decodes to 8-bit RGB (no alpha); assume the widest output
+    // (4 bytes per pixel) so the memory and spill decisions match QtCodec.
+    constexpr qint64 bytesPerPixel = 4;
+    if (!safeSize(size, int(bytesPerPixel)))
         return false;
     const auto o = imageStorageOptions();
-    if (o.spillThresholdBytes > 0) {
-        const qint64 pixelBytes = qint64(size.width()) * size.height() *
-                                  std::max(1, depth / 8);
-        if (pixelBytes > o.spillThresholdBytes)
-            return false;
-    }
+    if (o.spillThresholdBytes > 0 &&
+        qint64(size.width()) * size.height() * bytesPerPixel > o.spillThresholdBytes)
+        return false;
     return true;
 }
 
@@ -130,6 +129,12 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
         tjDestroy(handle);
         return {{}, error};
     }
+    // Keep Qt's pixel format for grayscale and CMYK/YCCK sources so the
+    // resulting document matches the Qt decode exactly.
+    if (colorSpace != TJCS_YCbCr && colorSpace != TJCS_RGB) {
+        tjDestroy(handle);
+        return qtJpegFallback(&io, buffer, path);
+    }
     if (!safeSize({width, height}, 3)) {
         QString limit = imageSizeLimitError({width, height}, 3);
         tjDestroy(handle);
@@ -164,12 +169,9 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     return result;
 }
 
-QList<FormatCapability> TurboJpegCodec::capabilities() const {
-    return {{QStringLiteral("JPEG"),
-             {QStringLiteral("jpg"), QStringLiteral("jpeg")}, true, false,
-             QStringLiteral("üxzView / TurboJPEG")}};
-}
-
+// Qt advertises the JPEG capability (and handles ICC/rotated/CMYK variants),
+// so this codec deliberately reports no separate capability entry. Otherwise
+// the format list would show JPEG twice.
 ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QByteArray &buffer,
                                            const QString &path) {
     // io is already positioned at the start and contains the full JPEG.
