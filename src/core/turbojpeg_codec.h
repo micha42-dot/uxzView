@@ -12,7 +12,7 @@ public:
     ImageResult read(const QString &path, int page) const override;
     QList<FormatCapability> capabilities() const override;
 private:
-    static ImageResult qtJpegFallback(QBuffer *io, const QString &path,
-                                     int page);
+    static ImageResult qtJpegFallback(QBuffer *io, const QByteArray &buffer,
+                                     const QString &path);
 };
 } // namespace ix

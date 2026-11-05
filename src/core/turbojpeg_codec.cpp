@@ -5,6 +5,7 @@
 #include "image_storage.h"
 #include "localization.h"
 #include "memory_policy.h"
+#include "metadata.h"
 #include <QBuffer>
 #include <QFile>
 #include <QFileInfo>
@@ -23,6 +24,44 @@ bool hasEmbeddedIcc(const char *data, qsizetype len) {
             std::memcmp(data + i + 4, "ICC_PROFILE\0", 12) == 0)
             return true;
     return false;
+}
+// JFIF APP0 carries the pixel density that QImageReader would expose as
+// dotsPerMeter. Keep document DPI identical between both decode paths.
+void applyJfifDensity(QImage &image, const QByteArray &data) {
+    for (qsizetype i = 0; i + 18 < data.size(); ++i) {
+        if ((quint8)data[i] != 0xFF || (quint8)data[i + 1] != 0xE0 ||
+            data.mid(i + 4, 5) != QByteArrayLiteral("JFIF\0"))
+            continue;
+        const int units = (quint8)data[i + 11];
+        const int xd = (quint8(data[i + 12]) << 8) | quint8(data[i + 13]);
+        const int yd = (quint8(data[i + 14]) << 8) | quint8(data[i + 15]);
+        if (xd > 0 && yd > 0) {
+            if (units == 1) { // dots per inch
+                image.setDotsPerMeterX(qRound(xd / 0.0254));
+                image.setDotsPerMeterY(qRound(yd / 0.0254));
+            } else if (units == 2) { // dots per centimetre
+                image.setDotsPerMeterX(xd * 100);
+                image.setDotsPerMeterY(yd * 100);
+            }
+        }
+        return;
+    }
+}
+// Mirror QtCodec's document bookkeeping (path, metadata, EXIF presence) so the
+// turbo path is indistinguishable to callers.
+void finishDocument(ImageDocument &document, const QString &path,
+                    const QByteArray &head) {
+    document.path = QFileInfo(path).absoluteFilePath();
+    document.metadata = readMetadata(path, document.metadataWarning);
+    if (document.metadata) {
+        document.sourceHasExif = document.metadata->hasExif ||
+                                 document.metadata->hasIptc ||
+                                 document.metadata->hasXmp;
+    } else {
+        document.sourceHasExif = head.contains("Exif\0\0") ||
+                                 head.contains("http://ns.adobe.com/xap/") ||
+                                 head.contains("Photoshop 3.0");
+    }
 }
 } // namespace
 
@@ -78,7 +117,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
         return {{}, reader.errorString()};
     if (reader.transformation() != QImageIOHandler::TransformationNone ||
         hasEmbeddedIcc(buffer.constData(), buffer.size()))
-        return qtJpegFallback(&io, path, page);
+        return qtJpegFallback(&io, buffer, path);
     // Direct turbo decode — fast path for unrotated sRGB JPEGs.
     tjhandle handle = tjInitDecompress();
     if (!handle)
@@ -112,9 +151,16 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     image = image.convertToFormat(QImage::Format_RGB32);
     if (image.isNull())
         return {{}, IX_TEXT("Speicher nicht verfügbar.")};
+    applyJfifDensity(image, buffer);
     ImageResult result;
     result.document.pixels = std::move(image);
     result.document.format = QByteArrayLiteral("jpeg");
+    result.document.page = 0;
+    result.document.pageCount = 1;
+    result.document.animated = false;
+    result.document.delayMs = 100;
+    result.document.loopCount = 0;
+    finishDocument(result.document, path, buffer.left(256 * 1024));
     return result;
 }
 
@@ -124,9 +170,8 @@ QList<FormatCapability> TurboJpegCodec::capabilities() const {
              QStringLiteral("üxzView / TurboJPEG")}};
 }
 
-ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QString &path,
-                                           int page) {
-    Q_UNUSED(page);
+ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QByteArray &buffer,
+                                           const QString &path) {
     // io is already positioned at the start and contains the full JPEG.
     io->seek(0);
     QImageReader reader(io, QByteArrayLiteral("jpeg"));
@@ -138,10 +183,13 @@ ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QString &path,
         return {{}, IX_TEXT("Bild zu groß.")};
     ImageResult result;
     result.document.pixels = std::move(image);
-    result.document.format = reader.format();  // already QByteArray
-    result.document.pageCount = reader.imageCount() > 0 ? reader.imageCount() : 1;
-    Q_UNUSED(path);
-    // metadata and source revision are handled by CodecRegistry.
+    result.document.format = reader.format();
+    result.document.page = 0;
+    result.document.pageCount = std::max(1, reader.imageCount());
+    result.document.animated = reader.supportsAnimation() && result.document.pageCount != 1;
+    result.document.delayMs = std::max(20, reader.nextImageDelay());
+    result.document.loopCount = reader.loopCount();
+    finishDocument(result.document, path, buffer.left(256 * 1024));
     return result;
 }
 } // namespace ix

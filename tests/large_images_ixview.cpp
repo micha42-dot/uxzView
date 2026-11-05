@@ -167,6 +167,26 @@ private slots:
         QImageWriter writer(path,"jpeg"); writer.setProgressiveScanWrite(true); QVERIFY(writer.write(fixture(QImage::Format_RGB32)));
         const auto result=ix::CodecRegistry().read(path); QVERIFY(!result.ok()); QVERIFY(result.error.contains(QStringLiteral("progressive")));
     }
+    void turboJpegKeepsDocumentIdentity() {
+        ix::configureImageStorage({false, 0, temp_.path()}); // no spill → turbo path
+        QImage image(40, 30, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        image.setDotsPerMeterX(2835); // 72 dpi
+        image.setDotsPerMeterY(2835);
+        const auto path = temp_.filePath(QStringLiteral("identity.jpg"));
+        QVERIFY(image.save(path, "jpeg", 95));
+        ix::CodecRegistry registry;
+        const auto read = registry.read(path);
+        QVERIFY2(read.ok(), qPrintable(read.error));
+        QCOMPARE(read.document.path, QFileInfo(path).absoluteFilePath());
+        QCOMPARE(read.document.format, QByteArray("jpeg"));
+        QCOMPARE(read.document.page, 0);
+        QCOMPARE(read.document.pageCount, 1);
+        QVERIFY(!read.document.animated);
+        QCOMPARE(read.document.pixels.size(), QSize(40, 30));
+        QVERIFY2(read.document.pixels.dotsPerMeterX() > 0, "JFIF density lost");
+        QVERIFY2(read.document.pixels.dotsPerMeterY() > 0, "JFIF density lost");
+    }
     void streamingAlphaFlattenMatchesQtAndKeepsDpi() {
         const auto source=fixture(); ix::ImageDocument document;
         document.pixels=ix::copyImageRegion(source,source.rect()); document.pixels.setDevicePixelRatio(2);
