@@ -237,8 +237,11 @@ void ImageView::paintEvent(QPaintEvent *event) {
         if (same && !displayCacheValid_)
             for (const auto &rect : event->region())
                 damagedPixels += qint64(rect.width()) * rect.height();
-        // First presentation stays on the direct path. Only another large
-        // repaint pays for a reusable raster; tiny selection strips remain cheap.
+        // A heavy first downscale (large image into a small viewport) is paid
+        // once: build the reusable raster in this paint instead of repeating
+        // the same smooth downscale on the next one. Ordinary sizes keep the
+        // deferred path so small views avoid a redundant raster allocation.
+        const bool heavyFirstScale = qint64(image_.width()) * image_.height() > rasterPixels * 8;
         if (!same) {
             displayCacheValid_ = false;
             displaySourceKey_ = key;
@@ -248,6 +251,14 @@ void ImageView::paintEvent(QPaintEvent *event) {
             displayRatio_ = ratio;
             displayBackground_ = background;
             displaySmooth_ = smooth_;
+            if (heavyFirstScale && displayCache_.size() != raster)
+                displayCache_ = QImage(raster, QImage::Format_RGB32);
+            if (heavyFirstScale && !displayCache_.isNull()) {
+                displayCache_.setDevicePixelRatio(ratio);
+                QPainter base(&displayCache_);
+                drawBase(base);
+                displayCacheValid_ = true;
+            }
         } else if (!displayCacheValid_ && damagedPixels >= qint64(viewport()->width()) * viewport()->height() / 2) {
             if (displayCache_.size() != raster)
                 displayCache_ = QImage(raster, QImage::Format_RGB32);

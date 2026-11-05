@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <QApplication>
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFutureWatcher>
 #include <QScopeGuard>
@@ -17,7 +19,16 @@ template <class Result> void waitForGuiWorker(QFutureWatcher<Result> &watcher) {
     Q_ASSERT(QThread::currentThread() == qApp->thread());
     QEventLoop loop;
     QObject::connect(&watcher, &QFutureWatcherBase::finished, &loop, &QEventLoop::quit);
-    if (!watcher.isFinished()) loop.exec(QEventLoop::ExcludeUserInputEvents);
+    if (!watcher.isFinished()) {
+        QElapsedTimer watch;
+        watch.start();
+        loop.exec(QEventLoop::ExcludeUserInputEvents);
+        // Intermittent stalls are otherwise invisible in user reports; log the
+        // join duration without changing the documented join semantics.
+        if (watch.elapsed() > 2000)
+            qWarning("ix-worker join took %lld ms (user input suppressed meanwhile)",
+                     static_cast<long long>(watch.elapsed()));
+    }
     // Application shutdown may end nested loops before a worker finishes.
     if (!watcher.isFinished()) watcher.waitForFinished();
 }
