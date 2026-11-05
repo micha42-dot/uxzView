@@ -8,6 +8,7 @@
 #include "localization.h"
 #include "plugin_store.h"
 #include "preview_service.h"
+#include "turbojpeg_codec.h"
 #include <QBuffer>
 #include <QColorSpace>
 #include <QElapsedTimer>
@@ -291,6 +292,7 @@ CodecRegistry::CodecRegistry() {
     initializeImageMemoryLimit();
     add(std::make_shared<QtCodec>());
     add(std::make_shared<ApngCodec>());
+    add(std::make_shared<TurboJpegCodec>());
 #ifdef IX_PDF_MODULE
     add(std::make_shared<PdfCodec>());
 #endif

@@ -22,7 +22,7 @@ add_library(ixcore STATIC
     src/core/image_document.cpp src/core/memory_policy.cpp src/core/image_storage.cpp src/core/image_memory.cpp src/core/document_history.cpp
     src/core/codec_registry.cpp src/core/processing.cpp src/core/resampling.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
-    src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
+    src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/turbojpeg_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
     src/core/file_operations.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_memory.cpp src/core/batch_plan.cpp src/core/batch_report.cpp src/core/plugin_store.cpp
     src/core/app_storage.cpp src/core/extension_storage.cpp src/core/tool_store.cpp src/core/recognition_input.cpp
     src/core/image_loading.cpp src/core/directory_index_service.cpp)

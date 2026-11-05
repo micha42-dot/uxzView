@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Decode unrotated, non-profile-embedded JPEGs via libjpeg-turbo directly,
+  saving the Qt JPEG handler overhead. Large images and forced spills remain
+  on Qt's direct-mapped-buffer codec for file-backed pixel storage.
+
 - Build the reusable display raster during the first paint of a heavy fit, so the
   follow-up repaint after a new fit or zoom reuses it instead of repeating the
   full smooth downscale. Keep the deferred raster for ordinary sizes. Log GUI

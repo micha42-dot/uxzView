@@ -824,5 +824,8 @@
 ["Zwischenablage benötigt vollständige RAM-Puffer; bitte zuerst verkleinern.", "The clipboard needs full RAM buffers; please reduce the image size first.", "클립보드에는 전체 RAM 버퍼가 필요합니다. 먼저 이미지 크기를 줄이세요.", "クリップボードには画像全体のRAMバッファが必要です。先に画像を縮小してください。", "Le presse-papiers nécessite des tampons complets en RAM ; réduisez d’abord l’image."],
 ["Auswahlfilter benötigen vollständige RAM-Puffer; bitte zuerst verkleinern.", "Selection filters need full RAM buffers; please reduce the image size first.", "선택 영역 필터에는 전체 RAM 버퍼가 필요합니다. 먼저 이미지 크기를 줄이세요.", "選択範囲のフィルターには画像全体のRAMバッファが必要です。先に画像を縮小してください。", "Les filtres de sélection nécessitent des tampons complets en RAM ; réduisez d’abord l’image."],
 ["Wasserzeichen benötigt vollständige RAM-Puffer; bitte zuerst verkleinern.", "Watermarking needs full RAM buffers; please reduce the image size first.", "워터마크에는 전체 RAM 버퍼가 필요합니다. 먼저 이미지 크기를 줄이세요.", "透かしには画像全体のRAMバッファが必要です。先に画像を縮小してください。", "Le filigrane nécessite des tampons complets en RAM ; réduisez d’abord l’image."],
-["Auslagerungsdatei konnte nicht geschützt werden.", "Could not protect the image backing file.", "이미지 저장 파일을 보호할 수 없습니다.", "画像の退避ファイルを保護できませんでした。", "Impossible de protéger le fichier temporaire."]
+["Auslagerungsdatei konnte nicht geschützt werden.", "Could not protect the image backing file.", "이미지 저장 파일을 보호할 수 없습니다.", "画像の退避ファイルを保護できませんでした。", "Impossible de protéger le fichier temporaire."],
+["TurboJPEG: nur Seite 0.", "TurboJPEG: only page 0.", "TurboJPEG: 0페이지만.", "TurboJPEG: 0ページのみ。", "TurboJPEG : page 0 uniquement."],
+["JPEG-Datei zu groß.", "JPEG file is too large.", "JPEG 파일이 너무 큽니다.", "JPEGファイルが大きすぎます。", "Fichier JPEG trop grand."],
+["TurboJPEG nicht verfügbar.", "TurboJPEG is unavailable.", "TurboJPEG를 사용할 수 없습니다.", "TurboJPEGを利用できません。", "TurboJPEG indisponible."]
 ]
