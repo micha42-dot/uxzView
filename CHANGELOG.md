@@ -19,7 +19,12 @@
   tests for grayscale, EXIF-rotated and ICC-tagged JPEGs.
 - Decode unrotated, non-profile-embedded JPEGs via libjpeg-turbo directly,
   saving the Qt JPEG handler overhead. Large images and forced spills remain
-  on Qt's direct-mapped-buffer codec for file-backed pixel storage.
+  on Qt's direct-mapped-buffer codec for file-backed pixel storage. The fast
+  path writes through the buffer's own stride into the document format, so
+  JPEGs whose width is not a multiple of four decode identically to Qt, and it
+  mirrors the Qt document contract (`fileBytes` included). `accepts()` now
+  applies the same size limit as `read()`, and a decode-time refusal inside the
+  turbo path retries with Qt's tolerant reader instead of failing the file.
 
 - Build the reusable display raster during the first paint of a heavy fit, so the
   follow-up repaint after a new fit or zoom reuses it instead of repeating the

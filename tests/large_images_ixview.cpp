@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/image_storage.h"
 #include "core/codec_registry.h"
+#include "core/turbojpeg_codec.h"
 #include "core/image_loading.h"
 #include "core/document_history.h"
 #include "resample_reference.h"
@@ -230,6 +231,8 @@ private slots:
         QVERIFY2(read.ok(), qPrintable(read.error));
         // Turbo expands everything to RGB; the fallback keeps Qt's format.
         QCOMPARE(read.document.pixels.format(), QImage(path).format());
+        // The document size is bookkeeping, not decoder output: both paths owe it.
+        QCOMPARE(read.document.fileBytes, QFileInfo(path).size());
     }
     void turboJpegFallsBackForExifOrientation() {
         ix::configureImageStorage({false, 0, temp_.path()});
@@ -279,6 +282,68 @@ private slots:
         QVERIFY2(read.document.pixels.colorSpace().isValid(), "ICC profile lost");
         QImageReader reference(path);
         QCOMPARE(read.document.pixels.colorSpace(), reference.read().colorSpace());
+    }
+    // Every width alignment must decode identically: QImage's 24-bit stride is
+    // 32-bit aligned, so a fast path that assumes a tight pitch shears rows.
+    void turboJpegMatchesQtForUnalignedWidths() {
+        ix::configureImageStorage({false, 0, temp_.path()});
+        ix::TurboJpegCodec codec;
+        for (const int width : {64, 65, 66, 67}) {
+            QImage source(width, 48, QImage::Format_RGB32);
+            for (int y = 0; y < source.height(); ++y)
+                for (int x = 0; x < width; ++x)
+                    source.setPixel(x, y, qRgb(x * 255 / (width - 1), y * 255 / 47, 96));
+            const auto path = temp_.filePath(QStringLiteral("unaligned-%1.jpg").arg(width));
+            QVERIFY(source.save(path, "jpeg", 95));
+            QVERIFY(codec.accepts(path));
+            const auto read = codec.read(path, 0);
+            QVERIFY2(read.ok(), qPrintable(read.error));
+            QCOMPARE(read.document.pixels.size(), source.size());
+            QCOMPARE(read.document.fileBytes, QFileInfo(path).size());
+            QImageReader reference(path);
+            reference.setAutoTransform(false);
+            const auto expected = reference.read().convertToFormat(QImage::Format_RGB32);
+            QVERIFY2(!expected.isNull(), qPrintable(reference.errorString()));
+            QCOMPARE(expected.size(), read.document.pixels.size());
+            double deviation = 0;
+            for (int y = 0; y < expected.height(); ++y)
+                for (int x = 0; x < expected.width(); ++x) {
+                    const auto a = expected.pixel(x, y), b = read.document.pixels.pixel(x, y);
+                    deviation += std::abs(qRed(a) - qRed(b)) + std::abs(qGreen(a) - qGreen(b)) +
+                                 std::abs(qBlue(a) - qBlue(b));
+                }
+            deviation /= double(expected.width()) * expected.height() * 3.0;
+            QVERIFY2(deviation < 4.0,
+                     qPrintable(QStringLiteral("width %1 deviates by %2").arg(width).arg(deviation)));
+        }
+    }
+    // A truncated stream must either decode or fail - but never disagree with Qt
+    // about readability, because the codec that claimed the file owns it.
+    void turboJpegMatchesQtForCorruptStreams() {
+        ix::configureImageStorage({false, 0, temp_.path()});
+        QImage source(240, 180, QImage::Format_RGB32);
+        for (int y = 0; y < source.height(); ++y)
+            for (int x = 0; x < source.width(); ++x)
+                source.setPixel(x, y, qRgb((x * 7) % 256, (y * 11) % 256, (x + y) % 256));
+        const auto path = temp_.filePath(QStringLiteral("truncated.jpg"));
+        QVERIFY(source.save(path, "jpeg", 92));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.resize(file.size() * 3 / 5)); // cut the entropy-coded tail
+        file.close();
+        QImageReader reference(path);
+        reference.setAutoTransform(false);
+        const auto expected = reference.read();
+        ix::TurboJpegCodec codec;
+        if (!codec.accepts(path))
+            QSKIP("the truncated header no longer passes accepts()");
+        const auto read = codec.read(path, 0);
+        if (expected.isNull()) {
+            QVERIFY2(!read.ok(), "turbo claims an image that Qt cannot read");
+        } else {
+            QVERIFY2(read.ok(), qPrintable(read.error));
+            QCOMPARE(read.document.pixels.size(), expected.size());
+        }
     }
     void streamingAlphaFlattenMatchesQtAndKeepsDpi() {
         const auto source=fixture(); ix::ImageDocument document;

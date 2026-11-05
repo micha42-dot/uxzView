@@ -15,6 +15,6 @@ public:
     QList<FormatCapability> capabilities() const override { return {}; }
 private:
     static ImageResult qtJpegFallback(QBuffer *io, const QByteArray &buffer,
-                                     const QString &path);
+                                     const QString &path, qint64 fileBytes);
 };
 } // namespace ix

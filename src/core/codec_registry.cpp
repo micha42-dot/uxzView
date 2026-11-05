@@ -305,6 +305,9 @@ ImageResult CodecRegistry::read(const QString &p, int page) const {
         return {{}, IX_TEXT("Dieses Format wurde in der Plugin-Verwaltung deaktiviert.")};
     if (!QFileInfo(p).isFile())
         return {{}, IX_TEXT("Datei nicht gefunden: %1").arg(p)};
+    // The first codec that claims a file owns it, including the failure: a codec
+    // may know a less tolerant interpretation than the generic Qt handler, so a
+    // later handler must not silently reinterpret the same bytes.
     for (const auto &c : codecs_)
         if (c->accepts(p)) {
             auto result = c->read(p, page);

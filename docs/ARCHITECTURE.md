@@ -54,6 +54,23 @@ does it scan the bounded 256 KiB header for conservative EXIF/IPTC/XMP export
 warnings. Keep that fallback for unsupported formats and builds without Exiv2;
 parser warnings are independent of whether an export-loss warning is required.
 
+An `ImageCodec` owns the complete document contract: pixels, `path`, `format`,
+page/animation fields, `fileBytes`, `metadata` and `sourceHasExif`. A codec that
+skips one of them makes the fast path diverge from Qt in the status row, the
+information panel or the export warnings, so new codecs must mirror `QtCodec`
+instead of filling in "the interesting" fields. Pixel decoders also write
+through the buffer's own stride (`QImage::bytesPerLine()`): a library pitch of
+`0` means "tightly packed", which disagrees with QImage's 32-bit-aligned rows
+for every RGB888 image whose width is not a multiple of four.
+`CodecRegistry::read` keeps the first accepting codec in charge, including its
+failure: a handler that recognizes a container must not let a more generic
+decoder reinterpret the same bytes afterwards. Conflicts are resolved inside the
+claiming codec instead — the turbo JPEG path retries with Qt's tolerant reader
+and reports the strict parser's error only when Qt cannot decode the stream
+either. `accepts()` therefore has to mirror every cheap precondition of `read()`
+(including the in-memory size limit), so a fast path never claims a file it
+cannot finish.
+
 `CodecRegistry::openFilter` uses readable extension keys, with normalized groups
 for aliases, instead of full decoder/encoder capabilities. Qt's extension source
 reads plugin metadata without mapping codec libraries. Keep full capability
@@ -85,12 +102,19 @@ Only an explicit Discard or a successful Save authorizes replacement. Cancel,
 dialog rejection and unsuccessful saves preserve the document and history.
 Fixtures for the legacy discard mode set that preference explicitly.
 
-Uncancellable save/trash/move/copy transactions use the progress overload in
-`worker_wait.h`. It joins the future through the existing GUI event loop, showing
-progress after 200 ms only if work remains. It does not enter QDialog::exec, so
-completion during native show cannot close a dialog before its event loop starts.
-The activity gate and input suppression remain active. Cancellable extraction
-uses a separate path and is not covered by this overload.
+Save/trash/move/copy transactions use the progress overload in `worker_wait.h`.
+It joins the future through the existing GUI event loop, showing progress after
+200 ms only if work remains. It does not enter QDialog::exec, so completion
+during native show cannot close a dialog before its event loop starts. Saving is
+cancellable: the dialog's cancel signal sets a flag that `CodecRegistry::save`
+reads through its `beforeCommit` hook and turns into `cancelWriting()`, so an
+aborted save publishes nothing and the document keeps its edits and path.
+Cancellation stops the commit, not the encoder — the running encode finishes and
+is discarded, so the window disappears immediately while the main window stays
+busy until the worker returns. Trash/move/copy remain uncancellable and use a
+pure progress window, which reappears when dismissed so a blocked window never
+looks idle. The activity gate and input suppression remain active. Cancellable
+extraction uses a separate path and is not covered by this overload.
 
 The load service reads no settings and installs no document. Its optional preview callback runs only after a full-image cache miss, outside the cache lock, on the calling worker; GUI consumers queue it and check their generation/lifetime. Color management and display sharpening affect only the returned display image.
 

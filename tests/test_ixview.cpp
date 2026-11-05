@@ -3773,25 +3773,11 @@ class IxTests : public QObject {
         ix::waitForGuiWorker(watcher, cancellable, true);
         QVERIFY2(!visibleAfterHide, "A cancelled transaction must not resurrect its progress window");
     }
-    void busyHintNamesTheRunningTransaction() {
-        const auto path = dir(QStringLiteral("busy-hint.png"));
-        QImage image(4000, 4000, QImage::Format_RGB32);
-        image.fill(Qt::darkMagenta);
-        QVERIFY(image.save(path));
-        ix::MainWindow window;
-        window.openPath(path);
-        // The load worker blocks commands; the status message must name the
-        // transaction instead of leaving the blocked window looking idle.
-        QTRY_COMPARE_WITH_TIMEOUT(window.statusBar()->currentMessage(),
-                                  ix::localized(QStringLiteral("Bild wird geladen …")), 20000);
-        QTRY_VERIFY_WITH_TIMEOUT(window.statusBar()->currentMessage().isEmpty(), 30000);
-        QVERIFY(!window.document().empty());
-    }
-    void blockedCommandExplainsItself() {
+    void busyHintExplainsBlockedCommands() {
         const auto source = dir(QStringLiteral("busy-hint-save.png"));
         const auto target = dir(QStringLiteral("busy-hint-save.webp"));
         // A slow WebP encode keeps the non-worker Saving phase alive long enough
-        // to dispatch a command from inside the join loop.
+        // to observe the persistent hint and to dispatch a command inside the join.
         QImage image(5000, 5000, QImage::Format_RGB32);
         image.fill(Qt::darkCyan);
         QVERIFY(image.save(source));
@@ -3803,7 +3789,7 @@ class IxTests : public QObject {
         auto restore =
             qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
         bool submitted = false, dispatched = false;
-        QString message;
+        QString persistent, rejected;
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
             auto *modal = QApplication::activeModalWidget();
@@ -3814,8 +3800,11 @@ class IxTests : public QObject {
                     box->reject();
             } else if (qobject_cast<QProgressDialog *>(modal) && !dispatched) {
                 dispatched = true;
+                // The transaction announces itself for its whole duration ...
+                persistent = window.statusBar()->currentMessage();
                 window.dispatch(QStringLiteral("zoomIn")); // blocked while saving
-                message = window.statusBar()->currentMessage();
+                // ... and a refused command says why instead of being dropped.
+                rejected = window.statusBar()->currentMessage();
             } else if (auto *dialog = qobject_cast<QFileDialog *>(modal); dialog && !submitted) {
                 submitted = true;
                 dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(target);
@@ -3826,10 +3815,33 @@ class IxTests : public QObject {
         window.dispatch(QStringLiteral("saveAs"));
         timer.stop();
         QVERIFY2(dispatched, "the save never became observable");
-        QCOMPARE(message, ix::localized(QStringLiteral("Bitte warten – %1"))
-                              .arg(ix::localized(QStringLiteral("Bild wird gespeichert …"))));
+        QCOMPARE(persistent, ix::localized(QStringLiteral("Bild wird gespeichert …")));
+        QCOMPARE(rejected, ix::localized(QStringLiteral("Bitte warten – %1"))
+                               .arg(ix::localized(QStringLiteral("Bild wird gespeichert …"))));
         // The hint must not outlive the transaction.
         QTRY_VERIFY_WITH_TIMEOUT(window.statusBar()->currentMessage().isEmpty(), 30000);
+    }
+    void codecRegistryKeepsTheClaimingCodecInCharge() {
+        // A codec that claims a file owns the outcome; the registry must not let a
+        // later, more generic handler reinterpret the same bytes.
+        struct ClaimingCodec final : ix::ImageCodec {
+            mutable int attempts = 0;
+            bool accepts(const QString &) const override { return true; }
+            ix::ImageResult read(const QString &, int) const override {
+                ++attempts;
+                return {{}, QStringLiteral("synthetic decoder failure")};
+            }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+        };
+        const auto path = dir(QStringLiteral("fallback-source.png"));
+        QVERIFY(pattern().save(path));
+        auto claiming = std::make_shared<ClaimingCodec>();
+        ix::CodecRegistry registry;
+        registry.add(claiming); // consulted before the built-in codecs
+        const auto result = registry.read(path);
+        QCOMPARE(claiming->attempts, 1);
+        QVERIFY(!result.ok());
+        QCOMPARE(result.error, QStringLiteral("synthetic decoder failure"));
     }
     void batchPlanGuardsContentInAdditionToTimestamps() {
         const auto source = dir(QStringLiteral("hash-input.bmp"));

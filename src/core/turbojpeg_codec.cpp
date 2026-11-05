@@ -15,6 +15,9 @@
 #include <turbojpeg.h>
 namespace ix {
 namespace {
+// A complete in-memory decode needs the whole stream; larger files stay with
+// Qt's streaming/mapped path (mirrored in accepts()).
+constexpr qint64 kMaxDecodeBytes = 256LL * 1024 * 1024;
 // JPEG header walking: marker segments before the entropy-coded scan carry the
 // JFIF density, ICC profile and component count. Walking segments (instead of
 // scanning a fixed byte window) keeps detection correct even when a large EXIF
@@ -78,10 +81,12 @@ void applyJfifDensity(QImage &image, const JpegHeader &header) {
     }
 }
 // Mirror QtCodec's document bookkeeping (path, metadata, EXIF presence) so the
-// turbo path is indistinguishable to callers.
+// turbo path is indistinguishable to callers. The size comes from the file that
+// was already open for the read, never from a second stat().
 void finishDocument(ImageDocument &document, const QString &path,
-                    const QByteArray &head) {
+                    const QByteArray &head, qint64 fileBytes) {
     document.path = QFileInfo(path).absoluteFilePath();
+    document.fileBytes = fileBytes;
     document.metadata = readMetadata(path, document.metadataWarning);
     if (document.metadata) {
         document.sourceHasExif = document.metadata->hasExif ||
@@ -125,6 +130,9 @@ bool TurboJpegCodec::accepts(const QString &path) const {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return false;
+    // read() needs the complete stream in memory; larger files belong to Qt.
+    if (file.size() > kMaxDecodeBytes)
+        return false;
     constexpr qint64 kHeaderBytes = 256 * 1024;
     const auto head = file.read(std::min<qint64>(kHeaderBytes, file.size()));
     const auto header = inspectJpegHeader(head.constData(), head.size());
@@ -137,8 +145,8 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return {{}, file.errorString()};
-    constexpr qint64 maxBytes = 256LL * 1024 * 1024;
-    if (file.size() > maxBytes)
+    const auto fileBytes = file.size();
+    if (fileBytes > kMaxDecodeBytes)
         return {{}, IX_TEXT("JPEG-Datei zu groß.")};
     QByteArray buffer = file.readAll();
     file.close();
@@ -155,7 +163,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     const auto header = inspectJpegHeader(buffer.constData(), buffer.size());
     if (reader.transformation() != QImageIOHandler::TransformationNone ||
         header.hasIcc || (header.parsed && header.components != 3))
-        return qtJpegFallback(&io, buffer, path);
+        return qtJpegFallback(&io, buffer, path, fileBytes);
     // Direct turbo decode — fast path for unrotated sRGB JPEGs.
     tjhandle handle = tjInitDecompress();
     if (!handle)
@@ -166,35 +174,58 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
                              &jpegSubsamp, &colorSpace) != 0) {
         auto error = QString::fromUtf8(tjGetErrorStr2(handle));
         tjDestroy(handle);
-        return {{}, error};
+        // Qt's reader accepts some streams this strict header parser rejects.
+        auto fallback = qtJpegFallback(&io, buffer, path, fileBytes);
+        return fallback.ok() ? fallback : ImageResult{{}, error};
     }
     // Keep Qt's pixel format for grayscale and CMYK/YCCK sources so the
     // resulting document matches the Qt decode exactly.
     if (colorSpace != TJCS_YCbCr && colorSpace != TJCS_RGB) {
         tjDestroy(handle);
-        return qtJpegFallback(&io, buffer, path);
+        return qtJpegFallback(&io, buffer, path, fileBytes);
     }
-    if (!safeSize({width, height}, 3)) {
-        QString limit = imageSizeLimitError({width, height}, 3);
+    // The document format is RGB32, so the guard accounts exactly the allocation
+    // (accepts() already used the same four bytes per pixel).
+    if (!safeSize({width, height}, 4)) {
+        QString limit = imageSizeLimitError({width, height}, 4);
         tjDestroy(handle);
         return limit.isEmpty() ? ImageResult{{}, IX_TEXT("Bild zu groß.")}
                                : ImageResult{{}, limit};
     }
+    // Decode straight into the document format: Format_RGB32 has exactly four
+    // bytes per pixel without row padding, so the QImage stride is the TurboJPEG
+    // pitch and no second full-size buffer is needed (peak stays at 4 B/px).
+    // Format_RGB888 is 32-bit aligned, so handing TurboJPEG pitch 0 there shears
+    // every row whose width is not a multiple of four.
+#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
+    // Format_RGB32 stores 0xffRRGGBB, which is B,G,R,X in memory (TJPF_BGRX).
+    QImage image(width, height, QImage::Format_RGB32);
+    constexpr int pixelFormat = TJPF_BGRX;
+#else
+    // Big-endian RGB32 stores 0xff,R,G,B; keep the portable conversion there.
     QImage image(width, height, QImage::Format_RGB888);
+    constexpr int pixelFormat = TJPF_RGB;
+#endif
     if (image.isNull()) {
         tjDestroy(handle);
         return {{}, IX_TEXT("Speicher nicht verfügbar.")};
     }
-    if (tjDecompress2(handle, src, buffer.size(), image.bits(), width, 0, height,
-                       TJPF_RGB, 0) != 0) {
+    if (tjDecompress2(handle, src, buffer.size(), image.bits(), width, image.bytesPerLine(),
+                       height, pixelFormat, 0) != 0) {
         auto error = QString::fromUtf8(tjGetErrorStr2(handle));
         tjDestroy(handle);
-        return {{}, error};
+        // Truncated or slightly corrupt streams are still readable for Qt's more
+        // tolerant libjpeg setup; this codec owns the file, so it retries itself
+        // instead of making the registry reinterpret the bytes.
+        auto fallback = qtJpegFallback(&io, buffer, path, fileBytes);
+        return fallback.ok() ? fallback : ImageResult{{}, error};
     }
     tjDestroy(handle);
+#if Q_BYTE_ORDER != Q_LITTLE_ENDIAN
     image = image.convertToFormat(QImage::Format_RGB32);
     if (image.isNull())
         return {{}, IX_TEXT("Speicher nicht verfügbar.")};
+#endif
     applyJfifDensity(image, header);
     ImageResult result;
     result.document.pixels = std::move(image);
@@ -204,7 +235,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     result.document.animated = false;
     result.document.delayMs = 100;
     result.document.loopCount = 0;
-    finishDocument(result.document, path, buffer.left(256 * 1024));
+    finishDocument(result.document, path, buffer.left(256 * 1024), fileBytes);
     return result;
 }
 
@@ -212,7 +243,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
 // so this codec deliberately reports no separate capability entry. Otherwise
 // the format list would show JPEG twice.
 ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QByteArray &buffer,
-                                           const QString &path) {
+                                           const QString &path, qint64 fileBytes) {
     // io is already positioned at the start and contains the full JPEG.
     io->seek(0);
     QImageReader reader(io, QByteArrayLiteral("jpeg"));
@@ -230,7 +261,7 @@ ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QByteArray &buffer
     result.document.animated = reader.supportsAnimation() && result.document.pageCount != 1;
     result.document.delayMs = std::max(20, reader.nextImageDelay());
     result.document.loopCount = reader.loopCount();
-    finishDocument(result.document, path, buffer.left(256 * 1024));
+    finishDocument(result.document, path, buffer.left(256 * 1024), fileBytes);
     return result;
 }
 } // namespace ix
