@@ -112,15 +112,24 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                              losses.join(QStringLiteral("\n\n")) + IX_TEXT("\n\nTrotzdem speichern?"),
                              QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
         return false;
-    QProgressDialog progress(IX_TEXT("Bild wird gespeichert …"), QString(), 0, 0, this);
-    progress.setCancelButton(nullptr);
+    // Progress windows stay silent for fast writes. Saving is cancellable: the
+    // cancel flag reaches CodecRegistry::save through beforeCommit, so a click
+    // discards the staged QSaveFile instead of publishing a partial export.
+    const QString abortText = IX_TEXT("Abgebrochen.");
+    auto cancelSave = std::make_shared<std::atomic_bool>(false);
+    QProgressDialog progress(IX_TEXT("Bild wird gespeichert …"), IX_TEXT("Abbrechen"), 0, 0, this);
     progress.setWindowModality(Qt::ApplicationModal);
+    connect(&progress, &QProgressDialog::canceled, &progress, [cancelSave] { cancelSave->store(true); });
     struct SaveResult { QString error; SourceFileState source; };
     QFutureWatcher<SaveResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QProgressDialog::accept);
     auto registry = registry_;
     watcher.setFuture(QtConcurrent::run([=] {
-        SaveResult result{registry.save(output, path, format, 95, true, targetRevision), {}};
+        SaveResult result{registry.save(output, path, format, 95, true, targetRevision,
+                                        [cancelSave, abortText] {
+                                            return cancelSave->load() ? abortText : QString();
+                                        }),
+                          {}};
         if (result.error.isEmpty() && !selection)
             result.source = observeSource(path);
         return result;
@@ -128,6 +137,9 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     waitForGuiWorker(watcher, progress);
     const auto result = watcher.future().takeResult();
     if (!result.error.isEmpty()) {
+        // A user cancellation is not an error: the document keeps its edits.
+        if (result.error == abortText)
+            return false;
         showError(result.error);
         return false;
     }

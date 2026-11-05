@@ -234,11 +234,23 @@ the first snapshot and reject reentrant catalog jobs. Preview work stays limited
 to visible rows. The old eager whole-folder thumbnail dialog has no callers and
 has been removed.
 
-`ui/worker_wait.h` joins GUI-owned work through an event loop that permits paints
-and timers while excluding user input. Shutdown can end that loop early, so a
-final blocking join still protects stack captures. Never detach such workers to
-hide a cancellation wait. Search/extraction hold DocumentActivity's file phase
-across chooser/worker processing; folder discovery runs with owned worker values.
+`ui/worker_wait.h` joins GUI-owned work through an event loop that keeps paints,
+timers and user input alive. Reentrancy is covered by DocumentActivity (commands
+return early while a transaction runs), by the caller's modal progress window and
+by closing checks, so stack captures stay valid without suppressing input. The
+progress window appears only after 200 ms; joins over two seconds are logged.
+Saving is cancellable: the dialog's cancel signal sets a flag that
+`CodecRegistry::save` reads through `beforeCommit`, so the staged `QSaveFile` is
+discarded before any commit and the document keeps its edits and modified state.
+An encoder already running is not interrupted; its result is dropped when the
+join ends.
+Non-cancellable rename/copy/trash jobs keep a modal window without a cancel
+button; it reappears if dismissed while the join continues, so a blocked window
+always carries a visible sign of the running work. Shutdown can end that loop
+early, so a final blocking join still protects stack captures. Never detach such
+workers to hide a cancellation wait.
+Search/extraction hold DocumentActivity's file phase across chooser/worker
+processing; folder discovery runs with owned worker values.
 The extension manager filters cached row text in-place during typing and reloads
 stores only on actual refresh/state changes. Real tool operations continue to
 read fresh storage state; this does not weaken package/lease validation.

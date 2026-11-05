@@ -3689,6 +3689,62 @@ class IxTests : public QObject {
         QCOMPARE(window.document().path, path);
         QVERIFY(ix::sha256File(path) != originalHash);
     }
+    void saveCanBeCancelledWhileTheWorkerJoins() {
+        const auto source = dir(QStringLiteral("cancelled-save.png"));
+        const auto target = dir(QStringLiteral("cancelled-save.webp"));
+        // A large canvas plus a deliberately slow WebP encode keeps the worker
+        // busy far past the 200 ms progress deferral, so the cancel click cannot
+        // lose the race against the encoder.
+        QImage image(5000, 5000, QImage::Format_RGB32);
+        image.fill(Qt::darkCyan);
+        QVERIFY(image.save(source));
+        ix::MainWindow window;
+        window.openPath(source);
+        QTRY_COMPARE_WITH_TIMEOUT(window.document().path, source, 30000);
+        window.dispatch(QStringLiteral("right"));
+        QTRY_VERIFY_WITH_TIMEOUT(window.document().modified, 30000);
+        const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        auto restore =
+            qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
+        bool submitted = false;
+        int cancels = 0, errors = 0;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *modal = QApplication::activeModalWidget();
+            if (auto *message = qobject_cast<QMessageBox *>(modal)) {
+                if (auto *yes = message->button(QMessageBox::Yes))
+                    yes->click();
+                else {
+                    ++errors;
+                    message->reject();
+                }
+            } else if (auto *progress = qobject_cast<QProgressDialog *>(modal)) {
+                ++cancels;
+                // QProgressDialog emits canceled() only for the button click;
+                // calling cancel() directly would bypass the production wiring.
+                if (auto *button = progress->findChild<QPushButton *>())
+                    button->click();
+            } else if (auto *dialog = qobject_cast<QFileDialog *>(modal); dialog && !submitted) {
+                submitted = true;
+                dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(target);
+                QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+            }
+        });
+        timer.start(10);
+        window.dispatch(QStringLiteral("saveAs"));
+        timer.stop();
+        QVERIFY2(submitted, "Save as chooser never appeared");
+        if (!cancels)
+            QSKIP("Encoding finished before the deferred progress window appeared");
+        QCOMPARE(errors, 0);
+        QCOMPARE(cancels, 1);
+        // The click must discard the staged transaction instead of publishing an
+        // export, and the edited document must stay as it was.
+        QVERIFY(!QFileInfo::exists(target));
+        QVERIFY(window.document().modified);
+        QCOMPARE(window.document().path, source);
+    }
     void batchPlanGuardsContentInAdditionToTimestamps() {
         const auto source = dir(QStringLiteral("hash-input.bmp"));
         const auto target = dir(QStringLiteral("hash-output.bmp"));

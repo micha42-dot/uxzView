@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Keep the window responsive while a GUI-owned worker finishes: the join loop no
+  longer suppresses user input (commands stay blocked by DocumentActivity,
+  closing stays deferred, and only the caller's modal window takes clicks).
+  Saving is cancellable through the progress window's cancel button, which
+  discards the staged output before commit and keeps the document's edits, and
+  joins slower than two seconds are logged. Progress windows that cannot be
+  cancelled reappear when dismissed, so a blocked window never looks idle.
 - Remove large backing files released on the GUI thread through a single
   deleter thread instead of deleting them inline, so replacing a large image or
   clearing undo history no longer stalls the window. Add fallback regression
