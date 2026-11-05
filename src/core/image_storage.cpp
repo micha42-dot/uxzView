@@ -101,13 +101,15 @@ bool reserveFile(QFile &file, qint64 bytes) {
 }
 constexpr qint64 kAsyncRemoveThreshold = 16 * 1024 * 1024;
 QThreadPool &deletePool() {
-    static QThreadPool pool;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        pool.setMaxThreadCount(1);
-        pool.setExpiryTimeout(5000);
-    });
-    return pool;
+    // Intentionally leaked: backing mappings can be destroyed during static
+    // teardown, when a function-local static pool may already be gone.
+    static QThreadPool *pool = [] {
+        auto *created = new QThreadPool;
+        created->setMaxThreadCount(1);
+        created->setExpiryTimeout(5000);
+        return created;
+    }();
+    return *pool;
 }
 bool onMainThread() {
     const auto *app = QCoreApplication::instance();
