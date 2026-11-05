@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- Build the reusable display raster during the first paint of a heavy fit, so a
-  large image is smooth-downscaled once instead of twice before the first
-  interaction. Keep the deferred raster for ordinary sizes. Log GUI worker joins
-  that take longer than two seconds to make intermittent stalls observable.
+- Build the reusable display raster during the first paint of a heavy fit, so the
+  follow-up repaint after a new fit or zoom reuses it instead of repeating the
+  full smooth downscale. Keep the deferred raster for ordinary sizes. Log GUI
+  worker joins that take longer than two seconds to make intermittent stalls
+  observable.
 - Ask only once before replacing an existing file: the save chooser no longer
   confirms overwrites itself, so Save As onto the current or another existing
   file shows a single app question with the changed-on-disk wording. Add a
