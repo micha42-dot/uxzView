@@ -18,6 +18,7 @@
 #include <QtConcurrent>
 #include <QtTest>
 #include <cstdlib>
+#include <cstring>
 #include <cstdio>
 namespace {
 QImage fixture(QImage::Format format = QImage::Format_ARGB32) {
@@ -33,6 +34,35 @@ QImage fixture(QImage::Format format = QImage::Format_ARGB32) {
         }
     }
     return image;
+}
+// Minimal single-entry EXIF APP1 segment (Orientation tag) for fallback tests.
+QByteArray jpegWithExifOrientation(const QByteArray &jpeg, quint16 orientation) {
+    QByteArray tiff;
+    tiff.append("II").append(char(0x2A)).append(char(0)).append(QByteArray::fromHex("08000000"));
+    tiff.append(QByteArray::fromHex("0100"));                 // one IFD entry
+    tiff.append(QByteArray::fromHex("1201"));                 // Orientation tag
+    tiff.append(QByteArray::fromHex("0300"));                 // SHORT
+    tiff.append(QByteArray::fromHex("01000000"));             // count 1
+    tiff.append(char(orientation & 0xFF)).append(char((orientation >> 8) & 0xFF));
+    tiff.append(QByteArray::fromHex("0000"));                 // value padding
+    tiff.append(QByteArray::fromHex("00000000"));             // no next IFD
+    QByteArray app1 = QByteArray::fromHex("FFE1");
+    const int length = 2 + 6 + tiff.size();
+    app1.append(char((length >> 8) & 0xFF)).append(char(length & 0xFF));
+    app1.append("Exif\0\0", 6);
+    app1.append(tiff);
+    return jpeg.left(2) + app1 + jpeg.mid(2);
+}
+// APP2 ICC_PROFILE segment inserted right after SOI.
+QByteArray jpegWithIccProfile(const QByteArray &jpeg, const QByteArray &icc) {
+    QByteArray app2 = QByteArray::fromHex("FFE2");
+    const int payload = 12 + 2 + icc.size();
+    const int length = payload + 2;
+    app2.append(char((length >> 8) & 0xFF)).append(char(length & 0xFF));
+    app2.append("ICC_PROFILE\0", 12);
+    app2.append(char(1)).append(char(1)); // sequence 1 of 1
+    app2.append(icc);
+    return jpeg.left(2) + app2 + jpeg.mid(2);
 }
 }
 class LargeImageTests : public QObject {
@@ -143,7 +173,9 @@ private slots:
             backing=ix::imageBackingFile(image);
             QCOMPARE(ix::mappedImageBytes(),image.sizeInBytes()+65536);
         }
-        QCOMPARE(ix::mappedImageBytes(),0); QVERIFY(!QFileInfo::exists(backing));
+        QCOMPARE(ix::mappedImageBytes(),0);
+        ix::flushImageStorageDeletes();
+        QVERIFY(!QFileInfo::exists(backing));
     }
     void mappedDecodeAndAtomicExport_data() {
         QTest::addColumn<QByteArray>("format");
@@ -186,6 +218,67 @@ private slots:
         QCOMPARE(read.document.pixels.size(), QSize(40, 30));
         QVERIFY2(read.document.pixels.dotsPerMeterX() > 0, "JFIF density lost");
         QVERIFY2(read.document.pixels.dotsPerMeterY() > 0, "JFIF density lost");
+    }
+    void turboJpegFallsBackForGrayscaleSources() {
+        ix::configureImageStorage({false, 0, temp_.path()});
+        QImage image(24, 18, QImage::Format_Grayscale8);
+        for (int y = 0; y < image.height(); ++y)
+            std::memset(image.scanLine(y), 64 + y * 4, size_t(image.bytesPerLine()));
+        const auto path = temp_.filePath(QStringLiteral("gray.jpg"));
+        QVERIFY(image.save(path, "jpeg", 95));
+        const auto read = ix::CodecRegistry().read(path);
+        QVERIFY2(read.ok(), qPrintable(read.error));
+        // Turbo expands everything to RGB; the fallback keeps Qt's format.
+        QCOMPARE(read.document.pixels.format(), QImage(path).format());
+    }
+    void turboJpegFallsBackForExifOrientation() {
+        ix::configureImageStorage({false, 0, temp_.path()});
+        QImage image(40, 24, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QByteArray encoded;
+        QBuffer buffer(&encoded);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QImageWriter writer(&buffer, "jpeg");
+        writer.setQuality(95);
+        QVERIFY(writer.write(image));
+        buffer.close();
+        const auto path = temp_.filePath(QStringLiteral("oriented.jpg"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(jpegWithExifOrientation(encoded, 6)); // rotate 90° CW
+        file.close();
+        const auto read = ix::CodecRegistry().read(path);
+        QVERIFY2(read.ok(), qPrintable(read.error));
+        // The turbo path ignores orientation; the fallback must transpose.
+        QCOMPARE(read.document.pixels.size(), QSize(24, 40));
+        QImageReader reference(path);
+        reference.setAutoTransform(true);
+        QCOMPARE(read.document.pixels, reference.read());
+    }
+    void turboJpegFallsBackForIccProfile() {
+        ix::configureImageStorage({false, 0, temp_.path()});
+        QImage image(32, 20, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        QByteArray encoded;
+        QBuffer buffer(&encoded);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QImageWriter writer(&buffer, "jpeg");
+        writer.setQuality(95);
+        QVERIFY(writer.write(image));
+        buffer.close();
+        const auto icc = QColorSpace(QColorSpace::SRgb).iccProfile();
+        QVERIFY(!icc.isEmpty());
+        const auto path = temp_.filePath(QStringLiteral("tagged.jpg"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(jpegWithIccProfile(encoded, icc));
+        file.close();
+        const auto read = ix::CodecRegistry().read(path);
+        QVERIFY2(read.ok(), qPrintable(read.error));
+        // Turbo would drop the profile; the fallback keeps it on the image.
+        QVERIFY2(read.document.pixels.colorSpace().isValid(), "ICC profile lost");
+        QImageReader reference(path);
+        QCOMPARE(read.document.pixels.colorSpace(), reference.read().colorSpace());
     }
     void streamingAlphaFlattenMatchesQtAndKeepsDpi() {
         const auto source=fixture(); ix::ImageDocument document;

@@ -20,6 +20,9 @@ QString imageBackingFile(const QImage &image);
 QImage copyImageRegion(const QImage &image, QRect region);
 QImage transformImageOrientation(const QImage &image, int transformation);
 qint64 mappedImageBytes();
+// Large backing files released on the GUI thread are deleted asynchronously;
+// this waits until queued removals have completed (tests and shutdown).
+void flushImageStorageDeletes();
 // Only recognized, unlocked buffers in this application's private directory.
 int cleanupStaleImageStorage(const QString &root);
 } // namespace ix

@@ -258,6 +258,7 @@ QJsonObject probeLargeResize(int axis, int filter) {
     const auto backing=ix::imageBackingFile(image);
     const bool mapped=ix::imageIsFileBacked(image);
     const auto bytes=image.sizeInBytes(); image={};
+    ix::flushImageStorageDeletes();
     if (!mapped || QFileInfo::exists(backing) || ix::mappedImageBytes()!=0)
         return {{QStringLiteral("error"),QStringLiteral("Mapped output was not released")}};
     return {{QStringLiteral("width"),options.size.width()},{QStringLiteral("height"),options.size.height()},

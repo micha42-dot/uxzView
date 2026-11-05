@@ -8,8 +8,12 @@
 #include <QLockFile>
 #include <QSettings>
 #include <QStorageInfo>
+#include <QCoreApplication>
+#include <QThread>
+#include <QThreadPool>
 #include <QDebug>
 #include <QUuid>
+#include <QtConcurrent>
 #include <QtEndian>
 #include <cstring>
 #include <limits>
@@ -95,6 +99,20 @@ bool reserveFile(QFile &file, qint64 bytes) {
 #endif
     return file.resize(bytes);
 }
+constexpr qint64 kAsyncRemoveThreshold = 16 * 1024 * 1024;
+QThreadPool &deletePool() {
+    static QThreadPool pool;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        pool.setMaxThreadCount(1);
+        pool.setExpiryTimeout(5000);
+    });
+    return pool;
+}
+bool onMainThread() {
+    const auto *app = QCoreApplication::instance();
+    return app && QThread::currentThread() == app->thread();
+}
 struct Mapping {
     std::shared_ptr<State> owner;
     QFile file;
@@ -106,7 +124,16 @@ struct Mapping {
         if (base) { std::lock_guard guard(owner->mutex); owner->files.erase(base + HeaderBytes); }
         if (base) file.unmap(base);
         file.close();
-        if (created) file.remove();
+        if (created) {
+            // Deleting a multi-gigabyte backing file can take a noticeable amount
+            // of time. Offload it from the GUI thread so replacing a large image
+            // or clearing history does not stall the window.
+            const auto path = file.fileName();
+            if (bytes >= kAsyncRemoveThreshold && onMainThread())
+                QtConcurrent::run(&deletePool(), [path] { QFile::remove(path); });
+            else
+                QFile::remove(path);
+        }
         lock.reset();
         if (bytes) { std::lock_guard guard(owner->mutex); owner->allocated -= bytes; }
     }
@@ -219,6 +246,7 @@ QString imageBackingFile(const QImage &image) {
     return found == s->files.end() ? QString() : found->second;
 }
 qint64 mappedImageBytes() { auto s = state(); std::lock_guard guard(s->mutex); return s->allocated; }
+void flushImageStorageDeletes() { deletePool().waitForDone(); }
 QImage copyImageRegion(const QImage &image, QRect region) {
     region = region.intersected(image.rect());
     if (region.isEmpty()) return {};

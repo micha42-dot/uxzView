@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Remove large backing files released on the GUI thread through a single
+  deleter thread instead of deleting them inline, so replacing a large image or
+  clearing undo history no longer stalls the window. Add fallback regression
+  tests for grayscale, EXIF-rotated and ICC-tagged JPEGs.
 - Decode unrotated, non-profile-embedded JPEGs via libjpeg-turbo directly,
   saving the Qt JPEG handler overhead. Large images and forced spills remain
   on Qt's direct-mapped-buffer codec for file-backed pixel storage.

@@ -625,6 +625,11 @@ ICC/alpha conversion. Files contain a versioned geometry header and never point
 at user source files. A process lock protects each live buffer and a root lock
 serializes file creation against stale cleanup. Thread-neutral QFile objects
 can be released by the last image owner on either worker or GUI thread.
+Backing files of 16 MiB or more released on the GUI thread are removed by a
+single low-priority deleter thread instead of blocking the window; tests and
+shutdown can flush pending removals with `flushImageStorageDeletes()`, and
+files left behind by a crash or shutdown race are reclaimed by the next
+startup scan.
 
 The resize dialog and worker share resizeFitsBudget; logical mapped source and
 destination bytes are separated from estimated resident work. Non-streaming
