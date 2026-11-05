@@ -36,6 +36,7 @@
 #include "ui/resize_dialog.h"
 #include "ui/rotation_dialog.h"
 #include "ui/settings_dialog.h"
+#include "ui/worker_wait.h"
 #include <QBuffer>
 #include <QColorSpace>
 #include <QCollator>
@@ -3744,6 +3745,33 @@ class IxTests : public QObject {
         QVERIFY(!QFileInfo::exists(target));
         QVERIFY(window.document().modified);
         QCOMPARE(window.document().path, source);
+    }
+    void workerJoinKeepsUncancellableProgressVisible() {
+        // A pure progress window must not stay dismissed: the blocked window
+        // would look idle although the transaction still owns it.
+        QProgressDialog report(QStringLiteral("Arbeit läuft"), QString(), 0, 0, nullptr);
+        report.setCancelButton(nullptr);
+        bool visibleAfterHide = false;
+        QFutureWatcher<void> watcher;
+        QTimer::singleShot(600, &report, [&] { report.hide(); });
+        QTimer::singleShot(900, &report, [&] { visibleAfterHide = report.isVisible(); });
+        watcher.setFuture(QtConcurrent::run([] { QThread::msleep(1200); }));
+        ix::waitForGuiWorker(watcher, report);
+        QVERIFY2(visibleAfterHide, "A non-cancellable progress window must reappear while joining");
+        QVERIFY(!report.isVisible());
+    }
+    void workerJoinLeavesACancelledProgressHidden() {
+        // The reverse contract: after a cancel the window must stay gone instead
+        // of being resurrected while the encoder finishes.
+        QProgressDialog cancellable(QStringLiteral("Arbeit läuft"), QStringLiteral("Abbrechen"), 0, 0,
+                                    nullptr);
+        bool visibleAfterHide = true;
+        QFutureWatcher<void> watcher;
+        QTimer::singleShot(600, &cancellable, [&] { cancellable.hide(); });
+        QTimer::singleShot(900, &cancellable, [&] { visibleAfterHide = cancellable.isVisible(); });
+        watcher.setFuture(QtConcurrent::run([] { QThread::msleep(1200); }));
+        ix::waitForGuiWorker(watcher, cancellable, true);
+        QVERIFY2(!visibleAfterHide, "A cancelled transaction must not resurrect its progress window");
     }
     void batchPlanGuardsContentInAdditionToTimestamps() {
         const auto source = dir(QStringLiteral("hash-input.bmp"));

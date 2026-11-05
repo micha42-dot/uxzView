@@ -134,7 +134,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             result.source = observeSource(path);
         return result;
     }));
-    waitForGuiWorker(watcher, progress);
+    waitForGuiWorker(watcher, progress, true);
     const auto result = watcher.future().takeResult();
     if (!result.error.isEmpty()) {
         // A user cancellation is not an error: the document keeps its edits.

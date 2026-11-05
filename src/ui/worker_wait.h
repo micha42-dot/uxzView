@@ -7,7 +7,6 @@
 #include <QFutureWatcher>
 #include <QScopeGuard>
 #include <QProgressDialog>
-#include <QPushButton>
 #include <QTimer>
 #include <QThread>
 #include <QtConcurrent>
@@ -40,24 +39,25 @@ template <class Result> void waitForGuiWorker(QFutureWatcher<Result> &watcher) {
 // Fast transactions need no progress window, so it appears only after 200 ms.
 // Join the future's loop rather than a dialog loop: completion during show()
 // must not be lost before QDialog::exec() has started its nested event loop.
-// Callers that own a cancel flag connect the dialog's cancel signal themselves.
-template <class Result> void waitForGuiWorker(QFutureWatcher<Result> &watcher, QProgressDialog &progress) {
+// `cancellable` marks callers that wire the dialog's cancel signal to their own
+// flag. Such a window stays hidden once dismissed; a pure progress window
+// reappears, because a blocked main window must never look idle.
+template <class Result>
+void waitForGuiWorker(QFutureWatcher<Result> &watcher, QProgressDialog &progress,
+                      bool cancellable = false) {
     QTimer delayedShow;
     delayedShow.setSingleShot(true);
     QObject::connect(&delayedShow, &QTimer::timeout, &progress, [&] {
         if (!watcher.isFinished()) progress.show();
     });
-    // A window without a cancel button only reports progress. Dismissing it
-    // (Esc or window close) must not leave the blocked main window without any
-    // visible sign of the work, so it reappears while the join continues.
     QTimer keepVisible;
-    QObject::connect(&keepVisible, &QTimer::timeout, &progress, [&] {
-        if (!watcher.isFinished() && !progress.isVisible() &&
-            !progress.findChild<QPushButton *>())
-            progress.show();
-    });
+    if (!cancellable) {
+        QObject::connect(&keepVisible, &QTimer::timeout, &progress, [&] {
+            if (!watcher.isFinished() && !progress.isVisible()) progress.show();
+        });
+        keepVisible.start(250);
+    }
     delayedShow.start(200);
-    keepVisible.start(250);
     waitForGuiWorker(watcher);
     keepVisible.stop();
     delayedShow.stop();
