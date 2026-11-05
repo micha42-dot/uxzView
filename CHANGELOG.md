@@ -9,6 +9,10 @@
   discards the staged output before commit and keeps the document's edits, and
   joins slower than two seconds are logged. Progress windows that cannot be
   cancelled reappear when dismissed, so a blocked window never looks idle.
+- Name the running transaction in the status bar for as long as it holds the
+  document ("Bild wird geladen …", "… gespeichert …", "Dateioperation läuft …"),
+  and answer a command that is refused during it with "Bitte warten – …" instead
+  of ignoring the input silently. The hint disappears with the transaction.
 - Remove large backing files released on the GUI thread through a single
   deleter thread instead of deleting them inline, so replacing a large image or
   clearing undo history no longer stalls the window. Add fallback regression

@@ -3773,6 +3773,64 @@ class IxTests : public QObject {
         ix::waitForGuiWorker(watcher, cancellable, true);
         QVERIFY2(!visibleAfterHide, "A cancelled transaction must not resurrect its progress window");
     }
+    void busyHintNamesTheRunningTransaction() {
+        const auto path = dir(QStringLiteral("busy-hint.png"));
+        QImage image(4000, 4000, QImage::Format_RGB32);
+        image.fill(Qt::darkMagenta);
+        QVERIFY(image.save(path));
+        ix::MainWindow window;
+        window.openPath(path);
+        // The load worker blocks commands; the status message must name the
+        // transaction instead of leaving the blocked window looking idle.
+        QTRY_COMPARE_WITH_TIMEOUT(window.statusBar()->currentMessage(),
+                                  ix::localized(QStringLiteral("Bild wird geladen …")), 20000);
+        QTRY_VERIFY_WITH_TIMEOUT(window.statusBar()->currentMessage().isEmpty(), 30000);
+        QVERIFY(!window.document().empty());
+    }
+    void blockedCommandExplainsItself() {
+        const auto source = dir(QStringLiteral("busy-hint-save.png"));
+        const auto target = dir(QStringLiteral("busy-hint-save.webp"));
+        // A slow WebP encode keeps the non-worker Saving phase alive long enough
+        // to dispatch a command from inside the join loop.
+        QImage image(5000, 5000, QImage::Format_RGB32);
+        image.fill(Qt::darkCyan);
+        QVERIFY(image.save(source));
+        ix::MainWindow window;
+        window.openPath(source);
+        QTRY_COMPARE_WITH_TIMEOUT(window.document().path, source, 30000);
+        const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        auto restore =
+            qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
+        bool submitted = false, dispatched = false;
+        QString message;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *modal = QApplication::activeModalWidget();
+            if (auto *box = qobject_cast<QMessageBox *>(modal)) {
+                if (auto *yes = box->button(QMessageBox::Yes))
+                    yes->click();
+                else
+                    box->reject();
+            } else if (qobject_cast<QProgressDialog *>(modal) && !dispatched) {
+                dispatched = true;
+                window.dispatch(QStringLiteral("zoomIn")); // blocked while saving
+                message = window.statusBar()->currentMessage();
+            } else if (auto *dialog = qobject_cast<QFileDialog *>(modal); dialog && !submitted) {
+                submitted = true;
+                dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(target);
+                QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+            }
+        });
+        timer.start(10);
+        window.dispatch(QStringLiteral("saveAs"));
+        timer.stop();
+        QVERIFY2(dispatched, "the save never became observable");
+        QCOMPARE(message, ix::localized(QStringLiteral("Bitte warten – %1"))
+                              .arg(ix::localized(QStringLiteral("Bild wird gespeichert …"))));
+        // The hint must not outlive the transaction.
+        QTRY_VERIFY_WITH_TIMEOUT(window.statusBar()->currentMessage().isEmpty(), 30000);
+    }
     void batchPlanGuardsContentInAdditionToTimestamps() {
         const auto source = dir(QStringLiteral("hash-input.bmp"));
         const auto target = dir(QStringLiteral("hash-output.bmp"));

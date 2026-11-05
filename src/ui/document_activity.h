@@ -9,6 +9,10 @@ class DocumentActivity {
     bool busy() const {
         return phase_ != Phase::Idle;
     }
+    // GUI-thread readers use the phase to describe the running transaction.
+    Phase phase() const {
+        return phase_;
+    }
     bool workerActive() const {
         return phase_ == Phase::Loading || phase_ == Phase::Editing;
     }

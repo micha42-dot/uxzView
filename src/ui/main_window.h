@@ -136,6 +136,13 @@ class MainWindow : public QMainWindow {
     void refreshState();
     void syncFitActions();
     void updateStatus();
+    // The status message area names the running transaction, so a blocked
+    // window never looks idle and rejected input explains itself.
+    QString busyHint() const;
+    void syncBusyHint();
+    void showBusyHint(bool rejected);
+    QTimer busyHintTimer_;
+    QTimer busyHintDelay_;
     void refreshFiles(bool force = false);
     void navigate(int direction);
     void page(int direction);

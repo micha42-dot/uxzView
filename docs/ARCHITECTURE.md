@@ -251,6 +251,17 @@ early, so a final blocking join still protects stack captures. Never detach such
 workers to hide a cancellation wait.
 Search/extraction hold DocumentActivity's file phase across chooser/worker
 processing; folder discovery runs with owned worker values.
+
+DocumentActivity also drives the busy indication. Its phase names the running
+transaction ("Bild wird geladen …", "… gespeichert …", "Dateioperation läuft …")
+in the status bar's message area for the whole transaction, so a blocked window
+never looks idle — including after a cancelled save, when the progress window is
+already gone but the encoder still finishes. Commands that are refused while a
+transaction runs (dispatcher, navigation, page changes, edits) call
+`showBusyHint(true)`, which briefly replaces that text with "Bitte warten – …"
+and falls back to the plain phase text after two seconds. Disabled actions are
+never resurrected: the hint only explains, it never queues the refused command;
+navigation during a worker load keeps its own `pendingNavigation_` queue.
 The extension manager filters cached row text in-place during typing and reloads
 stores only on actual refresh/state changes. Real tool operations continue to
 read fresh storage state; this does not weaken package/lease validation.

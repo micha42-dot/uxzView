@@ -156,8 +156,10 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     connect(view_, &ImageView::navigate, this, &MainWindow::navigate);
     connect(view_, &ImageView::commandRequested, this, &MainWindow::dispatch);
     connect(view_, &ImageView::pageRequested, this, [this](int direction) {
-        if (activity_.busy())
+        if (activity_.busy()) {
+            showBusyHint(true);
             return;
+        }
         if (document_.pageCount > 1)
             page(direction);
         else
@@ -281,6 +283,18 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     deferredOpenTimer_.setSingleShot(true);
     deferredOpenTimer_.setInterval(50);
     connect(&deferredOpenTimer_, &QTimer::timeout, this, &MainWindow::deliverDeferredOpen);
+    busyHintTimer_.setSingleShot(true);
+    busyHintTimer_.setInterval(2000);
+    connect(&busyHintTimer_, &QTimer::timeout, this, [this] { syncBusyHint(); });
+    // Animation frames and thumbnail transitions finish within one or two frames.
+    // Deferring the first appearance keeps the message area from blinking at
+    // playback rate while long transactions still announce themselves.
+    busyHintDelay_.setSingleShot(true);
+    busyHintDelay_.setInterval(120);
+    connect(&busyHintDelay_, &QTimer::timeout, this, [this] {
+        if (activity_.busy() && !busyHintTimer_.isActive())
+            statusBar()->showMessage(busyHint(), 0);
+    });
     QSettings settings;
     if (settings.value(QStringLiteral("window/rememberGeometry"), true).toBool())
         restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
@@ -506,6 +520,7 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
                         syncFitActions();
                     else if (action->isCheckable())
                         action->setChecked(!action->isChecked());
+                    showBusyHint(true);
                     return;
                 }
                 dispatch(cmd);
@@ -1058,8 +1073,12 @@ void MainWindow::refreshFiles(bool force) {
 }
 void MainWindow::navigate(int direction) {
     if (activity_.busy()) {
+        // A running worker kept queuing steps; every other transaction ignores
+        // navigation, so say why instead of dropping the input silently.
         if (activity_.workerActive() && (workMode_ == WorkMode::Load || workMode_ == WorkMode::Page))
             pendingNavigation_ = std::clamp(pendingNavigation_ + direction, -10000, 10000);
+        else
+            showBusyHint(true);
         return;
     }
     if (!indexReady_) {
@@ -1074,7 +1093,11 @@ void MainWindow::navigate(int direction) {
     if (traversal) openRequested({traversal->path(), 0, true, std::move(traversal)});
 }
 void MainWindow::page(int direction) {
-    if (activity_.busy() || QApplication::activeModalWidget())
+    if (activity_.busy()) {
+        showBusyHint(true);
+        return;
+    }
+    if (QApplication::activeModalWidget())
         return;
     const int index = document_.page + direction;
     if (index < 0 || index >= document_.pageCount || index == document_.page)
@@ -1101,8 +1124,12 @@ void MainWindow::operation(std::function<QImage(const QImage &)> fn, bool stream
     if (!streaming && imageIsFileBacked(document_.pixels) && document_.pixels.sizeInBytes() > imageMemoryLimit()/32) {
         QMessageBox::warning(this, IX_TEXT("Bild bearbeiten"), IX_TEXT("Diese Bearbeitung benötigt vollständige RAM-Puffer. Bitte das Bild zuerst verkleinern.")); return;
     }
-    if (document_.empty() || activity_.busy())
+    if (document_.empty())
         return;
+    if (activity_.busy()) {
+        showBusyHint(true);
+        return;
+    }
     if (document_.pixels.pixelFormat().typeInterpretation() == QPixelFormat::FloatingPoint &&
         QMessageBox::warning(this, IX_TEXT("HDR-Bild bearbeiten"),
                              IX_TEXT("Diese Operation verarbeitet maximal 16 Bit pro Kanal. HDR-Werte "
@@ -1145,6 +1172,7 @@ void MainWindow::syncFitActions() {
         }
 }
 void MainWindow::refreshState() {
+    syncBusyHint();
     // The current document remains usable as a visual reference during a load.
     // Command entry points guard concurrent mutations; avoid flashing every
     // toolbar icon into its disabled palette on each navigation/animation frame.
@@ -1197,6 +1225,54 @@ void MainWindow::refreshState() {
         }
     }
     zoom_->setEnabled(!activity_.busy() && !document_.empty());
+}
+QString MainWindow::busyHint() const {
+    switch (activity_.phase()) {
+    case DocumentActivity::Phase::Loading:
+        return IX_TEXT("Bild wird geladen …");
+    case DocumentActivity::Phase::Editing:
+        return IX_TEXT("Bild wird bearbeitet …");
+    case DocumentActivity::Phase::Saving:
+        return IX_TEXT("Bild wird gespeichert …");
+    case DocumentActivity::Phase::Files:
+        return IX_TEXT("Dateioperation läuft …");
+    case DocumentActivity::Phase::Capture:
+        return IX_TEXT("Aufnahme läuft …");
+    case DocumentActivity::Phase::Idle:
+        break;
+    }
+    return {};
+}
+void MainWindow::syncBusyHint() {
+    if (!activity_.busy()) {
+        // A finished transaction must also drop a pending rejection flash.
+        busyHintTimer_.stop();
+        busyHintDelay_.stop();
+        statusBar()->clearMessage();
+        return;
+    }
+    // A rejection flash owns the message area until it expires.
+    if (busyHintTimer_.isActive())
+        return;
+    if (statusBar()->currentMessage().isEmpty()) {
+        if (!busyHintDelay_.isActive())
+            busyHintDelay_.start();
+        return;
+    }
+    // Keep the text in step when the phase changes inside one transaction.
+    statusBar()->showMessage(busyHint(), 0);
+}
+void MainWindow::showBusyHint(bool rejected) {
+    if (!activity_.busy())
+        return;
+    if (!rejected) {
+        syncBusyHint();
+        return;
+    }
+    // A refused command is answered immediately; the transaction may be short.
+    busyHintDelay_.stop();
+    statusBar()->showMessage(IX_TEXT("Bitte warten – %1").arg(busyHint()), 0);
+    busyHintTimer_.start();
 }
 void MainWindow::updateStatus() {
     view_->setInformationOverlay(isFullScreen() ? fullscreenInfoText(document_, fullscreenInfo_, view_->zoom())
@@ -1527,7 +1603,11 @@ void MainWindow::dispatch(const QString &cmd) {
             navigate(cmd == QStringLiteral("next") ? 1 : -1);
         return;
     }
-    if (activity_.busy() || QApplication::activeModalWidget())
+    if (activity_.busy()) {
+        showBusyHint(true);
+        return;
+    }
+    if (QApplication::activeModalWidget())
         return;
     if (cmd == QStringLiteral("open")) {
         auto p = openImageFile(this, IX_TEXT("Öffnen"),
