@@ -125,6 +125,9 @@ and process-creation noise.
 | `1be6d4c` | Startup prewarm of the command-line image + in-flight read join |
 | `5fd35bf` | Join hardening: stage preview, startup I/O, exit path |
 | `a304297` | Prewarm starts after the language check (showHelp/exit ordering) |
+| `e58036f` | Correct the AUD-7 precedent: swap permissions are POSIX-only |
+| `c99f832` | Record the large-document boundary of the prewarm (PERF-5) |
+| `9b868a1` | Deletion ends in the black state; new `navigation/afterDelete` |
 
 ### 3.1 TurboJPEG fast path correctness (`9aee79b`)
 
