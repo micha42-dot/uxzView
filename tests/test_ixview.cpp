@@ -908,6 +908,44 @@ class IxTests : public QObject {
         QCOMPARE(reopened.findChild<QSpinBox *>(QStringLiteral("performance/imageCacheMiB"))->value(), 64);
         QVERIFY(reopened.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"))->isChecked());
     }
+    void afterDeletePreferenceIsStoredAndReloaded() {
+        QSettings settings;
+        const auto stored = settings.value(QStringLiteral("navigation/afterDelete"));
+        auto restore = qScopeGuard([stored] {
+            QSettings s;
+            if (stored.isValid())
+                s.setValue(QStringLiteral("navigation/afterDelete"), stored);
+            else
+                s.remove(QStringLiteral("navigation/afterDelete"));
+        });
+        // Insurance against a confirmation box the dialog may raise in other
+        // profiles; without an event loop this test would otherwise block.
+        QTimer dismiss;
+        QObject::connect(&dismiss, &QTimer::timeout, qApp, [] {
+            if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
+                box->accept();
+        });
+        dismiss.start(20);
+        // Absent means the black state, so an untouched profile stays empty after a
+        // deletion; verify the combo reports that and stores the opt-out.
+        settings.remove(QStringLiteral("navigation/afterDelete"));
+        {
+            ix::SettingsDialog dialog;
+            auto *combo = dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"));
+            QVERIFY(combo);
+            QCOMPARE(combo->currentData().toInt(), 1);
+            combo->setCurrentIndex(combo->findData(0));
+            dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+            QCOMPARE(dialog.result(), int(QDialog::Accepted));
+        }
+        QCOMPARE(settings.value(QStringLiteral("navigation/afterDelete")).toInt(), 0);
+        {
+            // Reopening shows the stored choice rather than the default.
+            ix::SettingsDialog dialog;
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"))
+                         ->currentData().toInt(), 0);
+        }
+    }
     void settingsApplyImmediatelyToMainWindow() {
         QSettings settings;
         QVariantMap saved;
