@@ -201,6 +201,17 @@ void MainWindow::fileOperation(const QString &op) {
         const auto previous = previousPathAfterRemoval(files_, fileIndex_, source);
         const bool stayEmpty =
             afterDeleteStaysEmpty(QSettings().value(QStringLiteral("navigation/afterDelete"), 1).toInt());
+        // The trash move is a filesystem round trip with its own progress window.
+        // The black state must not wait for it, so it is shown right after the
+        // confirmation; a failed move restores exactly what was on screen. The
+        // "open next image" variant keeps the current picture until the move is done.
+        const QImage shownImage = view_->image();
+        const double shownZoom = view_->zoom();
+        const auto shownFit = view_->fit();
+        if (stayEmpty) {
+            view_->setUnavailable(true);
+            view_->setImage({});
+        }
         QProgressDialog progress(IX_TEXT("Datei wird in den Systempapierkorb verschoben …"), {}, 0, 0,
                                  this);
         progress.setCancelButton(nullptr);
@@ -236,6 +247,15 @@ void MainWindow::fileOperation(const QString &op) {
                 if (!next.isEmpty() && !deferredOpen_)
                     openPath(next, 0, false);
             }
+        } else if (stayEmpty) {
+            // The move failed, so the file is still there: put the picture back
+            // with the zoom it had before the early black state.
+            view_->setUnavailable(false);
+            view_->setImage(shownImage);
+            if (shownFit == ImageView::Fit::Original)
+                view_->setZoom(shownZoom);
+            else
+                view_->setFit(shownFit);
         }
         if (!result.error.isEmpty()) showError(result.error);
         return;

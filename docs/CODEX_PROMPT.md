@@ -115,6 +115,13 @@ and process-creation noise.
   `isRemovalPlaceholder()` is the single predicate for the state; refresh, new
   window, the batch dialog and the pipeline dialog must not hand the removed path to
   anything that reads it (they skip it or pass no input).
+- **Removal responsiveness**: the black state is set right after the confirmation,
+  *before* the recycle-bin move, because `ImageView` draws an existing `image_` even
+  when `unavailable_` is set (`image_view.cpp:203`) - so the view must be emptied, not
+  just flagged. The failure path restores `view_->image()`, zoom and fit; the
+  authoritative state change (`installDocument` of the removal document) still happens
+  after the move. Do not "simplify" this by moving the install before the move: that
+  would clear the document and its history before knowing whether the file is gone.
 - **Startup prewarm**: started in `main()` *after* `PluginStore::prepareStartup()`
   (a cache hit bypasses the codec registry, so a disabled format must never be
   decoded behind the policy) and *after* the language validation (that branch calls

@@ -44,7 +44,10 @@
   commands stay disabled while nothing is open, as they already do for unreadable
   files, and the deletion never turns into an unsaved-changes prompt when a later
   batch or search run reports the missing file. Refresh, New window and the batch
-  dialogs no longer hand the removed path to anything that would re-read it.
+  dialogs no longer hand the removed path to anything that would re-read it. The
+  black state appears as soon as the deletion is confirmed - the recycle-bin move
+  continues behind its progress window instead of holding the old picture on screen,
+  and a failed move restores the picture with its zoom.
 - Add `--profile-first-preview` (first paint vs. document paint) and
   `--profile-prefetch` (cold vs. prefetched neighbour) to the benchmark harness.
 - Decode the command-line image while the window is still being built: a startup
