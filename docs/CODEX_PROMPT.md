@@ -136,6 +136,7 @@ and process-creation noise.
 | `e58036f` | Correct the AUD-7 precedent: swap permissions are POSIX-only |
 | `c99f832` | Record the large-document boundary of the prewarm (PERF-5) |
 | `9b868a1` | Deletion ends in the black state; new `navigation/afterDelete` |
+| `2ac659d` | Close the black state's couplings (reconcile, resume slot, status label) |
 
 ### 3.1 TurboJPEG fast path correctness (`9aee79b`)
 
