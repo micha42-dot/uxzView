@@ -394,6 +394,33 @@ class IxTests : public QObject {
         QVERIFY2(unexpectedDialogs.isEmpty(), qPrintable(unexpectedDialogs.join(QLatin1Char('\n'))));
         window.close();
     }
+    void unavailableViewNeedsAnEmptyImageToPaintBlack() {
+        ix::ImageView view;
+        view.resize(120, 80);
+        view.background = Qt::darkGray; // a theme colour that is not black
+        view.show();
+        QCoreApplication::processEvents();
+        const auto center = [&] {
+            const auto ratio = view.viewport()->devicePixelRatioF();
+            QImage result(QSize(qCeil(view.viewport()->width() * ratio),
+                                qCeil(view.viewport()->height() * ratio)),
+                          QImage::Format_RGB32);
+            result.setDevicePixelRatio(ratio);
+            result.fill(Qt::magenta);
+            view.viewport()->render(&result);
+            return result.pixelColor(result.width() / 2, result.height() / 2);
+        };
+        QImage image(240, 160, QImage::Format_RGB32); // same aspect as the viewport
+        image.fill(Qt::red);
+        view.setImage(image);
+        view.setUnavailable(true);
+        // The deletion path relies on this: an unavailable view still paints the
+        // image it holds, so showing black requires emptying the view instead of
+        // only flagging it.
+        QCOMPARE(center(), QColor(Qt::red));
+        view.setImage({});
+        QCOMPARE(center(), QColor(Qt::black));
+    }
     void displayCachePreservesPixelsAndInvalidates() {
         ix::ImageView view;
         view.resize(172, 128);

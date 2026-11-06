@@ -122,6 +122,10 @@ and process-creation noise.
   authoritative state change (`installDocument` of the removal document) still happens
   after the move. Do not "simplify" this by moving the install before the move: that
   would clear the document and its history before knowing whether the file is gone.
+  A failed move restores image, zoom and fit but not the selection or scroll position -
+  accepted, the path would need a failing recycle-bin call to show up. The test
+  `unavailableViewNeedsAnEmptyImageToPaintBlack` pins the paint contract (an unavailable
+  view still draws its image, so showing black requires an empty one).
 - **Startup prewarm**: started in `main()` *after* `PluginStore::prepareStartup()`
   (a cache hit bypasses the codec registry, so a disabled format must never be
   decoded behind the policy) and *after* the language validation (that branch calls
