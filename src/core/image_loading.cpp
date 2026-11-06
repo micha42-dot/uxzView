@@ -81,37 +81,55 @@ std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const Imag
     return PreparedImage{std::move(result->document), std::move(display), {}};
 }
 namespace {
-// Speculative decodes outlive neither finishPrewarm() nor the process; the pool
-// is leaked on purpose so an abnormal exit never runs its destructor while a
-// worker still references the codec registry.
-QThreadPool &prewarmPool() {
-    static QThreadPool *pool = [] {
-        auto *created = new QThreadPool;
-        created->setMaxThreadCount(1);
-        created->setExpiryTimeout(10000);
+// Speculative decode state. Intentionally leaked: a decode that is still running
+// while the process tears down must not find its own pool already destroyed.
+struct PrewarmState {
+    QThreadPool pool;
+    std::shared_ptr<std::atomic_bool> cancel;
+};
+PrewarmState &prewarmState() {
+    static PrewarmState *state = [] {
+        auto *created = new PrewarmState;
+        created->pool.setMaxThreadCount(1);
+        created->pool.setExpiryTimeout(10000);
         return created;
     }();
-    return *pool;
+    return *state;
 }
 } // namespace
 void prewarmImage(const QString &path) {
-    if (path.isEmpty() || !QFileInfo(path).isFile())
+    if (path.isEmpty())
         return;
-    const QSettings settings;
-    // Exactly the request the command-line open will issue, so the cached
-    // original and the prepared display match what the window installs.
-    const ImageLoadRequest request{path, 0, settings.value(QStringLiteral("color/manage"), true).toBool(),
-                                   settings.value(QStringLiteral("view/sharpenDisplay"), false).toBool(), false};
-    prewarmPool().start([request] {
+    auto &state = prewarmState();
+    const auto cancel = state.cancel = std::make_shared<std::atomic_bool>(false);
+    state.pool.start([path, cancel] {
         try {
+            // Filesystem and settings reads stay off the startup path: a stalled
+            // network share must not delay a window that does not exist yet.
+            if (cancel->load() || !QFileInfo(path).isFile())
+                return;
+            const QSettings settings;
+            // Exactly the request the command-line open will issue, so the cached
+            // original and the prepared display match what the window installs.
+            const ImageLoadRequest request{path, 0,
+                settings.value(QStringLiteral("color/manage"), true).toBool(),
+                settings.value(QStringLiteral("view/sharpenDisplay"), false).toBool(), false};
             // Plugin discovery finished on the main thread before this worker
             // starts, so the registry is built here, off the startup path.
             const CodecRegistry registry;
-            (void)loadImage(registry, request, {}, nullptr);
+            (void)loadImage(registry, request, {}, cancel.get());
         } catch (...) {
             // A speculative decode never reports; the open supplies diagnostics.
         }
     });
 }
-void finishPrewarm() { prewarmPool().waitForDone(); }
+void finishPrewarm() {
+    auto &state = prewarmState();
+    // Closing the window must not wait for a decode of a large file: cancel at
+    // the next pipeline boundary, drop what is still queued, and join only the
+    // frame that is already running.
+    if (state.cancel) state.cancel->store(true);
+    state.pool.clear();
+    state.pool.waitForDone();
+}
 } // namespace ix

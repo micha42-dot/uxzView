@@ -128,6 +128,32 @@ Startup prewarm, measured on the real application (`uxzView.exe --portable
   same file with a real EXIF APP1 decodes 4000x6000 on both. The `hasExif` gate is
   behaviour-preserving. `accepts()` additionally refuses a zero frame size (DNL)
   and leaves that file to Qt.
+
+Second review pass - joining has three non-obvious failure modes, all now handled:
+
+- **A joined read must still publish the stage preview.** Skipping `beforeDecode`
+  because "somebody is already decoding" leaves a RAW file's window empty for the
+  whole develop (seconds). The joiner now calls `beforeDecode()` before it waits
+  (outside `cacheMutex`, never while holding it) and skips the second call
+  afterwards. Test: `aJoinedReadStillPublishesTheStagePreview`.
+- **No filesystem or settings I/O on the startup path.** `prewarmImage()` used to
+  call `QFileInfo::isFile()` and build a `QSettings` on the GUI thread before the
+  window existed; a stalled network share would freeze startup before anything was
+  painted. Both moved into the worker (the registry repeats its own `isFile()`
+  check there).
+- **Exit path.** `finishPrewarm()` sets the cancel token, drops queued speculation
+  and then joins, and `main()` holds it in a scope guard so a failing window
+  constructor cannot leave a decode writing into destroyed caches. A decode that is
+  already past its cancel boundary still has to finish - identical to closing the
+  window during a normal open, which joins its worker too.
+
+Known residual, deliberate: a foreground open that joins a *prefetch* decode waits
+behind a `QThread::LowPriority` thread (no priority boost like `decodePreviewPixels`
+does, because boosting needs a raw `QThread*` that can dangle); and `prepareDisplay`
+(sharpen/colour) has no join of its own, so a join that lands before the prefetch
+stored its presentation can compute it twice. Neither is measured yet; do not
+"fix" them by weakening the cancellation rules.
+
 - First paint after an install costs 272 ms once and 6-25 ms for every later image
   (same bench): that is surface/backing-store warm-up plus the heavy-fit raster
   built by the existing first-paint path, not a per-image cost. Do not "optimise"

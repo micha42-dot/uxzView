@@ -17,6 +17,8 @@
 #include "core/localization.h"
 #include "core/metadata.h"
 #include <QPaintEvent>
+#include <QScopeGuard>
+#include <QSemaphore>
 #include <QtConcurrent>
 #include "core/plugin_store.h"
 #include "core/preview_service.h"
@@ -622,11 +624,13 @@ class IxTests : public QObject {
         QVERIFY(image.save(path));
         ix::ImageLoadCache::clear();
         QVERIFY(!ix::ImageLoadCache::hasDocument(path));
+        // finishPrewarm() is the exit path: it cancels and joins, so the decode
+        // itself has to be observed while it runs in the background.
+        const auto join = qScopeGuard([] { ix::finishPrewarm(); });
         ix::prewarmImage(path);
-        ix::finishPrewarm();
+        QTRY_VERIFY_WITH_TIMEOUT(ix::ImageLoadCache::hasDocument(path), 15000);
         // The open that follows installs the decoded original instead of
         // reading and decoding the file a second time.
-        QVERIFY(ix::ImageLoadCache::hasDocument(path));
         QCOMPARE(ix::ImageLoadCache::read(ix::CodecRegistry(), path).document.pixels.pixelColor(0, 0),
                  QColor(Qt::red));
     }
@@ -653,6 +657,60 @@ class IxTests : public QObject {
         // Both readers hold the same decoded buffer: the second read joined the
         // running decode instead of decoding the same bytes a second time.
         QCOMPARE(shared, foreground);
+    }
+    void aJoinedReadStillPublishesTheStagePreview() {
+        ix::ImageLoadCache::configure(128, 16, true);
+        const auto folder = dir(QStringLiteral("read-join-preview"));
+        QVERIFY(QDir().mkpath(folder));
+        const auto path = QDir(folder).filePath(QStringLiteral("paused.bmp"));
+        QImage seed(16, 16, QImage::Format_RGB32);
+        seed.fill(Qt::blue);
+        QVERIFY(seed.save(path, "BMP")); // the registry only reads existing files
+        class PausedCodec final : public ix::ImageCodec {
+          public:
+            mutable QSemaphore started, resume;
+            mutable std::atomic_int reads{0};
+            bool accepts(const QString &) const override { return true; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+            ix::ImageResult read(const QString &file, int) const override {
+                ++reads;
+                ix::ImageDocument document;
+                document.path = file;
+                document.format = "bmp";
+                document.pixels = QImage(16, 16, QImage::Format_RGB32);
+                document.pixels.fill(Qt::red);
+                started.release();
+                resume.acquire();
+                return {document, {}};
+            }
+        };
+        auto codec = std::make_shared<PausedCodec>();
+        ix::CodecRegistry registry;
+        registry.add(codec);
+        ix::ImageLoadCache::clear();
+        auto owner = QtConcurrent::run([registry, path] { return ix::ImageLoadCache::read(registry, path); });
+        std::atomic_bool resumed{false};
+        const auto resume = [&] {
+            if (!resumed.exchange(true))
+                codec->resume.release();
+        };
+        const auto release = qScopeGuard([&] {
+            resume();
+            owner.waitForFinished();
+        });
+        QVERIFY(codec->started.tryAcquire(1, 5000));
+        std::atomic_int previews{0};
+        auto joined = QtConcurrent::run([&] {
+            return ix::ImageLoadCache::read(registry, path, 0, [&] { ++previews; });
+        });
+        // The preview a RAW-style loader publishes is shown while the owning
+        // decode still runs; joining must not skip it.
+        QTRY_COMPARE_WITH_TIMEOUT(previews.load(), 1, 5000);
+        resume();
+        joined.waitForFinished();
+        QVERIFY(joined.isFinished());
+        QCOMPARE(codec->reads.load(), 1); // the joined read never decoded again
+        QCOMPARE(joined.result().document.pixels.pixelColor(0, 0), QColor(Qt::red));
     }
     void optionalWidgetsAndNeighborNavigation() {
         QSettings().setValue(QStringLiteral("view/previewStrip"), false);

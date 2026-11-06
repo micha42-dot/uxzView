@@ -44,7 +44,9 @@
   decoding it again (which also covers a prefetch racing a real open). The first
   open of a 24 MP JPEG installs 98 to 137 ms earlier (422-456 ms to 319-324 ms,
   interleaved A/B on one binary) with exactly one decode instead of two. Clearing
-  the cache still drops the join, so it never restores content the user discarded.
+  the cache still drops the join, so it never restores content the user discarded,
+  and a joined read still publishes the stage preview, so a RAW file keeps showing
+  its embedded preview while the full decode runs.
 
 - Build the reusable display raster during the first paint of a heavy fit, so the
   follow-up repaint after a new fit or zoom reuses it instead of repeating the

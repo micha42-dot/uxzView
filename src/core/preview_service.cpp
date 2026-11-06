@@ -394,36 +394,45 @@ std::optional<ImageResult> ImageLoadCache::read(const CodecRegistry &registry, c
     quint64 epoch = 0;
     bool cacheEnabled = false;
     std::shared_ptr<ActiveRead> active;
+    std::shared_ptr<ActiveRead> running;
     {
         QMutexLocker lock(&cacheMutex);
         epoch = cacheEpoch;
         cacheEnabled = documentBudget > 0;
         if (auto *d = documents.object(key))
             return ImageResult{*d, {}};
-        auto running = activeReads.value(key);
+        running = activeReads.value(key);
         if (running && running->generation != contentGeneration)
             running.reset(); // content was dropped: decode fresh, never reuse
-        if (running && running->owner == std::this_thread::get_id()) {
+        if (running && running->owner == std::this_thread::get_id())
             running.reset(); // reentrant decoding must never wait on itself
-        } else if (running) {
-            // Speculative work (startup prewarm, neighbour prefetch) is already
-            // decoding this revision: join it and share the decoded pixels.
-            while (!running->finished && !(cancel && cancel->load()))
-                running->ready.wait(&cacheMutex, 20);
-            if (cancel && cancel->load()) return {};
-            if (running->document) {
-                auto joined = *running->document; // shared pixels, no second copy
-                lock.unlock();
-                return ImageResult{std::move(joined), {}};
-            }
-            // The owner failed; decode here so this reader keeps its own
-            // diagnostics instead of inheriting another thread's error.
-        } else {
+        if (!running) {
             active = std::make_shared<ActiveRead>();
             active->owner = std::this_thread::get_id();
             active->generation = contentGeneration;
             activeReads.insert(key, active);
         }
+    }
+    bool previewPublished = false;
+    if (running) {
+        // A joined reader still publishes the stage pixels it can get (the RAW
+        // preview) before it waits. The owning decode may run for seconds, and
+        // joining without that preview would leave the window empty until then.
+        if (beforeDecode) {
+            beforeDecode();
+            previewPublished = true;
+        }
+        if (cancel && cancel->load()) return {};
+        QMutexLocker lock(&cacheMutex);
+        while (!running->finished && !(cancel && cancel->load()))
+            running->ready.wait(&cacheMutex, 20);
+        if (cancel && cancel->load()) return {};
+        if (running->document) {
+            auto joined = *running->document; // shared pixels, no second copy
+            return ImageResult{std::move(joined), {}};
+        }
+        // The owner failed; decode here so this reader keeps its own diagnostics
+        // instead of inheriting another thread's error.
     }
     const auto finishRead = qScopeGuard([&] {
         if (!active) return;
@@ -432,7 +441,7 @@ std::optional<ImageResult> ImageLoadCache::read(const CodecRegistry &registry, c
         if (activeReads.value(key) == active) activeReads.remove(key);
         active->ready.wakeAll();
     });
-    if (beforeDecode)
+    if (beforeDecode && !previewPublished)
         beforeDecode();
     if (cancel && cancel->load()) return {};
     auto result = registry.read(path, page);

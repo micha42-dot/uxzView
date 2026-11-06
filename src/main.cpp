@@ -27,6 +27,7 @@
 #include <QPointer>
 #include <QSettings>
 #include <QMessageBox>
+#include <QScopeGuard>
 #include <QStyleFactory>
 #include <QTextStream>
 #include <exception>
@@ -188,6 +189,9 @@ int main(int argc, char **argv) {
     // and decoding the same file a second time.
     if (!parser.positionalArguments().isEmpty())
         ix::prewarmImage(QFileInfo(parser.positionalArguments().first()).absoluteFilePath());
+    // Joined on every exit path below, including a failing window constructor: a
+    // speculative decode must not outlive the caches and plugins it writes into.
+    const auto joinPrewarm = qScopeGuard([] { ix::finishPrewarm(); });
     auto language = parser.isSet(QStringLiteral("language"))
                         ? parser.value(QStringLiteral("language"))
                         : QSettings().value(QStringLiteral("ui/language"), QStringLiteral("de")).toString();
@@ -214,7 +218,5 @@ int main(int argc, char **argv) {
     if (!parser.positionalArguments().isEmpty())
         window.openPath(parser.positionalArguments().first());
     startupStage("open-request");
-    const int status = app.exec();
-    ix::finishPrewarm();
-    return status;
+    return app.exec();
 }
