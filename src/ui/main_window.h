@@ -14,6 +14,7 @@
 #include <QFutureWatcher>
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QThreadPool>
 #include <QTimer>
 #include <functional>
 #include <optional>
@@ -93,6 +94,13 @@ class MainWindow : public QMainWindow {
     QRect lastSelection_;
     bool invertedSelection_ = false;
     QFutureWatcher<WorkResult> worker_;
+    // Speculative decode of the neighbour in the navigation direction. One
+    // low-priority worker; results land in the bounded ImageLoadCache and are
+    // only installed when the user actually navigates there.
+    QThreadPool prefetchPool_;
+    std::shared_ptr<std::atomic_bool> prefetchCancel_;
+    int prefetchStep_ = 1;
+    void schedulePrefetch();
     enum class WorkMode { Load, Edit, Page, Display, Selection, Undo, Redo };
     WorkMode workMode_ = WorkMode::Load;
     DocumentActivity activity_;

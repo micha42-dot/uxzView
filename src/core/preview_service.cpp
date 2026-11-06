@@ -466,6 +466,12 @@ ImageLoadCache::Usage ImageLoadCache::usage() {
     return {documents.totalCost(), presentations.totalCost(), decodedCost, previews.totalCost(), cacheBudget()};
 }
 qint64 ImageLoadCache::retainedBytes() { return retainedCacheBytes.load(); }
+bool ImageLoadCache::hasDocument(const QString &path, int page) {
+    const auto absolute = QFileInfo(path).absoluteFilePath();
+    const auto revision = imageFileKey(path);
+    QMutexLocker lock(&cacheMutex);
+    return documents.contains({absolute, revision + QLatin1Char('/') + QString::number(page)});
+}
 void ImageLoadCache::configure(int imageMiB, int previewMiB, bool rawPreviews) {
     QMutexLocker lock(&cacheMutex);
     ++cacheEpoch;

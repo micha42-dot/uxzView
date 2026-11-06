@@ -18,6 +18,9 @@ namespace {
 // A complete in-memory decode needs the whole stream; larger files stay with
 // Qt's streaming/mapped path (mirrored in accepts()).
 constexpr qint64 kMaxDecodeBytes = 256LL * 1024 * 1024;
+// Metadata can push the frame header out, but 256 KiB covers every realistic
+// JPEG; the common case only needs the first 64 KiB.
+constexpr qint64 kHeaderPrefixBytes = 256 * 1024;
 // JPEG header walking: marker segments before the entropy-coded scan carry the
 // JFIF density, ICC profile and component count. Walking segments (instead of
 // scanning a fixed byte window) keeps detection correct even when a large EXIF
@@ -25,7 +28,9 @@ constexpr qint64 kMaxDecodeBytes = 256LL * 1024 * 1024;
 struct JpegHeader {
     bool parsed = false; // reached the scan with a valid SOF
     bool hasIcc = false;
+    bool hasExif = false; // APP1 "Exif" — the only source of a non-trivial orientation
     int components = 0;  // 3 = color; 1 = grayscale; 4 = CMYK/YCCK
+    int width = 0, height = 0;                        // SOF frame size
     int densityUnits = 0, densityX = 0, densityY = 0; // JFIF APP0
 };
 JpegHeader inspectJpegHeader(const char *data, qsizetype len) {
@@ -59,7 +64,13 @@ JpegHeader inspectJpegHeader(const char *data, qsizetype len) {
         } else if (marker == 0xE2 && length >= 16 &&
                    std::memcmp(data + payload, "ICC_PROFILE\0", 12) == 0) {
             out.hasIcc = true;
+        } else if (marker == 0xE1 && length >= 16 &&
+                   std::memcmp(data + payload, "Exif\0\0", 6) == 0) {
+            // Only an Exif APP1 can carry an orientation QImageReader would apply.
+            out.hasExif = true;
         } else if ((marker == 0xC0 || marker == 0xC1 || marker == 0xC2) && length >= 8) {
+            out.height = (quint8(data[payload + 1]) << 8) | quint8(data[payload + 2]);
+            out.width = (quint8(data[payload + 3]) << 8) | quint8(data[payload + 4]);
             out.components = quint8(data[payload + 5]);
             out.parsed = true;
         }
@@ -107,36 +118,43 @@ bool TurboJpegCodec::accepts(const QString &path) const {
         return false;
     // Large JPEGs and forced spills need Qt's mapped-buffer decode path.
     // Let QtCodec handle them; the turbo path serves the common case.
-    QImageReader reader(path);
-    if (!reader.canRead())
-        return false;
-    // Rotated images must go through Qt's auto-transform path.
-    if (reader.transformation() != QImageIOHandler::TransformationNone)
-        return false;
-    const auto size = reader.size();
-    if (!size.isValid())
-        return false; // unusual headers stay with Qt
-    // JPEG always decodes to 8-bit RGB (no alpha); assume the widest output
-    // (4 bytes per pixel) so the memory and spill decisions match QtCodec.
-    constexpr qint64 bytesPerPixel = 4;
-    if (!safeSize(size, int(bytesPerPixel)))
-        return false;
-    const auto o = imageStorageOptions();
-    if (o.spillThresholdBytes > 0 &&
-        qint64(size.width()) * size.height() * bytesPerPixel > o.spillThresholdBytes)
-        return false;
-    // Walk the segment header: ICC profiles and non-RGB component layouts
-    // (grayscale, CMYK/YCCK) must keep Qt's pixel format and colour handling.
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return false;
     // read() needs the complete stream in memory; larger files belong to Qt.
     if (file.size() > kMaxDecodeBytes)
         return false;
-    constexpr qint64 kHeaderBytes = 256 * 1024;
-    const auto head = file.read(std::min<qint64>(kHeaderBytes, file.size()));
-    const auto header = inspectJpegHeader(head.constData(), head.size());
-    return header.parsed && !header.hasIcc && header.components == 3;
+    // Typical headers sit well below 64 KiB; extend only when metadata pushes
+    // the frame header further out.
+    const auto walk = [&](qint64 limit) {
+        if (!file.seek(0))
+            return JpegHeader{};
+        const auto head = file.read(std::min<qint64>(limit, file.size()));
+        return inspectJpegHeader(head.constData(), head.size());
+    };
+    auto header = walk(kHeaderPrefixBytes / 4);
+    if (!header.parsed)
+        header = walk(kHeaderPrefixBytes);
+    // ICC profiles and non-RGB component layouts (grayscale, CMYK/YCCK) must
+    // keep Qt's pixel format and colour handling.
+    if (!header.parsed || header.hasIcc || header.components != 3)
+        return false;
+    // JPEG always decodes to 8-bit RGB (no alpha); the guard accounts the same
+    // four bytes per pixel the document buffer will occupy.
+    constexpr int bytesPerPixel = 4;
+    if (!safeSize({header.width, header.height}, bytesPerPixel))
+        return false;
+    // Only an Exif APP1 can carry a rotation, so Qt is consulted just then.
+    if (header.hasExif) {
+        QImageReader reader(path);
+        if (!reader.canRead() || reader.transformation() != QImageIOHandler::TransformationNone)
+            return false;
+    }
+    const auto o = imageStorageOptions();
+    if (o.spillThresholdBytes > 0 &&
+        qint64(header.width) * header.height * bytesPerPixel > o.spillThresholdBytes)
+        return false;
+    return true;
 }
 
 ImageResult TurboJpegCodec::read(const QString &path, int page) const {
@@ -154,15 +172,18 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
         return {{}, file.errorString()};
     // Use Qt for every JPEG that carries a non-trivial EXIF orientation, an
     // embedded ICC profile or a non-RGB component layout (also re-checked here
-    // in case the file changed after accepts()).
+    // in case the file changed after accepts()). Only an Exif APP1 can carry an
+    // orientation, so plain files skip the Qt header parse entirely.
     QBuffer io(&buffer);
     io.open(QIODevice::ReadOnly);
-    QImageReader reader(&io, QByteArrayLiteral("jpeg"));
-    if (!reader.canRead())
-        return {{}, reader.errorString()};
     const auto header = inspectJpegHeader(buffer.constData(), buffer.size());
-    if (reader.transformation() != QImageIOHandler::TransformationNone ||
-        header.hasIcc || (header.parsed && header.components != 3))
+    bool useQt = header.hasIcc || (header.parsed && header.components != 3);
+    if (!useQt && header.hasExif) {
+        QImageReader reader(&io, QByteArrayLiteral("jpeg"));
+        useQt = !reader.canRead() ||
+                reader.transformation() != QImageIOHandler::TransformationNone;
+    }
+    if (useQt)
         return qtJpegFallback(&io, buffer, path, fileBytes);
     // Direct turbo decode — fast path for unrotated sRGB JPEGs.
     tjhandle handle = tjInitDecompress();
@@ -235,7 +256,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     result.document.animated = false;
     result.document.delayMs = 100;
     result.document.loopCount = 0;
-    finishDocument(result.document, path, buffer.left(256 * 1024), fileBytes);
+    finishDocument(result.document, path, buffer.left(kHeaderPrefixBytes), fileBytes);
     return result;
 }
 
@@ -261,7 +282,7 @@ ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QByteArray &buffer
     result.document.animated = reader.supportsAnimation() && result.document.pageCount != 1;
     result.document.delayMs = std::max(20, reader.nextImageDelay());
     result.document.loopCount = reader.loopCount();
-    finishDocument(result.document, path, buffer.left(256 * 1024), fileBytes);
+    finishDocument(result.document, path, buffer.left(kHeaderPrefixBytes), fileBytes);
     return result;
 }
 } // namespace ix

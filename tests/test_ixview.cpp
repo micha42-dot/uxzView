@@ -589,6 +589,26 @@ class IxTests : public QObject {
         QVERIFY(!ix::isRawFormat("png"));
         QVERIFY(!ix::isRawFormat("jpeg"));
     }
+    void prefetchesTheNeighbourInNavigationDirection() {
+        const auto folder = dir(QStringLiteral("prefetch"));
+        QVERIFY(QDir().mkpath(folder));
+        const auto first = QDir(folder).filePath(QStringLiteral("a.png"));
+        const auto second = QDir(folder).filePath(QStringLiteral("b.png"));
+        QImage image(240, 180, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QVERIFY(image.save(first));
+        image.fill(Qt::green);
+        QVERIFY(image.save(second));
+        ix::MainWindow window;
+        window.openPath(first);
+        QTRY_COMPARE_WITH_TIMEOUT(window.document().path, first, 30000);
+        // Speculation only fills the bounded cache; it never replaces the view.
+        QTRY_VERIFY_WITH_TIMEOUT(ix::ImageLoadCache::hasDocument(second), 20000);
+        QCOMPARE(window.document().path, first);
+        window.dispatch(QStringLiteral("next"));
+        QTRY_COMPARE_WITH_TIMEOUT(window.document().path, second, 30000);
+        QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::green));
+    }
     void optionalWidgetsAndNeighborNavigation() {
         QSettings().setValue(QStringLiteral("view/previewStrip"), false);
         QSettings().setValue(QStringLiteral("view/actionSearch"), false);

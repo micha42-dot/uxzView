@@ -226,6 +226,8 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
                     navigate(std::exchange(pendingNavigation_, 0));
             });
         }
+        // Warm the neighbour while the user studies the current image.
+        schedulePrefetch();
     });
     connect(&slideshow_.timer(), &QTimer::timeout, this, &MainWindow::advanceSlideshow);
     animationTimer_.setParent(this);
@@ -279,6 +281,8 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
             int step = std::exchange(pendingNavigation_, 0);
             navigate(step);
         }
+        // The listing is now known: speculation can start for the first time.
+        schedulePrefetch();
     });
     deferredOpenTimer_.setSingleShot(true);
     deferredOpenTimer_.setInterval(50);
@@ -286,6 +290,11 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     busyHintTimer_.setSingleShot(true);
     busyHintTimer_.setInterval(2000);
     connect(&busyHintTimer_, &QTimer::timeout, this, [this] { syncBusyHint(); });
+    // Speculation runs on its own single low-priority thread so it can never
+    // compete with the image the user is waiting for.
+    prefetchPool_.setMaxThreadCount(1);
+    prefetchPool_.setExpiryTimeout(10000);
+    prefetchPool_.setThreadPriority(QThread::LowPriority);
     // Animation frames and thumbnail transitions finish within one or two frames.
     // Deferring the first appearance keeps the message area from blinking at
     // playback rate while long transactions still announce themselves.
@@ -311,6 +320,10 @@ MainWindow::~MainWindow() {
     disconnect(&worker_, nullptr, this, nullptr);
     if (loadCancelled_) loadCancelled_->store(true);
     worker_.waitForFinished();
+    // Speculative decodes only touch the shared cache, but they must not keep
+    // running while the cache and the registry are destroyed.
+    if (prefetchCancel_) prefetchCancel_->store(true);
+    prefetchPool_.waitForDone();
 }
 void MainWindow::deliverDeferredOpen() {
     if (!deferredOpen_) return;
@@ -1088,9 +1101,49 @@ void MainWindow::navigate(int direction) {
     if (files_.isEmpty())
         return;
     direction = std::clamp(direction + std::exchange(pendingNavigation_, 0), -10000, 10000);
+    if (direction != 0)
+        prefetchStep_ = direction > 0 ? 1 : -1;
     auto traversal = FolderTraversal::start(files_, fileIndex_, direction,
         QSettings().value(QStringLiteral("navigation/wrap"), true).toBool(), document_.path);
     if (traversal) openRequested({traversal->path(), 0, true, std::move(traversal)});
+}
+// Speculatively decode the neighbour in the navigation direction. It runs the
+// same pipeline as a real open, so the result lands in the bounded original and
+// presentation caches under the existing budgets; the GUI never sees it until
+// the user navigates there.
+void MainWindow::schedulePrefetch() {
+    if (activity_.busy() || deferredOpen_ || QApplication::activeModalWidget())
+        return;
+    if (files_.isEmpty() || fileIndex_ < 0 || document_.path.isEmpty())
+        return;
+    if (document_.modified || document_.animated)
+        return;
+    // A very large current document would let the neighbour evict what the user
+    // is looking at, so speculation stays off in that case.
+    if (document_.pixels.sizeInBytes() > 64LL * 1024 * 1024)
+        return;
+    const int next = fileIndex_ + (prefetchStep_ >= 0 ? 1 : -1);
+    if (next < 0 || next >= files_.size())
+        return; // never speculate across the ends of the listing
+    const auto path = files_.at(next);
+    if (path.isEmpty() || path == document_.path || ImageLoadCache::hasDocument(path))
+        return;
+    // A newer navigation supersedes the running speculation.
+    if (prefetchCancel_)
+        prefetchCancel_->store(true);
+    auto token = prefetchCancel_ = std::make_shared<std::atomic_bool>(false);
+    auto registry = registry_;
+    const QSettings settings;
+    // Same request the real open will issue, so the speculative entry also
+    // carries the display image the user's colour/sharpen settings ask for.
+    const ImageLoadRequest request{path, 0, settings.value(QStringLiteral("color/manage"), true).toBool(),
+                                   displaySharpen_, false};
+    prefetchPool_.start([registry, request, token] {
+        if (token->load())
+            return;
+        // Results stay in the bounded caches; the GUI installs them on navigation.
+        loadImage(registry, request, {}, token.get());
+    });
 }
 void MainWindow::page(int direction) {
     if (activity_.busy()) {

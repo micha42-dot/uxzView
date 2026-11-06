@@ -1018,6 +1018,195 @@ QJsonObject profileCachedNavigation() {
         {QStringLiteral("srgb_only"),srgbOnly},
         {QStringLiteral("note"),QStringLiteral("Shown 1200x800 Windows window, already running; 1GiB image budget, 192MiB original/presentation cache, 16MiB thumbnails, previews hidden. Alternating two real files: sRGB 2.4MP JPEG control, P3 2.4MP JPEG, P3 6MP RGBA64 PNG; srgb_only selects just the control. First two opens reported separately; 20 warm switches per case. Paint observed through Qt events, not compositor. Fixture generation and SHA256 validation excluded; OS cache not flushed.")}};
 }
+// Reports the first paint and the first paint after the document installs, so a
+// staged viewport decode is visible as the gap between the two numbers.
+class StagedPaint final : public QObject {
+  public:
+    std::function<void()> first;
+    std::function<void()> afterInstall;
+    bool armed = false, installed = false, firstSeen = false, installSeen = false;
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() != QEvent::Paint || !armed)
+            return false;
+        if (!firstSeen) {
+            firstSeen = true;
+            QTimer::singleShot(0, this, [this] { if (first) first(); });
+            return false;
+        }
+        if (installed && !installSeen) {
+            installSeen = true;
+            QTimer::singleShot(0, this, [this] { if (afterInstall) afterInstall(); });
+        }
+        return false;
+    }
+};
+QJsonObject profileFirstPreview(const QString &path) {
+    QTemporaryDir profile(QDir::current().filePath(QStringLiteral("build/first-preview-XXXXXX")));
+    if (!profile.isValid() || !QFileInfo(path).isFile())
+        return {{QStringLiteral("error"), QStringLiteral("Missing image or temporary profile")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, profile.path());
+    qApp->setProperty("ixStorageData", profile.path());
+    ix::MainWindow window;
+    window.resize(1200, 800);
+    window.setAttribute(Qt::WA_ShowWithoutActivating);
+    window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+    window.show();
+    QTest::qWait(200);
+    auto *view = window.findChild<ix::ImageView *>();
+    if (!view)
+        return {{QStringLiteral("error"), QStringLiteral("Missing image view")}};
+    StagedPaint observer;
+    view->viewport()->installEventFilter(&observer);
+    QJsonArray samples;
+    for (int pass = 0; pass < 3; ++pass) {
+        view->setImage(QImage());
+        QTest::qWait(20);
+        ix::ImageLoadCache::clear();
+        QEventLoop loop;
+        QTimer deadline;
+        QElapsedTimer elapsed;
+        double firstPaint = -1, installed = -1, installedPaint = -1;
+        observer.armed = true;
+        observer.installed = false;
+        observer.firstSeen = false;
+        observer.installSeen = false;
+        auto ready = QObject::connect(view, &ix::ImageView::selectionChanged, &loop, [&] {
+            if (installed < 0 && window.document().path == path && !window.document().empty()) {
+                installed = elapsed.nsecsElapsed() / 1e6;
+                observer.installed = true;
+            }
+        });
+        observer.first = [&] { if (firstPaint < 0) firstPaint = elapsed.nsecsElapsed() / 1e6; };
+        observer.afterInstall = [&] {
+            if (installedPaint < 0) installedPaint = elapsed.nsecsElapsed() / 1e6;
+            loop.quit();
+        };
+        deadline.setSingleShot(true);
+        QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
+        elapsed.start();
+        deadline.start(30000);
+        window.openPath(path);
+        loop.exec();
+        QObject::disconnect(ready);
+        observer.armed = false;
+        observer.first = {};
+        observer.afterInstall = {};
+        if (installedPaint < 0)
+            return {{QStringLiteral("error"), QStringLiteral("No paint after the document installed")}};
+        samples.append(QJsonObject{{QStringLiteral("first_paint_ms"), firstPaint},
+            {QStringLiteral("document_install_ms"), installed},
+            {QStringLiteral("document_paint_ms"), installedPaint}});
+        QTest::qWait(50);
+    }
+    return {{QStringLiteral("samples"), samples},
+        {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"), QStringLiteral("first_paint_ms may be the staged viewport decode; document_paint_ms is the first paint after the full document installed. Caches cleared per pass, OS file cache not flushed.")}};
+}
+QJsonObject profilePrefetch() {
+    QTemporaryDir folder(QDir::current().filePath(QStringLiteral("build/prefetch-profile-XXXXXX")));
+    QTemporaryDir profile(QDir::current().filePath(QStringLiteral("build/prefetch-settings-XXXXXX")));
+    if (!folder.isValid() || !profile.isValid())
+        return {{QStringLiteral("error"), QStringLiteral("Missing temporary profile")}};
+    QImage a(4000, 3000, QImage::Format_RGB32), b(4000, 3000, QImage::Format_RGB32);
+    for (int y = 0; y < 3000; ++y) {
+        auto *pa = reinterpret_cast<QRgb *>(a.scanLine(y));
+        auto *pb = reinterpret_cast<QRgb *>(b.scanLine(y));
+        for (int x = 0; x < 4000; ++x) {
+            pa[x] = qRgb((x * 3 + y) % 256, (x + y * 5) % 256, (x * 2 + y) % 256);
+            pb[x] = qRgb((x + y * 2) % 256, (x * 4 + y) % 256, (x + y * 3) % 256);
+        }
+    }
+    const auto aPath = folder.filePath(QStringLiteral("a.jpg"));
+    const auto bPath = folder.filePath(QStringLiteral("b.jpg"));
+    if (!a.save(aPath, "jpeg", 92) || !b.save(bPath, "jpeg", 92))
+        return {{QStringLiteral("error"), QStringLiteral("Fixture write failed")}};
+    a = {};
+    b = {};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, profile.path());
+    qApp->setProperty("ixStorageData", profile.path());
+    QSettings().setValue(QStringLiteral("view/previewStrip"), false);
+    QSettings().setValue(QStringLiteral("navigation/askToSave"), false);
+    const auto measure = [](ix::MainWindow &window, ix::ImageView *view, const QString &path) {
+        double installed = -1, painted = -1;
+        QEventLoop loop;
+        QTimer deadline;
+        QElapsedTimer elapsed;
+        FirstImagePaint observer;
+        view->viewport()->installEventFilter(&observer);
+        auto ready = QObject::connect(view, &ix::ImageView::selectionChanged, &loop, [&] {
+            if (installed < 0 && window.document().path == path && !window.document().empty()) {
+                installed = elapsed.nsecsElapsed() / 1e6;
+                observer.pending = true;
+            }
+        });
+        observer.completed = [&] {
+            painted = elapsed.nsecsElapsed() / 1e6;
+            loop.quit();
+        };
+        deadline.setSingleShot(true);
+        QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
+        elapsed.start();
+        deadline.start(30000);
+        window.openPath(path);
+        loop.exec();
+        QObject::disconnect(ready);
+        observer.completed = {};
+        view->viewport()->removeEventFilter(&observer);
+        return std::pair{installed, painted};
+    };
+    double prefetchReadyMs = -1, prefetchedInstall = -1, prefetchedPaint = -1;
+    bool prefetched = false;
+    {
+        ix::MainWindow window;
+        window.resize(1200, 800);
+        window.setAttribute(Qt::WA_ShowWithoutActivating);
+        window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+        window.show();
+        QTest::qWait(200);
+        auto *view = window.findChild<ix::ImageView *>();
+        if (!view)
+            return {{QStringLiteral("error"), QStringLiteral("Missing image view")}};
+        measure(window, view, aPath);
+        QTest::qWait(100); // let the listing arrive so speculation can start
+        QElapsedTimer wait;
+        wait.start();
+        while (wait.elapsed() < 20000 && !ix::ImageLoadCache::hasDocument(bPath))
+            QTest::qWait(10);
+        prefetched = ix::ImageLoadCache::hasDocument(bPath);
+        prefetchReadyMs = double(wait.elapsed());
+        const auto warm = measure(window, view, bPath);
+        prefetchedInstall = warm.first;
+        prefetchedPaint = warm.second;
+    }
+    // A fresh window has no speculation running, so this open is genuinely cold.
+    ix::ImageLoadCache::clear();
+    double coldInstall = -1, coldPaint = -1;
+    {
+        ix::MainWindow window;
+        window.resize(1200, 800);
+        window.setAttribute(Qt::WA_ShowWithoutActivating);
+        window.setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+        window.show();
+        QTest::qWait(200);
+        auto *view = window.findChild<ix::ImageView *>();
+        if (!view)
+            return {{QStringLiteral("error"), QStringLiteral("Missing image view")}};
+        const auto cold = measure(window, view, bPath);
+        coldInstall = cold.first;
+        coldPaint = cold.second;
+    }
+    const auto pair = [](double install, double paint) {
+        return QJsonObject{{QStringLiteral("install_ms"), install}, {QStringLiteral("paint_ms"), paint}};
+    };
+    return {{QStringLiteral("prefetch_ready_ms"), prefetchReadyMs},
+        {QStringLiteral("prefetched"), prefetched},
+        {QStringLiteral("prefetched_open"), pair(prefetchedInstall, prefetchedPaint)},
+        {QStringLiteral("cold_open"), pair(coldInstall, coldPaint)},
+        {QStringLiteral("qt"), QString::fromLatin1(qVersion())},
+        {QStringLiteral("note"), QStringLiteral("Two generated 12 MP JPEGs in one folder. The prefetched open is served from the speculative cache entry; the cold open runs in a fresh window with the cache cleared, so no speculation can complete first.")}};
+}
 QJsonObject profileFirstOpen(const QString &path) {
     qInfo("ix-first-open profile-start");
     QTemporaryDir profile(QDir::current().filePath(QStringLiteral("build/first-open-XXXXXX")));
@@ -1605,6 +1794,21 @@ int main(int argc, char **argv) {
     }
     if (app.arguments().contains(QStringLiteral("--profile-preview-reuse"))) {
         const auto report = profilePreviewReuse();
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-first-preview"))) {
+        const auto input = QFileInfo(app.arguments().value(3)).absoluteFilePath();
+        const auto report = profileFirstPreview(input);
+        QFile out(app.arguments().value(1));
+        if (!out.open(QIODevice::WriteOnly)) return 4;
+        out.write(QJsonDocument(report).toJson());
+        return report.contains(QStringLiteral("error")) ? 5 : 0;
+    }
+    if (app.arguments().contains(QStringLiteral("--profile-prefetch"))) {
+        const auto report = profilePrefetch();
         QFile out(app.arguments().value(1));
         if (!out.open(QIODevice::WriteOnly)) return 4;
         out.write(QJsonDocument(report).toJson());

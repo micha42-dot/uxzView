@@ -67,6 +67,34 @@ with a real JPEG segment walker (ICC detection is no longer limited to the first
 64 KiB, and APP0 density is found regardless of position), and the storage pool is
 a deliberately leaked heap pool to avoid static-teardown ordering.
 
+Performance follow-up in the next session (all numbers measured, see
+`--profile-prefetch` / `--profile-first-preview` / `scripts/measure_first_open.py`):
+
+- **Neighbour prefetch** — `MainWindow::schedulePrefetch()` runs after every
+  successful install and after the directory listing arrives. It decodes the next
+  file in the last navigation direction through the *same* `loadImage()` pipeline
+  (so the speculative display image matches the user's colour/sharpen settings),
+  on a dedicated single-thread `QThreadPool` at `QThread::LowPriority`, and admits
+  the result to the bounded `ImageLoadCache`. `ImageLoadCache::hasDocument()`
+  prevents duplicate work, `prefetchCancel_` supersedes stale speculation, and the
+  worker captures no `MainWindow`. Two generated 12 MP JPEGs: cold install
+  215.2 ms / paint 227.1 ms versus prefetched install 1.36 ms / paint 31.5 ms; the
+  speculation itself finished 206 ms after the first image appeared.
+- **JPEG acceptance without Qt** — `inspectJpegHeader()` now records `hasExif`,
+  `width` and `height` from the SOF, so `accepts()` builds a `QImageReader` only
+  when an Exif APP1 can actually carry an orientation, and `read()` skips it
+  entirely for plain files. The acceptance read is 64 KiB and extends to 256 KiB
+  only when the frame header sits further out. Linked-probe measurement on the
+  23 MB fixture: 0.646 ms → 0.341 ms per `accepts()`, identical decisions.
+- **Rejected with measurement: staged JPEG preview.** `TurboJpegCodec::readScaled()`
+  (libjpeg-turbo `tj3SetScalingFactor`) was implemented, tested and benchmarked.
+  DCT scaling skips IDCT and upsampling but not entropy decoding, so a 1/4 decode
+  of the 6000×4000 fixture costs 395–576 ms against 476 ms for the full decode, and
+  it adds a second 23 MB read — net slower to the final image. The staged path was
+  removed again. `--profile-first-preview` stays as the harness that would prove a
+  future staged approach (it reports `first_paint_ms` separately from
+  `document_paint_ms`). Do not retry scaled JPEG previews without new evidence.
+
 Note on validation logs: `python-tests.log` contains a line
 "python-tests failed; see ..." produced by
 `test_first_open_diagnostics.test_failed_process_preserves_partial_report_and_checkpoint`,
@@ -106,9 +134,12 @@ is "Ran 47 tests ... OK" with returncode 0.
   `deferredOpen_` queue work deliberately.
 - Fullscreen shows no busy hint (the status bar is hidden there); only the wait
   cursor.
-- `accepts()` reads up to 256 KiB of header per JPEG, and each fast-path JPEG sees
-  three header passes (QImageReader for orientation, `inspectJpegHeader`,
-  `tjDecompressHeader3`).
+- `accepts()` reads 64 KiB of header per JPEG (256 KiB only when the frame header
+  sits further out), and each fast-path JPEG sees two header passes
+  (`inspectJpegHeader`, `tjDecompressHeader3`); `QImageReader` is consulted only
+  when an Exif APP1 exists.
+- Prefetch depth is one image in one direction. A depth-2 or bidirectional queue
+  needs its own budget measurement before it is added.
 - No timing test proves "the GUI does not block" during swap teardown; only the
   deterministic flush test exists.
 

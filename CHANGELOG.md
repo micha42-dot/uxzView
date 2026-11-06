@@ -25,6 +25,19 @@
   mirrors the Qt document contract (`fileBytes` included). `accepts()` now
   applies the same size limit as `read()`, and a decode-time refusal inside the
   turbo path retries with Qt's tolerant reader instead of failing the file.
+- Prefetch the neighbour in the navigation direction on its own low-priority
+  thread and admit it to the bounded image cache, so stepping through a folder
+  reuses a decoded original instead of decoding again (a 12 MP JPEG installs in
+  1.4 ms instead of 215 ms; new `--profile-prefetch` benchmark). Speculation stops
+  for modified or animated documents, above 64 MiB of pixels, at the ends of the
+  listing and while a transaction holds the window.
+- Accept JPEGs from their segment header first: the frame size comes from the SOF
+  marker and `QImageReader` is only consulted when an Exif APP1 can carry an
+  orientation, so a plain JPEG needs one header pass instead of three. The
+  acceptance read shrinks to 64 KiB and extends only when the header needs it;
+  measured 0.65 ms to 0.34 ms per open on a 23 MB file with identical results.
+- Add `--profile-first-preview` (first paint vs. document paint) and
+  `--profile-prefetch` (cold vs. prefetched neighbour) to the benchmark harness.
 
 - Build the reusable display raster during the first paint of a heavy fit, so the
   follow-up repaint after a new fit or zoom reuses it instead of repeating the

@@ -65,6 +65,8 @@ class ImageLoadCache {
     static Usage usage();
     // Lock-free estimate for worker admission; includes all cache kinds.
     static qint64 retainedBytes();
+    // True while a decoded original for this path and revision is retained.
+    static bool hasDocument(const QString &path, int page = 0);
     static void clear();
     // Evict only these lexical paths, across all revisions/pages and previews.
     // Retain unrelated neighbors; older in-flight reads cannot reinsert evicted entries.
