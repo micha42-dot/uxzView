@@ -1094,6 +1094,26 @@ void MainWindow::navigate(int direction) {
             showBusyHint(true);
         return;
     }
+    // A deletion leaves the view black on purpose. Resume from the slot the
+    // removed file held instead of the edge of the listing; the neighbour paths
+    // were captured before the directory changed, so this also works while the
+    // index rebuilds. Falling through means there is nothing to resume into.
+    if (!removedDocumentPath_.isEmpty() && document_.path == removedDocumentPath_ &&
+        document_.pixels.isNull()) {
+        const auto intent = std::clamp(direction + pendingNavigation_, -10000, 10000);
+        const auto resume = intent > 0 ? resumeNextPath_ : intent < 0 ? resumePreviousPath_ : QString();
+        if (!resume.isEmpty()) {
+            const auto step = intent > 0 ? 1 : -1;
+            removedDocumentPath_.clear();
+            resumeNextPath_.clear();
+            resumePreviousPath_.clear();
+            openRequested({resume, 0, true});
+            // An explicit open clears the queue, so the remaining steps of this
+            // burst are re-queued afterwards.
+            pendingNavigation_ = std::clamp(intent - step, -10000, 10000);
+            return;
+        }
+    }
     if (!indexReady_) {
         pendingNavigation_ = std::clamp(pendingNavigation_ + direction, -10000, 10000);
         return;

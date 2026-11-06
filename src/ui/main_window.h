@@ -108,6 +108,10 @@ class MainWindow : public QMainWindow {
     bool zoomEdited_ = false;
     bool smoothZoom_ = true, smoothFit_ = true;
     int pendingNavigation_ = 0;
+    // A deletion can leave the view black on purpose; these keep the removed
+    // document's path and the two neighbours so the first navigation resumes from
+    // the slot it held instead of from the edge of the listing.
+    QString removedDocumentPath_, resumeNextPath_, resumePreviousPath_;
     int loadGeneration_ = 0;
     bool rawPreviewShown_ = false;
     ImageView::Fit windowBrowsingFit_ = ImageView::Fit::LargeOnly;

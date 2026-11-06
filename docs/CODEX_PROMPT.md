@@ -96,6 +96,14 @@ and process-creation noise.
   `contentGeneration`; gating it on `cacheEpoch` breaks the startup join (the window
   reconfigures the cache while it is being constructed), gating on nothing lets a
   cleared cache be repopulated from an older in-flight decode.
+- **Removal / black state**: a document with a path but no pixels *is* the black
+  state (`image_view.cpp:204` fills pure black, `main_window.cpp:1001` sets it),
+  and `refreshState()` already disables every path command for it. The deletion
+  path reuses it when `navigation/afterDelete` is 1 (the default);
+  `removedDocumentPath_` plus `resumeNextPath_`/`resumePreviousPath_` let
+  `navigate()` resume from the removed slot, captured before the directory changed
+  so it survives an index rebuild. Do not "simplify" this back into
+  `installDocument({})`: an empty path drops the listing and the arrow keys stop.
 - **Startup prewarm**: started in `main()` *after* `PluginStore::prepareStartup()`
   (a cache hit bypasses the codec registry, so a disabled format must never be
   decoded behind the policy) and *after* the language validation (that branch calls

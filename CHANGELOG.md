@@ -36,6 +36,13 @@
   orientation, so a plain JPEG needs one header pass instead of three. The
   acceptance read shrinks to 64 KiB and extends only when the header needs it;
   measured 0.65 ms to 0.34 ms per open on a 23 MB file with identical results.
+- Deleting an image can leave the viewer black instead of opening the next file.
+  The new "After deleting" preference (Navigation) selects between that black state,
+  which is the default, and the previous behaviour. The folder stays known: the
+  first arrow key continues from the slot the deleted file held, so "next" opens
+  the image the old behaviour showed and "previous" the one before it. File
+  commands stay disabled while nothing is open, as they already do for unreadable
+  files.
 - Add `--profile-first-preview` (first paint vs. document paint) and
   `--profile-prefetch` (cold vs. prefetched neighbour) to the benchmark harness.
 - Decode the command-line image while the window is still being built: a startup

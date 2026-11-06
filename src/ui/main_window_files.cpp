@@ -7,6 +7,7 @@
 #include "worker_wait.h"
 #include "file_navigation.h"
 #include <QScopeGuard>
+#include <QSettings>
 #include <QtConcurrent>
 #include <QtWidgets>
 namespace ix {
@@ -197,6 +198,9 @@ void MainWindow::fileOperation(const QString &op) {
             QMessageBox::Yes)
             return;
         const auto next = nextPathAfterRemoval(files_, fileIndex_, source);
+        const auto previous = previousPathAfterRemoval(files_, fileIndex_, source);
+        const bool stayEmpty =
+            afterDeleteStaysEmpty(QSettings().value(QStringLiteral("navigation/afterDelete"), 1).toInt());
         QProgressDialog progress(IX_TEXT("Datei wird in den Systempapierkorb verschoben …"), {}, 0, 0,
                                  this);
         progress.setCancelButton(nullptr);
@@ -211,9 +215,22 @@ void MainWindow::fileOperation(const QString &op) {
         const auto result = watcher.future().takeResult();
         if (result.applied) {
             ImageLoadCache::invalidate({source});
-            installDocument({});
-            if (!next.isEmpty() && !deferredOpen_)
-                openPath(next, 0, false);
+            if (stayEmpty) {
+                // Show the deliberate black state instead of the following image.
+                // The document keeps its path, so the folder listing (and the
+                // status bar, which now names the removed file) survive; the first
+                // navigation resumes from the slot this file held.
+                ImageDocument removed;
+                removed.path = source;
+                removedDocumentPath_ = source;
+                resumeNextPath_ = next;
+                resumePreviousPath_ = previous;
+                installDocument(std::move(removed));
+            } else {
+                installDocument({});
+                if (!next.isEmpty() && !deferredOpen_)
+                    openPath(next, 0, false);
+            }
         }
         if (!result.error.isEmpty()) showError(result.error);
         return;

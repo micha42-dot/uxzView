@@ -201,6 +201,13 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     unreadableFiles_->setCurrentIndex(int(unreadableFilesMode(
         settings.value(QStringLiteral("navigation/unreadableFiles"), 0).toInt())));
     navigation->addRow(IX_TEXT("Unlesbare Dateien:"), unreadableFiles_);
+    afterDelete_ = new QComboBox;
+    afterDelete_->setObjectName(QStringLiteral("navigation/afterDelete"));
+    afterDelete_->addItem(IX_TEXT("Schwarze Anzeige"), 1);
+    afterDelete_->addItem(IX_TEXT("Nächstes Bild öffnen"), 0);
+    afterDelete_->setCurrentIndex(qMax(0, afterDelete_->findData(
+        settings.value(QStringLiteral("navigation/afterDelete"), 1).toInt())));
+    navigation->addRow(IX_TEXT("Nach dem Löschen:"), afterDelete_);
     check(navigation, QStringLiteral("navigation/reverse"), IX_TEXT("Absteigend sortieren"), false);
     check(navigation, QStringLiteral("navigation/wrap"),
           IX_TEXT("Nach dem letzten Bild wieder beim ersten beginnen"), true);
@@ -427,6 +434,7 @@ void SettingsDialog::accept() {
     values.insert(QStringLiteral("fullscreen/screen"), fullscreenScreen_->currentData());
     values.insert(QStringLiteral("navigation/sort"), sort_->currentIndex());
     values.insert(QStringLiteral("navigation/unreadableFiles"), unreadableFiles_->currentData());
+    values.insert(QStringLiteral("navigation/afterDelete"), afterDelete_->currentData());
     values.insert(QStringLiteral("toolbar/iconSize"), iconSize_->currentData());
     values.insert(QStringLiteral("preview/background"), previewBackground_->currentData());
     values.insert(QStringLiteral("slideshow/seconds"), seconds_->value());

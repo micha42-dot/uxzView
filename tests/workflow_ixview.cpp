@@ -384,6 +384,31 @@ class WorkflowTests : public QObject {
         QFETCH(QStringList, files); QFETCH(int, index); QFETCH(QString, source); QFETCH(QString, expected);
         QCOMPARE(ix::nextPathAfterRemoval(files, index, source), expected);
     }
+    void previousPostDeleteNavigation_data() {
+        QTest::addColumn<QStringList>("files");
+        QTest::addColumn<int>("index");
+        QTest::addColumn<QString>("source");
+        QTest::addColumn<QString>("expected");
+        const QString a = QStringLiteral("/a.png"), b = QStringLiteral("/b.png"), c = QStringLiteral("/c.png");
+        QTest::newRow("first-has-no-previous") << QStringList{a,b,c} << 0 << a << QString();
+        QTest::newRow("middle") << QStringList{a,b,c} << 1 << b << a;
+        QTest::newRow("last") << QStringList{a,b,c} << 2 << c << b;
+        QTest::newRow("unknown-index") << QStringList{a,b,c} << -1 << b << a;
+        QTest::newRow("stale-index") << QStringList{a,b,c} << 0 << b << a;
+        QTest::newRow("source-absent") << QStringList{b} << -1 << a << QString();
+        QTest::newRow("only-source") << QStringList{a} << -1 << a << QString();
+        QTest::newRow("duplicates") << QStringList{a,a,b} << 2 << b << a;
+        QTest::newRow("clean-path") << QStringList{QStringLiteral("/dir/../a.png"),b} << 1 << b
+                                    << QStringLiteral("/dir/../a.png");
+#ifdef Q_OS_WIN
+        QTest::newRow("windows-case") << QStringList{QStringLiteral("/A.PNG"),b} << 1 << b
+                                      << QStringLiteral("/A.PNG");
+#endif
+    }
+    void previousPostDeleteNavigation() {
+        QFETCH(QStringList, files); QFETCH(int, index); QFETCH(QString, source); QFETCH(QString, expected);
+        QCOMPARE(ix::previousPathAfterRemoval(files, index, source), expected);
+    }
     void hotfolderPreservesQueuedManualNavigation() {
         const auto first = photo(QStringLiteral("hotfolder-priority/1.png"), Qt::red);
         const auto second = photo(QStringLiteral("hotfolder-priority/2.png"), Qt::green);

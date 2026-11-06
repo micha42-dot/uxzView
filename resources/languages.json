@@ -832,5 +832,6 @@
 ["Auslagerungsdatei konnte nicht geschützt werden.", "Could not protect the image backing file.", "이미지 저장 파일을 보호할 수 없습니다.", "画像の退避ファイルを保護できませんでした。", "Impossible de protéger le fichier temporaire."],
 ["TurboJPEG: nur Seite 0.", "TurboJPEG: only page 0.", "TurboJPEG: 0페이지만.", "TurboJPEG: 0ページのみ。", "TurboJPEG : page 0 uniquement."],
 ["JPEG-Datei zu groß.", "JPEG file is too large.", "JPEG 파일이 너무 큽니다.", "JPEGファイルが大きすぎます。", "Fichier JPEG trop grand."],
-["TurboJPEG nicht verfügbar.", "TurboJPEG is unavailable.", "TurboJPEG를 사용할 수 없습니다.", "TurboJPEGを利用できません。", "TurboJPEG indisponible."]
+["TurboJPEG nicht verfügbar.", "TurboJPEG is unavailable.", "TurboJPEG를 사용할 수 없습니다.", "TurboJPEGを利用できません。", "TurboJPEG indisponible."],
+["Nach dem Löschen:", "After deleting:", "삭제 후:", "削除後の表示:", "Après suppression :"]
 ]
