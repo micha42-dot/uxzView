@@ -136,8 +136,10 @@ bool TurboJpegCodec::accepts(const QString &path) const {
     if (!header.parsed)
         header = walk(kHeaderPrefixBytes);
     // ICC profiles and non-RGB component layouts (grayscale, CMYK/YCCK) must
-    // keep Qt's pixel format and colour handling.
-    if (!header.parsed || header.hasIcc || header.components != 3)
+    // keep Qt's pixel format and colour handling. A frame height of zero (DNL)
+    // or a broken frame size stays with Qt as well.
+    if (!header.parsed || header.hasIcc || header.components != 3 || header.width <= 0 ||
+        header.height <= 0)
         return false;
     // JPEG always decodes to 8-bit RGB (no alpha); the guard accounts the same
     // four bytes per pixel the document buffer will occupy.

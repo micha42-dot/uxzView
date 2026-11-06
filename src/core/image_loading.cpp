@@ -7,6 +7,10 @@
 #include <QColorSpace>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QFileInfo>
+#include <QSettings>
+#include <QThreadPool>
+#include <memory>
 #include <stdexcept>
 #include <cstring>
 namespace ix {
@@ -76,4 +80,38 @@ std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const Imag
     if (profile) qInfo("ix-load worker prepared %.3f ms", timer.nsecsElapsed() / 1e6);
     return PreparedImage{std::move(result->document), std::move(display), {}};
 }
+namespace {
+// Speculative decodes outlive neither finishPrewarm() nor the process; the pool
+// is leaked on purpose so an abnormal exit never runs its destructor while a
+// worker still references the codec registry.
+QThreadPool &prewarmPool() {
+    static QThreadPool *pool = [] {
+        auto *created = new QThreadPool;
+        created->setMaxThreadCount(1);
+        created->setExpiryTimeout(10000);
+        return created;
+    }();
+    return *pool;
+}
+} // namespace
+void prewarmImage(const QString &path) {
+    if (path.isEmpty() || !QFileInfo(path).isFile())
+        return;
+    const QSettings settings;
+    // Exactly the request the command-line open will issue, so the cached
+    // original and the prepared display match what the window installs.
+    const ImageLoadRequest request{path, 0, settings.value(QStringLiteral("color/manage"), true).toBool(),
+                                   settings.value(QStringLiteral("view/sharpenDisplay"), false).toBool(), false};
+    prewarmPool().start([request] {
+        try {
+            // Plugin discovery finished on the main thread before this worker
+            // starts, so the registry is built here, off the startup path.
+            const CodecRegistry registry;
+            (void)loadImage(registry, request, {}, nullptr);
+        } catch (...) {
+            // A speculative decode never reports; the open supplies diagnostics.
+        }
+    });
+}
+void finishPrewarm() { prewarmPool().waitForDone(); }
 } // namespace ix

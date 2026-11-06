@@ -29,4 +29,11 @@ PreparedImage loadImage(const CodecRegistry &registry, const ImageLoadRequest &r
 // remain non-interruptible; cancellation skips work at pipeline boundaries.
 std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const ImageLoadRequest &request,
                         const std::function<void(QImage)> &preview, const std::atomic_bool *cancel);
+// Speculatively decode the file named on the command line while the window is
+// still being built, using the same pipeline as the open that follows. That
+// open then joins this decode through ImageLoadCache instead of repeating it.
+// Never reports: a failed prewarm leaves the ordinary open to diagnose.
+void prewarmImage(const QString &path);
+// Join a running prewarm before the caches and the codec plugins are destroyed.
+void finishPrewarm();
 } // namespace ix

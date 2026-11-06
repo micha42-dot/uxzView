@@ -17,6 +17,7 @@
 #include "core/localization.h"
 #include "core/metadata.h"
 #include <QPaintEvent>
+#include <QtConcurrent>
 #include "core/plugin_store.h"
 #include "core/preview_service.h"
 #include "core/processing.h"
@@ -608,6 +609,50 @@ class IxTests : public QObject {
         window.dispatch(QStringLiteral("next"));
         QTRY_COMPARE_WITH_TIMEOUT(window.document().path, second, 30000);
         QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::green));
+    }
+    void prewarmsTheCommandLineImage() {
+        // A previous test may have configured a smaller budget for its own
+        // eviction scenario; a cached original needs a real one.
+        ix::ImageLoadCache::configure(128, 16, true);
+        const auto folder = dir(QStringLiteral("prewarm"));
+        QVERIFY(QDir().mkpath(folder));
+        const auto path = QDir(folder).filePath(QStringLiteral("warm.png"));
+        QImage image(320, 240, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(path));
+        ix::ImageLoadCache::clear();
+        QVERIFY(!ix::ImageLoadCache::hasDocument(path));
+        ix::prewarmImage(path);
+        ix::finishPrewarm();
+        // The open that follows installs the decoded original instead of
+        // reading and decoding the file a second time.
+        QVERIFY(ix::ImageLoadCache::hasDocument(path));
+        QCOMPARE(ix::ImageLoadCache::read(ix::CodecRegistry(), path).document.pixels.pixelColor(0, 0),
+                 QColor(Qt::red));
+    }
+    void joinsAConcurrentDecodeOfTheSameFile() {
+        ix::ImageLoadCache::configure(128, 16, true);
+        const auto folder = dir(QStringLiteral("read-join"));
+        QVERIFY(QDir().mkpath(folder));
+        const auto path = QDir(folder).filePath(QStringLiteral("large.png"));
+        QImage image(4000, 3000, QImage::Format_RGB32);
+        image.fill(Qt::darkCyan);
+        QVERIFY(image.save(path));
+        ix::CodecRegistry registry;
+        ix::ImageLoadCache::clear();
+        std::atomic_bool entered{false};
+        auto background = QtConcurrent::run([&] {
+            entered = true;
+            return ix::ImageLoadCache::read(registry, path).document.pixels.cacheKey();
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(entered.load(), 5000);
+        QTest::qWait(20); // let the worker enter the decode
+        const auto foreground = ix::ImageLoadCache::read(registry, path).document.pixels.cacheKey();
+        const auto shared = background.result();
+        QVERIFY(foreground != 0);
+        // Both readers hold the same decoded buffer: the second read joined the
+        // running decode instead of decoding the same bytes a second time.
+        QCOMPARE(shared, foreground);
     }
     void optionalWidgetsAndNeighborNavigation() {
         QSettings().setValue(QStringLiteral("view/previewStrip"), false);

@@ -38,6 +38,13 @@
   measured 0.65 ms to 0.34 ms per open on a 23 MB file with identical results.
 - Add `--profile-first-preview` (first paint vs. document paint) and
   `--profile-prefetch` (cold vs. prefetched neighbour) to the benchmark harness.
+- Decode the command-line image while the window is still being built: a startup
+  prewarm runs the same load pipeline as the open that follows, and a reader now
+  joins an in-flight decode of the same file revision instead of reading and
+  decoding it again (which also covers a prefetch racing a real open). The first
+  open of a 24 MP JPEG installs 98 to 137 ms earlier (422-456 ms to 319-324 ms,
+  interleaved A/B on one binary) with exactly one decode instead of two. Clearing
+  the cache still drops the join, so it never restores content the user discarded.
 
 - Build the reusable display raster during the first paint of a heavy fit, so the
   follow-up repaint after a new fit or zoom reuses it instead of repeating the

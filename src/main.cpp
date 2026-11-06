@@ -1,9 +1,9 @@
-#include "core/image_storage.h"
-#include <QtConcurrent>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "core/codec_registry.h"
 #include "core/app_storage.h"
+#include "core/image_loading.h"
+#include "core/image_storage.h"
 #include "core/extension_storage.h"
 #include "core/localization.h"
 #include "core/plugin_store.h"
@@ -12,6 +12,7 @@
 #include "ui/interface_language.h"
 #include "ui/main_window.h"
 #include "ui/platform_support.h"
+#include <QtConcurrent>
 #include <QApplication>
 #include <QColorSpace>
 #include <QCommandLineParser>
@@ -182,6 +183,11 @@ int main(int argc, char **argv) {
         QTextStream(stdout) << QJsonDocument(result).toJson(QJsonDocument::Compact) << Qt::endl;
         return status;
     }
+    // The command-line image can be decoded while the window is still being
+    // built. The open request below then joins that decode instead of reading
+    // and decoding the same file a second time.
+    if (!parser.positionalArguments().isEmpty())
+        ix::prewarmImage(QFileInfo(parser.positionalArguments().first()).absoluteFilePath());
     auto language = parser.isSet(QStringLiteral("language"))
                         ? parser.value(QStringLiteral("language"))
                         : QSettings().value(QStringLiteral("ui/language"), QStringLiteral("de")).toString();
@@ -208,5 +214,7 @@ int main(int argc, char **argv) {
     if (!parser.positionalArguments().isEmpty())
         window.openPath(parser.positionalArguments().first());
     startupStage("open-request");
-    return app.exec();
+    const int status = app.exec();
+    ix::finishPrewarm();
+    return status;
 }

@@ -21,6 +21,7 @@
 #include <QThread>
 #include <QtConcurrent>
 #include <algorithm>
+#include <memory>
 #include <utility>
 #include <thread>
 namespace ix {
@@ -88,6 +89,10 @@ bool makeRoomForOriginal(qint64 cost) {
     return true;
 }
 quint64 cacheEpoch = 0; // All cache ownership is protected by cacheMutex.
+// Bumped only when retained content is dropped (clear/invalidate), never by a
+// budget reconfiguration: joining a decode in flight is about which pixels are
+// being computed right now, not about which of them the cache owns.
+quint64 contentGeneration = 0;
 struct ActiveDecode {
     QWaitCondition ready;
     ImageLoadCache::PreviewPixels result;
@@ -99,6 +104,19 @@ struct ActiveDecode {
     bool finished = false;
 };
 QHash<CacheKey, std::shared_ptr<ActiveDecode>> activeDecodes;
+// A speculative decode (startup prewarm, neighbour prefetch) can race the open
+// it was meant to accelerate. Readers join the running decode of the same
+// revision instead of reading and decoding the same bytes a second time. Joining
+// is refused after dropped content (contentGeneration) so a cleared cache is
+// never repopulated from an older in-flight decode.
+struct ActiveRead {
+    QWaitCondition ready;
+    std::shared_ptr<ImageDocument> document; // null when the owner failed
+    std::thread::id owner = std::this_thread::get_id();
+    quint64 generation = 0;
+    bool finished = false;
+};
+QHash<CacheKey, std::shared_ptr<ActiveRead>> activeReads;
 ImageLoadCache::DecodeActivity decodeCounters;
 std::atomic_bool rawPreviewsEnabled = true;
 constexpr qint64 CacheCostLimit = ImageCostLimit;
@@ -375,13 +393,45 @@ std::optional<ImageResult> ImageLoadCache::read(const CodecRegistry &registry, c
     const CacheKey key{absolute, revision + QLatin1Char('/') + QString::number(page)};
     quint64 epoch = 0;
     bool cacheEnabled = false;
+    std::shared_ptr<ActiveRead> active;
     {
         QMutexLocker lock(&cacheMutex);
         epoch = cacheEpoch;
         cacheEnabled = documentBudget > 0;
         if (auto *d = documents.object(key))
             return ImageResult{*d, {}};
+        auto running = activeReads.value(key);
+        if (running && running->generation != contentGeneration)
+            running.reset(); // content was dropped: decode fresh, never reuse
+        if (running && running->owner == std::this_thread::get_id()) {
+            running.reset(); // reentrant decoding must never wait on itself
+        } else if (running) {
+            // Speculative work (startup prewarm, neighbour prefetch) is already
+            // decoding this revision: join it and share the decoded pixels.
+            while (!running->finished && !(cancel && cancel->load()))
+                running->ready.wait(&cacheMutex, 20);
+            if (cancel && cancel->load()) return {};
+            if (running->document) {
+                auto joined = *running->document; // shared pixels, no second copy
+                lock.unlock();
+                return ImageResult{std::move(joined), {}};
+            }
+            // The owner failed; decode here so this reader keeps its own
+            // diagnostics instead of inheriting another thread's error.
+        } else {
+            active = std::make_shared<ActiveRead>();
+            active->owner = std::this_thread::get_id();
+            active->generation = contentGeneration;
+            activeReads.insert(key, active);
+        }
     }
+    const auto finishRead = qScopeGuard([&] {
+        if (!active) return;
+        QMutexLocker lock(&cacheMutex);
+        active->finished = true;
+        if (activeReads.value(key) == active) activeReads.remove(key);
+        active->ready.wakeAll();
+    });
     if (beforeDecode)
         beforeDecode();
     if (cancel && cancel->load()) return {};
@@ -405,6 +455,11 @@ std::optional<ImageResult> ImageLoadCache::read(const CodecRegistry &registry, c
             publishUsage();
         }
     }
+    // Waiters receive the decoded document even when this owner was asked to
+    // stop after the pixels were ready: the work is done and sharing it cannot
+    // leak into any GUI state.
+    if (active && result.ok())
+        active->document = std::make_shared<ImageDocument>(result.document);
     if (cancel && cancel->load()) return {};
     return result;
 }
@@ -496,6 +551,7 @@ void ImageLoadCache::clear() {
     ApngCodec::clearSession();
     QMutexLocker lock(&cacheMutex);
     ++cacheEpoch;
+    ++contentGeneration;
     documents.clear();
     presentations.clear();
     decodedPreviews.clear(); decodedCost = 0;
@@ -522,6 +578,7 @@ void ImageLoadCache::invalidate(const QStringList &paths) {
     // One bounded epoch avoids an unbounded per-path generation map. Retained
     // unrelated entries stay usable, but earlier misses must not insert later.
     ++cacheEpoch;
+    ++contentGeneration;
     for (const auto &key : documents.keys())
         if (affected.contains(lookupPath(key.first))) documents.remove(key);
     for (const auto &key : presentations.keys())

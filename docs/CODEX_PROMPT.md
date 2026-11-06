@@ -95,6 +95,44 @@ Performance follow-up in the next session (all numbers measured, see
   future staged approach (it reports `first_paint_ms` separately from
   `document_paint_ms`). Do not retry scaled JPEG previews without new evidence.
 
+Startup prewarm, measured on the real application (`uxzView.exe --portable
+<6000x4000, 23 MB JPEG> -platform offscreen` with `IX_PROFILE_IMAGE_LOAD=1` and
+`QT_MESSAGE_PATTERN="%{time process} %{message}"`):
+
+- **Prewarm overlaps the window build.** `ix::prewarmImage()` starts in `main()`
+  right after `PluginStore::prepareStartup()` (the earliest point where plugin
+  discovery is complete, so a disabled format can never be decoded behind the
+  policy), decodes on a deliberately leaked single-thread pool through
+  `loadImage()` with the colour/sharpen policy the open will request, and
+  `ix::finishPrewarm()` joins it after `app.exec()`. Interleaved A/B on one binary
+  (env switch only for the measurement, then removed): install 422-456 ms to
+  319-324 ms, i.e. 98-137 ms (23-30 %) earlier; the image installs 4 ms after the
+  decode ends. Anything earlier than `prepareStartup()` risks caching a format the
+  plugin policy later rejects, because a cache hit bypasses the registry.
+- **An in-flight join replaces the second decode.** `ImageLoadCache::read()` keeps
+  an `ActiveRead` per `{path, revision, page}`; a second reader waits and shares
+  the decoded `ImageDocument` (implicitly shared pixels, no copy) and falls back to
+  its own decode when the owner failed, so diagnostics stay with the caller.
+  Joining is gated on a separate `contentGeneration` that only `clear()` and
+  `invalidate()` bump. That split matters twice: `MainWindow` reconfigures the
+  cache budget while it is being constructed, so gating on `cacheEpoch` silently
+  turned every startup join into a duplicate 250 ms decode (visible as two
+  `ix-load worker decode` lines for one open), while gating on nothing at all
+  would hand a cleared cache the pixels of an older in-flight decode - which
+  `cacheClearDoesNotRestoreOlderInFlightDocument` catches (it also deadlocked,
+  because that test resumes its paused codec only after its own read returns).
+  Tests: `prewarmsTheCommandLineImage`, `joinsAConcurrentDecodeOfTheSameFile`.
+- **XMP is not a rotation source for Qt.** Verified by construction: a JPEG whose
+  XMP APP1 carries `tiff:Orientation=6` and that has no EXIF decodes 6000x4000 both
+  through the turbo path and through Qt's path (forced with an ICC APP2), while the
+  same file with a real EXIF APP1 decodes 4000x6000 on both. The `hasExif` gate is
+  behaviour-preserving. `accepts()` additionally refuses a zero frame size (DNL)
+  and leaves that file to Qt.
+- First paint after an install costs 272 ms once and 6-25 ms for every later image
+  (same bench): that is surface/backing-store warm-up plus the heavy-fit raster
+  built by the existing first-paint path, not a per-image cost. Do not "optimise"
+  it with a pre-scaled worker raster without re-measuring this split.
+
 Note on validation logs: `python-tests.log` contains a line
 "python-tests failed; see ..." produced by
 `test_first_open_diagnostics.test_failed_process_preserves_partial_report_and_checkpoint`,
