@@ -43,7 +43,8 @@
   the image the old behaviour showed and "previous" the one before it. File
   commands stay disabled while nothing is open, as they already do for unreadable
   files, and the deletion never turns into an unsaved-changes prompt when a later
-  batch or search run reports the missing file.
+  batch or search run reports the missing file. Refresh, New window and the batch
+  dialogs no longer hand the removed path to anything that would re-read it.
 - Add `--profile-first-preview` (first paint vs. document paint) and
   `--profile-prefetch` (cold vs. prefetched neighbour) to the benchmark harness.
 - Decode the command-line image while the window is still being built: a startup

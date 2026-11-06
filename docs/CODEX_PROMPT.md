@@ -112,6 +112,9 @@ and process-creation noise.
   no special case - it only calls `refreshFiles(true)` - and `dispatch()` already
   blocks delete/rename/move/copy while `document_.empty()`. "reopen" stays enabled
   on purpose: restoring the file from the trash and reopening it is a real flow.
+  `isRemovalPlaceholder()` is the single predicate for the state; refresh, new
+  window, the batch dialog and the pipeline dialog must not hand the removed path to
+  anything that reads it (they skip it or pass no input).
 - **Startup prewarm**: started in `main()` *after* `PluginStore::prepareStartup()`
   (a cache hit bypasses the codec registry, so a disabled format must never be
   decoded behind the policy) and *after* the language validation (that branch calls

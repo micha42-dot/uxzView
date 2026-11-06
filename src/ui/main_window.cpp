@@ -656,6 +656,10 @@ void MainWindow::buildToolbar() {
     toolbar_->addSeparator();
     add(QStringLiteral("settings"), QStringLiteral("settings"), QStringLiteral("Einstellungen öffnen"));
 }
+bool MainWindow::isRemovalPlaceholder() const {
+    return !removedDocumentPath_.isEmpty() && document_.path == removedDocumentPath_ &&
+           document_.pixels.isNull();
+}
 void MainWindow::reconcileFilePath(const BatchFileChanges &changes) {
     if (document_.path.isEmpty())
         return;
@@ -663,7 +667,7 @@ void MainWindow::reconcileFilePath(const BatchFileChanges &changes) {
     // would clear the path and mark it modified, which would then ask for unsaved
     // changes on a file the user only removed from disk; the next navigation
     // resolves the folder state instead.
-    if (document_.path == removedDocumentPath_)
+    if (isRemovalPlaceholder())
         return;
     QString resolved = changes.resolve(document_.path);
     if (!QFileInfo::exists(resolved)) resolved.clear();
@@ -808,7 +812,8 @@ void MainWindow::buildExtraFeatures() {
             refreshState();
             slideshow_.stop();
             stopAnimation();
-            changes = batchDialog(this, document_.path.isEmpty() ? QStringList() : QStringList{document_.path});
+            changes = batchDialog(this, document_.empty() || document_.path.isEmpty()
+                                            ? QStringList() : QStringList{document_.path});
         }
         ImageLoadCache::invalidate(changes.affectedPaths());
         if (!deferredOpen_) reconcileFilePath(changes);
@@ -1109,8 +1114,7 @@ void MainWindow::navigate(int direction) {
     // removed file held instead of the edge of the listing; the neighbour paths
     // were captured before the directory changed, so this also works while the
     // index rebuilds. Falling through means there is nothing to resume into.
-    if (!removedDocumentPath_.isEmpty() && document_.path == removedDocumentPath_ &&
-        document_.pixels.isNull()) {
+    if (isRemovalPlaceholder()) {
         const auto intent = std::clamp(direction + pendingNavigation_, -10000, 10000);
         const auto resume = intent > 0 ? resumeNextPath_ : intent < 0 ? resumePreviousPath_ : QString();
         if (!resume.isEmpty()) {
@@ -1372,8 +1376,8 @@ void MainWindow::updateStatus() {
         for (int i = 1; i < status_.size(); ++i)
             status_[i]->clear();
         if (!document_.path.isEmpty()) {
-            status_[0]->setText(document_.path == removedDocumentPath_ ? IX_TEXT("Datei gelöscht")
-                                                                      : IX_TEXT("Datei nicht lesbar"));
+            status_[0]->setText(isRemovalPlaceholder() ? IX_TEXT("Datei gelöscht")
+                                                       : IX_TEXT("Datei nicht lesbar"));
             status_[1]->setText(fileIndex_ < 0 ? QString() : QStringLiteral("%1 / %2").arg(fileIndex_+1).arg(files_.size()));
             status_[3]->setText(uiLocale().formattedDataSize(document_.fileBytes));
         }
@@ -1780,7 +1784,9 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("batch")) {
-        PipelineDialog dialog(document_.path.isEmpty() ? QStringList() : QStringList{document_.path}, this, cacheRoot_);
+        PipelineDialog dialog(document_.empty() || document_.path.isEmpty() ? QStringList()
+                                                                           : QStringList{document_.path},
+                              this, cacheRoot_);
         dialog.exec();
         ImageLoadCache::clear();
         reconcileFilePath();
@@ -1888,7 +1894,8 @@ void MainWindow::dispatch(const QString &cmd) {
         ImageLoadCache::clear();
         refreshFiles(true);
         refreshFiles();
-        if (!document_.path.isEmpty())
+        // The black state of a removed file has nothing to re-read.
+        if (!document_.path.isEmpty() && !isRemovalPlaceholder())
             openPath(document_.path);
         return;
     }
@@ -1994,7 +2001,7 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("newWindow")) {
-        if (!document_.path.isEmpty()) {
+        if (!document_.path.isEmpty() && !isRemovalPlaceholder()) {
             auto *other = new MainWindow;
             other->setAttribute(Qt::WA_DeleteOnClose);
             other->show();

@@ -82,6 +82,9 @@ class MainWindow : public QMainWindow {
     void buildExtraFeatures();
     void updatePreviews();
     void reconcileFilePath(const BatchFileChanges &changes = {});
+    // True while the view shows the black state of a file this window removed: the
+    // path stays for the listing and the status bar, but nothing can be read from it.
+    bool isRemovalPlaceholder() const;
     QComboBox *zoom_;
     QList<QLabel *> status_;
     QMap<QString, QAction *> actions_;
