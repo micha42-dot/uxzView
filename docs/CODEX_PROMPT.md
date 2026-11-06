@@ -1,41 +1,81 @@
-# Codex handoff prompt — TurboJPEG hardening and freeze elimination
+# Codex handoff prompt — TurboJPEG hardening, first-open latency, freeze elimination
 
-Living brief for a follow-up agent. It records what this session changed, what it
-verified, and what remains open. Update the "Completed" and "Open" sections as
-work lands; do not restate the invariants as new findings.
+Living brief for a follow-up agent. It records what these sessions changed, what was
+*measured*, and what remains open. Update "Completed" and "Open" as work lands; do
+not restate the invariants as new findings, and never replace a measured number
+with an estimate.
 
 ## 1. Verified project facts
 
-- Repository `IxView`, branch `main`, Windows 11, MinGW/ucrt64 toolchain, Qt 6.11.2
-  from `.deps/sdk/ucrt64` (add `.deps\sdk\ucrt64\bin` to `PATH`).
-- CMake + Ninja, static libraries `ixcore` (codecs, storage, catalog, pipeline)
-  and `ixui` (MainWindow, dialogs, ImageView), thin `IxView` executable, lazily
-  loaded plugins `ixarchive`, `ixrawpreview`, `ixpdf`, optional `ixextensions`.
-- Validation: `python scripts/validate.py` (~236 s) runs Python tests and ctest
-  and writes `build/validation-summary.json`. Direct: `ctest --test-dir build
-  --output-on-failure`.
-- Suites: `ixview_tests` (GUI/workflow), `ixview_large_image_tests` (codec and
-  storage behaviour), quality/benchmark suites, 47 Python tests.
-- Baseline at commit `9aee79b`: 9/9 ctest suites (236.2 s), 47/47 Python tests
-  (13.1 s), `success: true`.
+- Repository `IxView`, branch `main`, Windows 11, MinGW/ucrt64, Qt 6.11.2 from
+  `.deps/sdk/ucrt64`. Prepend `.deps\sdk\ucrt64\bin` to `PATH` for every command.
+- CMake + Ninja. Static libraries `ixcore` (codecs, storage, catalog, pipeline) and
+  `ixui` (MainWindow, dialogs, ImageView), thin executable, lazily loaded plugins
+  `ixarchive`, `ixrawpreview`, `ixpdf`, optional `ixextensions`.
+- **The GUI target is `IxView` but the binary is `build/uxzView.exe`**
+  (`CMakeLists.txt:39`, output name). `build/ixview_benchmarks.exe` carries the
+  `--profile-*` harnesses; test binaries are `build/ixview_tests.exe` etc.
+- Validation: `python scripts/validate.py` (~200 s) runs the Python tests plus ctest
+  and writes `build/validation-summary.json`. Direct:
+  `ctest --test-dir build --output-on-failure` (9 suites, 149-208 s depending on
+  machine load) and `python -m unittest discover -s tests -p "test_*.py"` (47
+  tests). `build/python-tests.log` always contains one deliberate
+  "python-tests failed" line from
+  `test_first_open_diagnostics.test_failed_process_preserves_partial_report_and_checkpoint`;
+  the authoritative result is "Ran 47 tests ... OK" with exit code 0.
+- State at `a304297`: 9/9 ctest, 47/47 Python, clean tree, build without warnings in
+  the touched files.
+- Measurement fixture: `build/fo-single/large.jpg` is a genuine 6000x4000 baseline
+  JPEG (SOF0, 3 components, 23.2 MB, ~1 byte/pixel), so it decodes far slower than a
+  typical 4:2:0 camera JPEG. Never describe it as "typical".
+
+### 1.1 How the first-open numbers are produced
+
+```
+$env:PATH = "$PWD\.deps\sdk\ucrt64\bin;$env:PATH"
+$env:IX_PROFILE_IMAGE_LOAD='1'; $env:QT_FORCE_STDERR_LOGGING='1'
+$env:QT_MESSAGE_PATTERN='%{time process} %{message}'
+Start-Process build\uxzView.exe -ArgumentList '--portable','build\fo-single\large.jpg','-platform','offscreen' `
+  -RedirectStandardError build\app.err -PassThru
+# read build\app.err: "ix-startup <stage>" and "ix-load <stage>" lines, ms offsets from
+# process start. The image is visible when "ix-load install status" appears.
+```
+
+`--portable` keeps the profile out of the user's roaming directory. `-platform
+offscreen` is mandatory here: agent sessions have no interactive desktop, so
+`MainWindowHandle` stays 0 and `CloseMainWindow()` silently does nothing.
+
+```
+build\ixview_benchmarks.exe report.json --profile-first-open    <image> -platform offscreen
+build\ixview_benchmarks.exe report.json --profile-prefetch      <image> -platform offscreen
+build\ixview_benchmarks.exe report.json --profile-first-preview <image> -platform offscreen
+python scripts\measure_first_open.py --image <image> --samples 3
+```
+
+**Rule:** any change on these paths needs an *interleaved A/B on one binary* (build
+once with an env switch, alternate runs, then remove the switch). Numbers taken at
+different machine-load states are not comparable - the same open of the same file
+measured 422 ms and 674 ms in this repository within one hour. Use
+`QT_MESSAGE_PATTERN` offsets rather than PowerShell stopwatches; they exclude shell
+and process-creation noise.
 
 ## 2. Invariants — do not weaken while fixing anything
 
-- Mapped image buffers: owner-only permissions, UUID file names, deletion moved
-  to a single deleter thread, startup sweep for leftovers, unmap before delete.
-- Preview/thumbnail cache: decode de-duplication with `shared_ptr` state,
-  generation counters plus `QPointer` lifetime guards; cancellation is
-  cooperative and never preempts a running native read.
+- Mapped image buffers: owner-only permissions, UUID file names, deletion moved to a
+  single deleter thread, startup sweep for leftovers, unmap before delete.
+- Preview/thumbnail cache: decode de-duplication with `shared_ptr` state, generation
+  counters plus `QPointer` lifetime guards; cancellation is cooperative and never
+  preempts a running native read.
 - File publication: atomic no-replace (`RENAME_NOREPLACE`, `renameat2`,
-  `renameatx_np`, `link()+unlink()` fallback), source revision compared before
-  and after, `QSaveFile` staging with a re-check before `commit()`.
+  `renameatx_np`, `link()+unlink()` fallback), source revision compared before and
+  after, `QSaveFile` staging with a re-check before `commit()`.
 - Archive and extension hardening: path-traversal rejection, per-entry size caps,
   CRC validation, HTTPS-only downloads, SHA-256 verification, staged rename.
 - Join semantics in `src/ui/worker_wait.h`: joins run a real event loop so paints,
-  timers and input stay alive; reentrancy is blocked by `DocumentActivity`
-  (`busy()` in every command dispatch) and by `closeEvent` ignoring a close while
-  a transaction owns the document. Pure progress windows reappear when dismissed;
-  cancellable ones stay hidden.
+  timers and input stay alive; reentrancy is blocked by `DocumentActivity` (`busy()`
+  in every command dispatch) and by `closeEvent` ignoring a close while a transaction
+  owns the document. Pure progress windows reappear when dismissed; cancellable ones
+  stay hidden.
 - Codec contract (`docs/ARCHITECTURE.md`): a codec owns the full document contract
   (pixels, path, format, page fields, `fileBytes`, metadata, `sourceHasExif`).
   Decoders must write through `QImage::bytesPerLine()`; library pitch `0` means
@@ -43,8 +83,28 @@ work lands; do not restate the invariants as new findings.
   including its failure, and conflicts are resolved inside that codec.
 - Every `IX_TEXT` string needs a row in `resources/languages.json` (five columns:
   de/en/ko/ja/fr, `%1` placeholders preserved); `test_localization.py` enforces it.
+- **Read-join contract** (`ImageLoadCache::read`, `src/core/preview_service.cpp`):
+  one `ActiveRead` per `{path, revision, page}` under `cacheMutex`. A second reader
+  waits for the owner (20 ms polling, cancel-aware), shares the decoded
+  `ImageDocument` (implicitly shared pixels, no copy) and decodes itself if the owner
+  failed, so diagnostics stay with the caller. A joiner must still call
+  `beforeDecode()` (the RAW/stage preview) *before* it waits and never while holding
+  `cacheMutex`. Reentrancy must never wait on itself.
+- **Cache epoch vs content generation**: `cacheEpoch` guards cache ownership and is
+  bumped by `configure()`, `clear()` and `invalidate()`. `contentGeneration` is
+  bumped only by `clear()`/`invalidate()`. Joining is gated on
+  `contentGeneration`; gating it on `cacheEpoch` breaks the startup join (the window
+  reconfigures the cache while it is being constructed), gating on nothing lets a
+  cleared cache be repopulated from an older in-flight decode.
+- **Startup prewarm**: started in `main()` *after* `PluginStore::prepareStartup()`
+  (a cache hit bypasses the codec registry, so a disabled format must never be
+  decoded behind the policy) and *after* the language validation (that branch calls
+  `showHelp()`, which exits without unwinding). No filesystem or `QSettings` I/O on
+  the GUI thread for it - `prewarmImage()` only posts the task. `main()` holds
+  `finishPrewarm()` in a `qScopeGuard`, and `finishPrewarm()` cancels, drops queued
+  work and then joins.
 
-## 3. Completed in this session (committed and validated)
+## 3. Completed (committed and validated)
 
 | Commit | Change |
 | --- | --- |
@@ -52,180 +112,231 @@ work lands; do not restate the invariants as new findings.
 | `317389c` | Save progress window has a working cancel button; joins stay input-capable |
 | `8212149` | F3: status bar names the running transaction; rejected commands explain themselves |
 | `9aee79b` | Four audit fixes: row stride, `fileBytes`, `accepts()` size limit, in-codec Qt retry |
+| `1493abe` | Handoff document for the follow-up session |
+| `1035acb` | Neighbour prefetch; header-first JPEG acceptance; two bench profiles |
+| `1be6d4c` | Startup prewarm of the command-line image + in-flight read join |
+| `5fd35bf` | Join hardening: stage preview, startup I/O, exit path |
+| `a304297` | Prewarm starts after the language check (showHelp/exit ordering) |
 
-Detail on the last commit: the fast path decodes into `Format_RGB32` with
-`TJPF_BGRX` on little endian and an explicit stride, so widths that are not a
-multiple of four no longer shear rows (previously silent corruption, including in
-batch exports). Peak memory drops from ~7 B/px to the 4 B/px the size guard
-already assumed. `finishDocument` takes the size from the already-open file.
-`accepts()` mirrors the 256 MiB in-memory limit of `read()`. A decode-time
-refusal retries Qt's tolerant reader inside the claiming codec, and a registry
-test pins "first accepting codec owns the outcome".
+### 3.1 TurboJPEG fast path correctness (`9aee79b`)
 
-Earlier in the same series: `inspectJpegHeader()` replaced the bounded byte scans
-with a real JPEG segment walker (ICC detection is no longer limited to the first
-64 KiB, and APP0 density is found regardless of position), and the storage pool is
-a deliberately leaked heap pool to avoid static-teardown ordering.
+The fast path decodes into `Format_RGB32` with `TJPF_BGRX` on little endian and an
+explicit stride, so widths that are not a multiple of four no longer shear rows
+(previously silent corruption, including in batch exports). Peak memory drops from
+~7 B/px to the 4 B/px the size guard already assumed. `finishDocument` takes the size
+from the already-open file, `accepts()` mirrors the 256 MiB in-memory limit of
+`read()`, and a decode-time refusal retries Qt's tolerant reader *inside* the owning
+codec. `inspectJpegHeader()` is a real segment walker (ICC detection is no longer
+limited to the first 64 KiB).
 
-Performance follow-up in the next session (all numbers measured, see
-`--profile-prefetch` / `--profile-first-preview` / `scripts/measure_first_open.py`):
+### 3.2 Neighbour prefetch (`1035acb`)
 
-- **Neighbour prefetch** — `MainWindow::schedulePrefetch()` runs after every
-  successful install and after the directory listing arrives. It decodes the next
-  file in the last navigation direction through the *same* `loadImage()` pipeline
-  (so the speculative display image matches the user's colour/sharpen settings),
-  on a dedicated single-thread `QThreadPool` at `QThread::LowPriority`, and admits
-  the result to the bounded `ImageLoadCache`. `ImageLoadCache::hasDocument()`
-  prevents duplicate work, `prefetchCancel_` supersedes stale speculation, and the
-  worker captures no `MainWindow`. Two generated 12 MP JPEGs: cold install
-  215.2 ms / paint 227.1 ms versus prefetched install 1.36 ms / paint 31.5 ms; the
-  speculation itself finished 206 ms after the first image appeared.
-- **JPEG acceptance without Qt** — `inspectJpegHeader()` now records `hasExif`,
-  `width` and `height` from the SOF, so `accepts()` builds a `QImageReader` only
-  when an Exif APP1 can actually carry an orientation, and `read()` skips it
-  entirely for plain files. The acceptance read is 64 KiB and extends to 256 KiB
-  only when the frame header sits further out. Linked-probe measurement on the
-  23 MB fixture: 0.646 ms → 0.341 ms per `accepts()`, identical decisions.
-- **Rejected with measurement: staged JPEG preview.** `TurboJpegCodec::readScaled()`
-  (libjpeg-turbo `tj3SetScalingFactor`) was implemented, tested and benchmarked.
-  DCT scaling skips IDCT and upsampling but not entropy decoding, so a 1/4 decode
-  of the 6000×4000 fixture costs 395–576 ms against 476 ms for the full decode, and
-  it adds a second 23 MB read — net slower to the final image. The staged path was
-  removed again. `--profile-first-preview` stays as the harness that would prove a
-  future staged approach (it reports `first_paint_ms` separately from
-  `document_paint_ms`). Do not retry scaled JPEG previews without new evidence.
+`MainWindow::schedulePrefetch()` runs after every successful install and after the
+directory listing arrives. It decodes the next file in the last navigation direction
+through the *same* `loadImage()` pipeline (so the speculative display matches the
+user's colour/sharpen settings), on a dedicated single-thread `QThreadPool` at
+`QThread::LowPriority`, and admits the result to the bounded `ImageLoadCache`.
+`ImageLoadCache::hasDocument()` prevents duplicate work, `prefetchCancel_` supersedes
+stale speculation, the worker captures no `MainWindow`, and speculation stops for
+modified/animated documents, above 64 MiB of pixels, at the ends of the listing and
+while a transaction holds the window.
 
-Startup prewarm, measured on the real application (`uxzView.exe --portable
-<6000x4000, 23 MB JPEG> -platform offscreen` with `IX_PROFILE_IMAGE_LOAD=1` and
-`QT_MESSAGE_PATTERN="%{time process} %{message}"`):
+Measured with `--profile-prefetch` (two generated 12 MP JPEGs, two independent runs):
+cold install 215.2 ms / paint 227.1 ms versus prefetched install **1.36 ms** / paint
+31.5 ms; the speculation itself finished 206 ms after the first image appeared
+(second run: 257.7/268.5 -> 1.53/30.7). Regression test:
+`prefetchesTheNeighbourInNavigationDirection`.
 
-- **Prewarm overlaps the window build.** `ix::prewarmImage()` starts in `main()`
-  right after `PluginStore::prepareStartup()` (the earliest point where plugin
-  discovery is complete, so a disabled format can never be decoded behind the
-  policy), decodes on a deliberately leaked single-thread pool through
-  `loadImage()` with the colour/sharpen policy the open will request, and
-  `ix::finishPrewarm()` joins it after `app.exec()`. Interleaved A/B on one binary
-  (env switch only for the measurement, then removed): install 422-456 ms to
-  319-324 ms, i.e. 98-137 ms (23-30 %) earlier; the image installs 4 ms after the
-  decode ends. Anything earlier than `prepareStartup()` risks caching a format the
-  plugin policy later rejects, because a cache hit bypasses the registry.
-- **An in-flight join replaces the second decode.** `ImageLoadCache::read()` keeps
-  an `ActiveRead` per `{path, revision, page}`; a second reader waits and shares
-  the decoded `ImageDocument` (implicitly shared pixels, no copy) and falls back to
-  its own decode when the owner failed, so diagnostics stay with the caller.
-  Joining is gated on a separate `contentGeneration` that only `clear()` and
-  `invalidate()` bump. That split matters twice: `MainWindow` reconfigures the
-  cache budget while it is being constructed, so gating on `cacheEpoch` silently
-  turned every startup join into a duplicate 250 ms decode (visible as two
-  `ix-load worker decode` lines for one open), while gating on nothing at all
-  would hand a cleared cache the pixels of an older in-flight decode - which
-  `cacheClearDoesNotRestoreOlderInFlightDocument` catches (it also deadlocked,
-  because that test resumes its paused codec only after its own read returns).
-  Tests: `prewarmsTheCommandLineImage`, `joinsAConcurrentDecodeOfTheSameFile`.
-- **XMP is not a rotation source for Qt.** Verified by construction: a JPEG whose
-  XMP APP1 carries `tiff:Orientation=6` and that has no EXIF decodes 6000x4000 both
-  through the turbo path and through Qt's path (forced with an ICC APP2), while the
-  same file with a real EXIF APP1 decodes 4000x6000 on both. The `hasExif` gate is
-  behaviour-preserving. `accepts()` additionally refuses a zero frame size (DNL)
-  and leaves that file to Qt.
+### 3.3 Header-first JPEG acceptance (`1035acb`)
 
-Second review pass - joining has three non-obvious failure modes, all now handled:
+`inspectJpegHeader()` records `hasExif`, `width` and `height` from the SOF, so
+`accepts()` builds a `QImageReader` only when an Exif APP1 can carry an orientation
+and `read()` skips that pass entirely for plain files (three header passes became
+two). The acceptance read is 64 KiB and extends to 256 KiB only when the frame header
+sits further out. Linked-probe measurement on the 23 MB fixture: **0.646 ms -> 0.341
+ms** per `accepts()` over 40 interleaved runs, identical decisions. `accepts()` also
+refuses a zero frame size (DNL) and leaves it to Qt.
 
-- **A joined read must still publish the stage preview.** Skipping `beforeDecode`
-  because "somebody is already decoding" leaves a RAW file's window empty for the
-  whole develop (seconds). The joiner now calls `beforeDecode()` before it waits
-  (outside `cacheMutex`, never while holding it) and skips the second call
-  afterwards. Test: `aJoinedReadStillPublishesTheStagePreview`.
-- **No filesystem or settings I/O on the startup path.** `prewarmImage()` used to
-  call `QFileInfo::isFile()` and build a `QSettings` on the GUI thread before the
-  window existed; a stalled network share would freeze startup before anything was
-  painted. Both moved into the worker (the registry repeats its own `isFile()`
-  check there).
-- **Exit path.** `finishPrewarm()` sets the cancel token, drops queued speculation
-  and then joins, and `main()` holds it in a scope guard so a failing window
-  constructor cannot leave a decode writing into destroyed caches. A decode that is
-  already past its cancel boundary still has to finish - identical to closing the
-  window during a normal open, which joins its worker too.
+XMP is not a rotation source for Qt - verified by construction, not by assumption: a
+JPEG whose XMP APP1 carries `tiff:Orientation=6` and that has no EXIF decodes
+6000x4000 both through the turbo path and through Qt's path (forced with an ICC
+APP2), while the same file with a real EXIF APP1 decodes 4000x6000 on both. The
+`hasExif` gate is therefore behaviour-preserving.
 
-Known residual, deliberate: a foreground open that joins a *prefetch* decode waits
-behind a `QThread::LowPriority` thread (no priority boost like `decodePreviewPixels`
-does, because boosting needs a raw `QThread*` that can dangle); and `prepareDisplay`
-(sharpen/colour) has no join of its own, so a join that lands before the prefetch
-stored its presentation can compute it twice. Neither is measured yet; do not
-"fix" them by weakening the cancellation rules.
+### 3.4 Rejected with measurement: staged JPEG preview
 
-- First paint after an install costs 272 ms once and 6-25 ms for every later image
-  (same bench): that is surface/backing-store warm-up plus the heavy-fit raster
-  built by the existing first-paint path, not a per-image cost. Do not "optimise"
-  it with a pre-scaled worker raster without re-measuring this split.
+`TurboJpegCodec::readScaled()` (libjpeg-turbo `tj3SetScalingFactor`) was implemented,
+tested and benchmarked, then removed: DCT scaling skips IDCT and upsampling but not
+entropy decoding. DCT-factor sweep of the 6000x4000 fixture: 1/8 = 254.5 ms,
+1/4 = 368.0 ms, 1/2 = 503.5 ms, 1/1 = 607.1 ms - a 1/4 decode (0.4 % of the pixels)
+still costs 395-576 ms against 476 ms for the full decode, plus a second 23 MB read.
+`--profile-first-preview` stays as the harness that would prove a future staged
+approach (it reports `first_paint_ms` separately from `document_paint_ms`). Do not
+retry scaled JPEG previews without new evidence.
 
-Note on validation logs: `python-tests.log` contains a line
-"python-tests failed; see ..." produced by
-`test_first_open_diagnostics.test_failed_process_preserves_partial_report_and_checkpoint`,
-which deliberately runs a failing validator subprocess. The authoritative result
-is "Ran 47 tests ... OK" with returncode 0.
+### 3.5 Startup prewarm and the in-flight join (`1be6d4c`)
+
+The first open used to be the sum of two serial halves: everything before the open
+request (plugin discovery, language, theme, `MainWindow` construction, `show()`) and
+then the decode. `main()` now prewarms the command-line file through the same
+`loadImage()` pipeline while the window is still being built, and the open joins that
+decode instead of repeating it.
+
+Interleaved A/B on one binary, 6000x4000 fixture (`install` = last install stage):
+
+| Pair | without prewarm | with prewarm |
+| --- | --- | --- |
+| 1 | 456 ms | **319 ms** |
+| 2 | 422 ms | **324 ms** |
+| 3 | 425 ms | **324 ms** |
+
+98-137 ms (23-30 %) earlier, exactly one decode instead of two, install 4 ms after
+the decode ends. A later single run with the final ordering: open request at 169 ms,
+decode 377 ms, install 449 ms (without the prewarm 169+377 = 546 ms).
+
+Prewarming earlier than plugin discovery was rejected: a cache hit bypasses the codec
+registry, so it could serve a format the plugin policy later rejects. Prewarming
+before the language check was rejected too - that branch calls `showHelp()`, which
+exits the process without unwinding (`a304297`). Tests:
+`prewarmsTheCommandLineImage`, `joinsAConcurrentDecodeOfTheSameFile`.
+
+Implementation notes that matter: `ImageLoadCache::read()` keeps an `ActiveRead` per
+`{path, revision, page}`; a waiting reader receives the decoded `ImageDocument`
+(shared pixels, no copy) and decodes itself when the owner failed. The owner
+publishes the document *before* its cancellation check, so a joiner still gets pixels
+the owner no longer needs.
+
+### 3.6 Join hardening (`5fd35bf`)
+
+- A joined read publishes the stage preview (`beforeDecode()`) *before* it waits, so a
+  RAW file keeps showing its embedded preview instead of an empty window for the
+  whole develop. Test: `aJoinedReadStillPublishesTheStagePreview` (a paused codec
+  proves exactly one decode and one preview).
+- `prewarmImage()` does no filesystem or `QSettings` I/O on the GUI thread: a stalled
+  network share must not delay a window that does not exist yet.
+- `finishPrewarm()` cancels, drops queued work, then joins; `main()` holds it in a
+  `qScopeGuard` so a throwing window constructor cannot leave a decode writing into
+  destroyed caches. A decode already past its cancel boundary still finishes - the
+  same as closing the window during an open, which joins its worker too.
+
+### 3.7 Validation and documentation notes
+
+`CHANGELOG.md` is written in English and stays user-visible (no internal identifiers);
+`docs/ARCHITECTURE.md` describes the pipeline, not the history. `build/python-tests.log`
+always contains one deliberate "python-tests failed" line (see 1.) - the authoritative
+result is 47/47 OK with exit code 0. First paint after an install costs 272 ms once
+and 6-25 ms for every later image (same bench): surface/backing-store warm-up plus the
+heavy-fit raster built by the existing first-paint path, not a per-image cost. Do not
+"optimise" it with a pre-scaled worker raster without re-measuring this split.
 
 ## 4. Open findings (source-verified, not yet fixed)
 
-- **AUD-5 (P2)** — two hard blocking joins. `src/ui/dialogs.cpp:459-461`
-  (histogram) and `:604-608` (batch/pipeline result) call
-  `watcher.waitForFinished()` after `dialog.exec()` has already returned: no event
-  processing and no progress indication while the last file finishes. Route both
-  through `ix::waitForGuiWorker()`.
-- **AUD-6 (P3)** — catalog serialisation. `src/core/image_catalog.cpp:22` holds a
-  file-scope `QMutex` and `:187-190` waits up to 5 s for the cross-process
-  `QLockFile` while holding it, around a JSON read of up to 256 MiB. Callers are
-  workers (`library_dialog.cpp:233`, `:265`, `:351`), so a GUI stall is unconfirmed;
-  the risk is multi-second waits under contention. Also drop the dead
-  `image_catalog.h` include in `src/ui/main_window.cpp:16`.
-- **AUD-7 (P3)** — OCR input permissions. `src/core/recognition_input.cpp:29-48`
-  writes `input.ppm` and copied `*.traineddata` into
-  `AppStorage::cacheRoot()/tool-jobs/run-XXXXXX` without tightening permissions,
-  unlike the swap directory (`image_storage.cpp:200` uses
-  `ReadOwner|WriteOwner|ExeOwner`). A crash leaves pixels behind. Add the same
+- **AUD-5 (P2)** - two hard blocking joins. `src/ui/dialogs.cpp:459-461` (histogram)
+  and `:604-608` (batch/pipeline result) call `watcher.waitForFinished()` after
+  `dialog.exec()` has already returned: no event processing and no progress
+  indication while the last file finishes. Route both through
+  `ix::waitForGuiWorker()`.
+- **AUD-6 (P3)** - catalog serialisation. `src/core/image_catalog.cpp:22` holds a
+  file-scope `QMutex` and `:187-190` waits up to 5 s for the cross-process `QLockFile`
+  while holding it, around a JSON read of up to 256 MiB. Callers are workers
+  (`library_dialog.cpp:233`, `:265`, `:351`), so a GUI stall is unconfirmed; the risk
+  is multi-second waits under contention. Also drop the dead `image_catalog.h`
+  include in `src/ui/main_window.cpp:16`.
+- **AUD-7 (P3)** - OCR input permissions. `src/core/recognition_input.cpp:29-48` writes
+  `input.ppm` and copied `*.traineddata` into `AppStorage::cacheRoot()/tool-jobs/run-XXXXXX`
+  without tightening permissions, unlike the swap directory (`image_storage.cpp:200`
+  uses `ReadOwner|WriteOwner|ExeOwner`). A crash leaves pixels behind. Add the same
   permissions plus a startup sweep.
-- **AUD-8 (P3)** — histogram churn. `src/ui/dialogs.cpp:441-456` allocates
-  `image.copy(0, y, width, 1).convertToFormat(Format_ARGB32)` per row (thousands
-  of allocations on a 25 MP image). Use `constScanLine` with one scratch row.
+- **AUD-8 (P3)** - histogram churn. `src/ui/dialogs.cpp:441-456` allocates
+  `image.copy(0, y, width, 1).convertToFormat(Format_ARGB32)` per row (thousands of
+  allocations on a 25 MP image). Use `constScanLine` with one scratch row.
+- **PERF-1 (P2)** - priority inversion in the read join. A foreground open that lands
+  while a *prefetch* decode owns the `ActiveRead` waits behind a
+  `QThread::LowPriority` thread (no boost like `decodePreviewPixels`, because a boost
+  needs a raw `QThread*` that can dangle). Cheapest fix without dangling pointers:
+  `MainWindow::openRequested()` sets `prefetchCancel_` when the new request targets
+  the prefetched path, so the join is refused and the foreground decodes at normal
+  priority. Needs a measurement of a LowPriority decode under CPU load before/after.
+- **PERF-2 (P3)** - `prepareDisplay()` has no join of its own. An open that joins the
+  read, then arrives before the prefetch stored its presentation, recomputes the
+  sharpen/colour convolution (~50-100 ms at 24 MP with display sharpening on). Only
+  active with `view/sharpenDisplay` or a non-sRGB profile.
+- **PERF-3 (P3)** - first-install settings write. `installDocument()` calls
+  `updateRecentSetting()` on the GUI thread; the first `QSettings` write costs 19.7 ms
+  (measured on a warm profile, first install only) and sits between the install and
+  the first paint. Deferring that write past the first paint would recover it without
+  changing ordering guarantees; measure before and after.
+- **PERF-4 (P4)** - budget ordering. The prewarm is admitted against the default
+  192 MiB document budget because `MainWindow` applies the user's configuration later;
+  a 24 MP document therefore enters the cache and may be trimmed immediately after.
+  Harmless today (defaults), but keep it in mind if the defaults shrink.
 
-## 5. Documented limitations — keep as contracts, do not "fix" by weakening
+## 5. Documented limitations - keep as contracts, do not "fix" by weakening
 
-- Cancelling a save stops the commit, not the encoder: the running encode finishes
-  and is discarded. The progress window closes immediately while the main window
-  stays busy until the worker returns. Cancelling mid-encode would need a cancel
-  token through `QImageWriter`/libjpeg/libwebp.
+- Cancelling a save stops the commit, not the encoder: the running encode finishes and
+  is discarded. The progress window closes immediately while the main window stays
+  busy until the worker returns. Cancelling mid-encode would need a cancel token
+  through `QImageWriter`/libjpeg/libwebp.
+- Cancellation never preempts a running native read either. `loadImage()` and
+  `ImageLoadCache::read()` check the token at pipeline boundaries only, so a decode
+  that is already inside `tjDecompress2`/libtiff finishes. This is why
+  `finishPrewarm()` can still wait for one frame.
+- The read join has no timeout. A wedged owner (for example a blocking network read
+  inside a decoder) blocks the waiting reader; a new open cancels the waiter's token
+  within ~20 ms, so the window stays usable, but the wedged decode itself remains
+  stuck on its worker thread and `~MainWindow`/`finishPrewarm()` will wait for it.
+  Add a timeout only together with a measurement that a legitimate slow decode cannot
+  hit it.
 - Rejected commands are explained, not queued. Only `pendingNavigation_` and
   `deferredOpen_` queue work deliberately.
-- Fullscreen shows no busy hint (the status bar is hidden there); only the wait
-  cursor.
-- `accepts()` reads 64 KiB of header per JPEG (256 KiB only when the frame header
-  sits further out), and each fast-path JPEG sees two header passes
-  (`inspectJpegHeader`, `tjDecompressHeader3`); `QImageReader` is consulted only
-  when an Exif APP1 exists.
-- Prefetch depth is one image in one direction. A depth-2 or bidirectional queue
-  needs its own budget measurement before it is added.
-- No timing test proves "the GUI does not block" during swap teardown; only the
-  deterministic flush test exists.
+- Fullscreen shows no busy hint (the status bar is hidden there); only the wait cursor.
+- Prefetch depth is one file in one direction. Deeper speculation is unmeasured and
+  would compete for the bounded cache; do not raise it without numbers.
+- A joined reader does not re-validate the source revision itself; the key contains
+  the revision and the owner performs the check, so this is safe by construction -
+  keep it that way instead of adding a third stat call.
 
 ## 6. Next steps, in order
 
-1. AUD-5: replace both hard joins with `waitForGuiWorker()`.
-2. AUD-6: shorter catalog lock timeout, do not hold the in-process mutex across the
-   file-lock wait, drop the dead include.
-3. AUD-7: owner-only permissions on `tool-jobs` plus a startup sweep.
-4. AUD-8: scratch-row histogram loop.
-5. Optional: if more fast-path codecs are added, revisit a registry-level fallback
-   contract. Today the registry keeps the first accepting codec and the codec
-   retries internally.
+1. **PERF-1 (P2)**: in `MainWindow::openRequested()`, set `prefetchCancel_` when the
+   request targets the prefetched path (or whenever a prefetch is in flight), so a
+   foreground open never joins a `LowPriority` decode. Add a test that an open of the
+   prefetch target decodes on the foreground thread, and measure a LowPriority decode
+   under CPU load before/after. Do not add a raw `QThread*` boost.
+2. **AUD-5 (P2)**: replace the two hard `waitForFinished()` joins in
+   `src/ui/dialogs.cpp` with `ix::waitForGuiWorker()` and keep the progress windows
+   cancellable, then re-check the workflow suite (it drives both dialogs).
+3. **PERF-3 + AUD-8 (P3, cheap and local)**: defer the first `QSettings` history write
+   past the first paint, and give the histogram one scratch row. Both reduce
+   measured GUI-thread time; re-run `--profile-first-open` afterwards and update 3.7.
+4. **AUD-6 (P3)** catalog lock ordering, then **AUD-7 (P3)** OCR input permissions with
+   a startup sweep. Neither is measured yet - instrument before and after.
+5. **Re-measure the first open end to end on an idle machine** with the interleaved
+   A/B recipe from 1.1 and record the result here. The current 319-324 ms vs 422-456 ms
+   pair was taken on a loaded agent machine; a quieter baseline is worth having.
+6. Only with new evidence: "do not decode the full resolution into the document"
+   (touches export/edit semantics and the storage contract) and prefetch depth 2.
 
 ## 7. Working rules for this repository
 
-- Tests must assert an external expectation (compare against Qt/`QImageReader`),
-  never the implementation's own output. The width 41/43 corruption survived a
-  44/44 green suite because the only fast-path test used 40×30, whose stride
-  happened to match the pitch.
-- Prefer seams (`spillThresholdBytes`) over disabling code in tests; do not
-  silently `QSKIP` coverage.
-- One finding per commit; the message states the failure mode and the contract it
-  protects. Run the full validation before committing.
+- Measure before claiming, and measure *interleaved A/B on one binary*. A single
+  before/after pair from different machine-load states is not evidence; two numbers
+  with a factor of 1.6 between them were measured an hour apart in this repository.
+- Keep scratch probes and fixtures out of the source tree: probes in `%TEMP%\ixperf`,
+  generated images in `build/`. Nothing in `build/` is committed.
+- `ctest --test-dir build --output-on-failure` plus the Python suite before every
+  commit; a commit message states the measured numbers *and* what was rejected.
+- Never weaken cancellation, cache budgets, join ordering or the plugin policy to make
+  a test pass. When an existing test contradicts a new mechanism, decide which
+  contract is right and encode it (`cacheClearDoesNotRestoreOlderInFlightDocument`
+  forced the `contentGeneration` split; the paused-codec test needed a real file
+  because `CodecRegistry::read` validates the path).
+- Every `IX_TEXT` string needs its row in `resources/languages.json`
+  (`test_localization.py`).
+- Update `CHANGELOG.md` (English, user-visible wording) and this document in the same
+  commit as the behaviour change, so the numbers here never drift from the code.
+
+
+
+
 

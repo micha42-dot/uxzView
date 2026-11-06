@@ -131,6 +131,19 @@ busy/modal state, serves both polling and queued completion delivery, and never
 changes the polling timer to interval zero. Destruction cancels queued load work
 before joining. [State rules and measurements](SUPERSEDED_LOADS_2026-11-03.md).
 
+A cache miss can be shared: `ImageLoadCache::read` keeps one in-flight record per
+`{path, revision, page}`, so a second reader (an explicit open racing a speculative
+decode) waits for the owner and receives the same decoded document instead of reading
+and decoding the file twice. It still runs its own stage-preview callback before
+waiting, decodes itself when the owner failed, and refuses to join after
+`clear()`/`invalidate()` dropped content; a budget reconfiguration alone does not
+refuse it. Speculative work feeds this: `main()` prewarms the command-line image after
+plugin discovery and language validation, and `MainWindow` prefetches one neighbour in
+the navigation direction on a low-priority single-thread pool. Both issue the same
+`loadImage` request the real open will use, so the open joins or hits the bounded
+cache; neither installs a document nor touches the GUI, and both are cancelled and
+joined before the caches are destroyed.
+
 `MainWindow::openPath` takes its path by value. Modal save questions process
 events; directory snapshots or caller selections may change before loading
 starts. Keep an owned, implicitly shared QString across that boundary, not a
