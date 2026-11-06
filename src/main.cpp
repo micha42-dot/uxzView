@@ -184,14 +184,6 @@ int main(int argc, char **argv) {
         QTextStream(stdout) << QJsonDocument(result).toJson(QJsonDocument::Compact) << Qt::endl;
         return status;
     }
-    // The command-line image can be decoded while the window is still being
-    // built. The open request below then joins that decode instead of reading
-    // and decoding the same file a second time.
-    if (!parser.positionalArguments().isEmpty())
-        ix::prewarmImage(QFileInfo(parser.positionalArguments().first()).absoluteFilePath());
-    // Joined on every exit path below, including a failing window constructor: a
-    // speculative decode must not outlive the caches and plugins it writes into.
-    const auto joinPrewarm = qScopeGuard([] { ix::finishPrewarm(); });
     auto language = parser.isSet(QStringLiteral("language"))
                         ? parser.value(QStringLiteral("language"))
                         : QSettings().value(QStringLiteral("ui/language"), QStringLiteral("de")).toString();
@@ -201,6 +193,16 @@ int main(int argc, char **argv) {
         language = QStringLiteral("de");
         ix::setUiLanguage(language);
     }
+    // The command-line image can be decoded while the window is still being
+    // built. The open below then joins that decode instead of reading and
+    // decoding the same file twice. Started after the language check because
+    // showHelp() exits without unwinding, which would let a speculative decode
+    // run through static destruction.
+    if (!parser.positionalArguments().isEmpty())
+        ix::prewarmImage(QFileInfo(parser.positionalArguments().first()).absoluteFilePath());
+    // Joined on every exit path below, including a failing window constructor: a
+    // speculative decode must not outlive the caches and plugins it writes into.
+    const auto joinPrewarm = qScopeGuard([] { ix::finishPrewarm(); });
     // Process-wide collation stays fixed once workers exist. Interface widgets
     // use their own locale for subsequent live language changes.
     QLocale::setDefault(ix::uiLocale());
