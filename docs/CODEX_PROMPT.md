@@ -244,9 +244,11 @@ heavy-fit raster built by the existing first-paint path, not a per-image cost. D
   include in `src/ui/main_window.cpp:16`.
 - **AUD-7 (P3)** - OCR input permissions. `src/core/recognition_input.cpp:29-48` writes
   `input.ppm` and copied `*.traineddata` into `AppStorage::cacheRoot()/tool-jobs/run-XXXXXX`
-  without tightening permissions, unlike the swap directory (`image_storage.cpp:200`
-  uses `ReadOwner|WriteOwner|ExeOwner`). A crash leaves pixels behind. Add the same
-  permissions plus a startup sweep.
+  without tightening permissions. The swap directory does this **only on POSIX**
+  (`image_storage.cpp:199-202` guards `ReadOwner|WriteOwner|ExeOwner` with
+  `#ifndef Q_OS_WIN`, and on Windows `QFile::setPermissions` is close to a no-op), so
+  decide the Windows story explicitly - an ACL on the job directory plus a startup
+  sweep - instead of copying the swap code. A crash leaves pixels behind either way.
 - **AUD-8 (P3)** - histogram churn. `src/ui/dialogs.cpp:441-456` allocates
   `image.copy(0, y, width, 1).convertToFormat(Format_ARGB32)` per row (thousands of
   allocations on a 25 MP image). Use `constScanLine` with one scratch row.
