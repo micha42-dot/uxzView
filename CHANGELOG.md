@@ -42,7 +42,8 @@
   first arrow key continues from the slot the deleted file held, so "next" opens
   the image the old behaviour showed and "previous" the one before it. File
   commands stay disabled while nothing is open, as they already do for unreadable
-  files.
+  files, and the deletion never turns into an unsaved-changes prompt when a later
+  batch or search run reports the missing file.
 - Add `--profile-first-preview` (first paint vs. document paint) and
   `--profile-prefetch` (cold vs. prefetched neighbour) to the benchmark harness.
 - Decode the command-line image while the window is still being built: a startup

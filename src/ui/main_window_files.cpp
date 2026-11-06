@@ -222,10 +222,15 @@ void MainWindow::fileOperation(const QString &op) {
                 // navigation resumes from the slot this file held.
                 ImageDocument removed;
                 removed.path = source;
+                installDocument(std::move(removed));
+                // installDocument() ends any previous black state, so the resume
+                // slot for this removal is recorded afterwards.
                 removedDocumentPath_ = source;
                 resumeNextPath_ = next;
                 resumePreviousPath_ = previous;
-                installDocument(std::move(removed));
+                // The install above ran before the slot was known, so the status
+                // bar still says "unreadable file"; refresh it for "deleted".
+                updateStatus();
             } else {
                 installDocument({});
                 if (!next.isEmpty() && !deferredOpen_)

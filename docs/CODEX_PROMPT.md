@@ -104,6 +104,14 @@ and process-creation noise.
   `navigate()` resume from the removed slot, captured before the directory changed
   so it survives an index rebuild. Do not "simplify" this back into
   `installDocument({})`: an empty path drops the listing and the arrow keys stop.
+  Two coupling rules follow from the state: `reconcileFilePath()` must skip
+  `removedDocumentPath_` (the batch and search flows would otherwise clear the path
+  and mark the document modified, so a file the user only deleted would later ask
+  about unsaved changes), and `installDocument()` clears the resume slot so a failed
+  re-open of the same path cannot redirect navigation. The directory watcher needs
+  no special case - it only calls `refreshFiles(true)` - and `dispatch()` already
+  blocks delete/rename/move/copy while `document_.empty()`. "reopen" stays enabled
+  on purpose: restoring the file from the trash and reopening it is a real flow.
 - **Startup prewarm**: started in `main()` *after* `PluginStore::prepareStartup()`
   (a cache hit bypasses the codec registry, so a disabled format must never be
   decoded behind the policy) and *after* the language validation (that branch calls
@@ -315,6 +323,16 @@ heavy-fit raster built by the existing first-paint path, not a per-image cost. D
 - Fullscreen shows no busy hint (the status bar is hidden there); only the wait cursor.
 - Prefetch depth is one file in one direction. Deeper speculation is unmeasured and
   would compete for the bounded cache; do not raise it without numbers.
+- The deletion resume needs a listing to capture the neighbours from. If a single
+  file was opened and deleted before its directory index arrived, the first arrow key
+  starts at the edge of the listing. Capturing the slot later would have to survive a
+  second directory change; not worth the complexity unless someone reports it.
+- Deleting the open file leaves that path in "recent files" (it was already there
+  from opening it) and keeps "reopen" enabled, which reports a readable error if the
+  file really is gone - deliberate, because restoring it from the trash and reopening
+  is the same gesture. The status bar distinguishes the two black states
+  ("Datei gelöscht" versus "Datei nicht lesbar"), and the preview strip handles the
+  resulting index -1 (it already had a guard for that).
 - A joined reader does not re-validate the source revision itself; the key contains
   the revision and the owner performs the check, so this is safe by construction -
   keep it that way instead of adding a third stat call.

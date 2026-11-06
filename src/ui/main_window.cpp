@@ -659,6 +659,12 @@ void MainWindow::buildToolbar() {
 void MainWindow::reconcileFilePath(const BatchFileChanges &changes) {
     if (document_.path.isEmpty())
         return;
+    // A deleted document keeps its path on purpose (black state). Reconciling it
+    // would clear the path and mark it modified, which would then ask for unsaved
+    // changes on a file the user only removed from disk; the next navigation
+    // resolves the folder state instead.
+    if (document_.path == removedDocumentPath_)
+        return;
     QString resolved = changes.resolve(document_.path);
     if (!QFileInfo::exists(resolved)) resolved.clear();
     const auto revision = resolved.isEmpty() ? QString() : imageFileKey(resolved);
@@ -983,6 +989,11 @@ void MainWindow::handleLoadFailure(const QString &error, DeferredOpen request) {
         });
 }
 void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHistory) {
+    // Any installed document ends the black state a deletion left behind, so a
+    // stale resume slot can never redirect a later navigation.
+    removedDocumentPath_.clear();
+    resumeNextPath_.clear();
+    resumePreviousPath_.clear();
     const bool profileLoad = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
     QElapsedTimer loadTimer;
     if (profileLoad) loadTimer.start();
@@ -1361,7 +1372,8 @@ void MainWindow::updateStatus() {
         for (int i = 1; i < status_.size(); ++i)
             status_[i]->clear();
         if (!document_.path.isEmpty()) {
-            status_[0]->setText(IX_TEXT("Datei nicht lesbar"));
+            status_[0]->setText(document_.path == removedDocumentPath_ ? IX_TEXT("Datei gelöscht")
+                                                                      : IX_TEXT("Datei nicht lesbar"));
             status_[1]->setText(fileIndex_ < 0 ? QString() : QStringLiteral("%1 / %2").arg(fileIndex_+1).arg(files_.size()));
             status_[3]->setText(uiLocale().formattedDataSize(document_.fileBytes));
         }
