@@ -272,6 +272,16 @@ heavy-fit raster built by the existing first-paint path, not a per-image cost. D
   192 MiB document budget because `MainWindow` applies the user's configuration later;
   a 24 MP document therefore enters the cache and may be trimmed immediately after.
   Harmless today (defaults), but keep it in mind if the defaults shrink.
+- **PERF-5 (P4)** - documents above the cache admission limit. `ImageLoadCache::read`
+  only stores originals up to 96 MiB of pixels, so a prewarm of a larger file cannot
+  be reused once it has finished: if the window opens *after* the decode completed, the
+  open decodes the same bytes again. The cost is CPU only, never latency - the open
+  never waits for a finished prewarm. Measured with a 5200x5200 PNG (103.1 MiB of
+  pixels, cheap to regenerate with System.Drawing, `build/huge.png`): the open arrived
+  at 216 ms while the prewarm ran to 361 ms, so the join covered it (install 415 ms
+  against 499 ms without the prewarm). Keep the admission limit; if CPU on very large
+  files ever matters, decide between skipping the prewarm above the limit (needs the
+  size before decoding) and admitting one prewarmed original - both need numbers.
 
 ## 5. Documented limitations - keep as contracts, do not "fix" by weakening
 
