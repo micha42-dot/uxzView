@@ -1123,25 +1123,23 @@ void MainWindow::navigate(int direction) {
             pendingNavigation_ = intent;
             return;
         }
-        // intent == 0 is a pure status refresh (for example updateStatus after a
-        // deletion with no queued steps): do not synthesize a step from it.
+        // direction == 0 carries no step (only queued remainder, if any): never
+        // synthesize an open from it. The ordinary path below is equally inert
+        // for step 0 because FolderTraversal::start rejects it.
         if (intent == 0)
             return;
         const auto resume = intent > 0 ? resumeNextPath_ : resumePreviousPath_;
         if (!resume.isEmpty() || !files_.isEmpty()) {
             const auto step = intent > 0 ? 1 : -1;
+            // The slot is cleared by installDocument, not here: if the traversal
+            // finds no edge, or the load fails without installing anything, the
+            // placeholder (and its reconcileFilePath guard) must survive.
             if (!resume.isEmpty()) {
-                removedDocumentPath_.clear();
-                resumeNextPath_.clear();
-                resumePreviousPath_.clear();
                 openRequested({resume, 0, true});
             } else {
                 // The resume slot is stale (new files arrived after the removal),
                 // but the listing is newer than the slot, so continue there
                 // instead of stranding navigation in the black state.
-                removedDocumentPath_.clear();
-                resumeNextPath_.clear();
-                resumePreviousPath_.clear();
                 const auto traversal = FolderTraversal::start(
                     files_, fileIndex_, step,
                     QSettings().value(QStringLiteral("navigation/wrap"), true).toBool(), document_.path);
@@ -1149,7 +1147,8 @@ void MainWindow::navigate(int direction) {
                     openRequested({traversal->path(), 0, true, std::move(*traversal)});
                 else {
                     // At the edge with wrap off there is nowhere to go: consume
-                    // the intent instead of queueing it again forever.
+                    // the intent instead of queueing it again forever, like the
+                    // ordinary edge below does.
                     pendingNavigation_ = 0;
                     return;
                 }
