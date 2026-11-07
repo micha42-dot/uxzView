@@ -990,10 +990,10 @@ class IxTests : public QObject {
             QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"))
                          ->currentData().toInt(), 1);
         }
-        QCOMPARE(ix::afterDeleteMode(0), ix::AfterDelete::OpenNext);
-        QCOMPARE(ix::afterDeleteMode(1), ix::AfterDelete::StayEmpty);
-        QCOMPARE(ix::afterDeleteMode(99), ix::AfterDelete::StayEmpty);
-        QCOMPARE(ix::afterDeleteMode(-99), ix::AfterDelete::StayEmpty);
+        QCOMPARE(int(ix::afterDeleteMode(0)), int(ix::AfterDelete::OpenNext));
+        QCOMPARE(int(ix::afterDeleteMode(1)), int(ix::AfterDelete::StayEmpty));
+        QCOMPARE(int(ix::afterDeleteMode(99)), int(ix::AfterDelete::StayEmpty));
+        QCOMPARE(int(ix::afterDeleteMode(-99)), int(ix::AfterDelete::StayEmpty));
     }
     void settingsApplyImmediatelyToMainWindow() {
         QSettings settings;

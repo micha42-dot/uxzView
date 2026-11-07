@@ -351,6 +351,11 @@ heavy-fit raster built by the existing first-paint path, not a per-image cost. D
 - A joined reader does not re-validate the source revision itself; the key contains
   the revision and the owner performs the check, so this is safe by construction -
   keep it that way instead of adding a third stat call.
+- `isRemovalPlaceholder()` couples path and empty pixels. A regularly empty document
+  whose path happens to equal `removedDocumentPath_` would count as the black
+  state. Unlikely (it needs the exact just-removed path), but the robust fix is an
+  explicit flag cleared by `installDocument`, touching navigate/reconcile/refresh -
+  only worth it the next time that area changes.
 
 ## 6. Next steps, in order
 
