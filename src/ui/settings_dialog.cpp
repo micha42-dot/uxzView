@@ -8,6 +8,7 @@
 #include "core/preview_service.h"
 #include "image_view.h"
 #include "fullscreen_info.h"
+#include "file_navigation.h"
 #include "folder_traversal.h"
 #include <QtWidgets>
 #include <QtConcurrent>
@@ -203,10 +204,12 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     navigation->addRow(IX_TEXT("Unlesbare Dateien:"), unreadableFiles_);
     afterDelete_ = new QComboBox;
     afterDelete_->setObjectName(QStringLiteral("navigation/afterDelete"));
-    afterDelete_->addItem(IX_TEXT("Schwarze Anzeige"), 1);
-    afterDelete_->addItem(IX_TEXT("Nächstes Bild öffnen"), 0);
-    afterDelete_->setCurrentIndex(qMax(0, afterDelete_->findData(
-        settings.value(QStringLiteral("navigation/afterDelete"), 1).toInt())));
+    afterDelete_->addItem(IX_TEXT("Schwarze Anzeige"), int(AfterDelete::StayEmpty));
+    afterDelete_->addItem(IX_TEXT("Nächstes Bild öffnen"), int(AfterDelete::OpenNext));
+    // The items are intentionally not in enum order, so look the row up by its
+    // stored value instead of mistaking the value for the row index.
+    afterDelete_->setCurrentIndex(qMax(0, afterDelete_->findData(int(afterDeleteMode(
+        settings.value(QStringLiteral("navigation/afterDelete"), int(AfterDelete::StayEmpty)).toInt())))));
     navigation->addRow(IX_TEXT("Nach dem Löschen:"), afterDelete_);
     check(navigation, QStringLiteral("navigation/reverse"), IX_TEXT("Absteigend sortieren"), false);
     check(navigation, QStringLiteral("navigation/wrap"),

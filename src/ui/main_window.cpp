@@ -1116,18 +1116,56 @@ void MainWindow::navigate(int direction) {
     // index rebuilds. Falling through means there is nothing to resume into.
     if (isRemovalPlaceholder()) {
         const auto intent = std::clamp(direction + pendingNavigation_, -10000, 10000);
-        const auto resume = intent > 0 ? resumeNextPath_ : intent < 0 ? resumePreviousPath_ : QString();
-        if (!resume.isEmpty()) {
+        if (!indexReady_) {
+            // New files may be arriving in a moment; keep queued steps like the
+            // unrelated listing edge below instead of falling through to ordinary
+            // traversal, which would reopen the edges even with wrap off.
+            pendingNavigation_ = intent;
+            return;
+        }
+        // intent == 0 is a pure status refresh (for example updateStatus after a
+        // deletion with no queued steps): do not synthesize a step from it.
+        if (intent == 0)
+            return;
+        const auto resume = intent > 0 ? resumeNextPath_ : resumePreviousPath_;
+        if (!resume.isEmpty() || !files_.isEmpty()) {
             const auto step = intent > 0 ? 1 : -1;
-            removedDocumentPath_.clear();
-            resumeNextPath_.clear();
-            resumePreviousPath_.clear();
-            openRequested({resume, 0, true});
+            if (!resume.isEmpty()) {
+                removedDocumentPath_.clear();
+                resumeNextPath_.clear();
+                resumePreviousPath_.clear();
+                openRequested({resume, 0, true});
+            } else {
+                // The resume slot is stale (new files arrived after the removal),
+                // but the listing is newer than the slot, so continue there
+                // instead of stranding navigation in the black state.
+                removedDocumentPath_.clear();
+                resumeNextPath_.clear();
+                resumePreviousPath_.clear();
+                const auto traversal = FolderTraversal::start(
+                    files_, fileIndex_, step,
+                    QSettings().value(QStringLiteral("navigation/wrap"), true).toBool(), document_.path);
+                if (traversal)
+                    openRequested({traversal->path(), 0, true, std::move(*traversal)});
+                else {
+                    // At the edge with wrap off there is nowhere to go: consume
+                    // the intent instead of queueing it again forever.
+                    pendingNavigation_ = 0;
+                    return;
+                }
+            }
             // An explicit open clears the queue, so the remaining steps of this
             // burst are re-queued afterwards.
             pendingNavigation_ = std::clamp(intent - step, -10000, 10000);
             return;
         }
+        // Nothing to resume into and nothing new on disk: stay on the black
+        // state instead of falling through to ordinary traversal, which would
+        // reopen the edges (for example file 0 after the last file was removed)
+        // even with wrap off. Keep queued steps, like the listing edge does, so
+        // holding the arrow key across a rebuild keeps working.
+        pendingNavigation_ = intent;
+        return;
     }
     if (!indexReady_) {
         pendingNavigation_ = std::clamp(pendingNavigation_ + direction, -10000, 10000);

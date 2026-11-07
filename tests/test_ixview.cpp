@@ -39,6 +39,7 @@
 #include "ui/resize_dialog.h"
 #include "ui/rotation_dialog.h"
 #include "ui/settings_dialog.h"
+#include "ui/file_navigation.h"
 #include "ui/worker_wait.h"
 #include <QBuffer>
 #include <QColorSpace>
@@ -956,6 +957,7 @@ class IxTests : public QObject {
         // Absent means the black state, so an untouched profile stays empty after a
         // deletion; verify the combo reports that and stores the opt-out.
         settings.remove(QStringLiteral("navigation/afterDelete"));
+        settings.sync();
         {
             ix::SettingsDialog dialog;
             auto *combo = dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"));
@@ -965,6 +967,7 @@ class IxTests : public QObject {
             dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
             QCOMPARE(dialog.result(), int(QDialog::Accepted));
         }
+        settings.sync();
         QCOMPARE(settings.value(QStringLiteral("navigation/afterDelete")).toInt(), 0);
         {
             // Reopening shows the stored choice rather than the default.
@@ -972,6 +975,25 @@ class IxTests : public QObject {
             QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"))
                          ->currentData().toInt(), 0);
         }
+        // Out-of-range values cannot flip the default: they clamp to staying empty.
+        settings.setValue(QStringLiteral("navigation/afterDelete"), 99);
+        settings.sync();
+        {
+            ix::SettingsDialog dialog;
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"))
+                         ->currentData().toInt(), 1);
+        }
+        settings.setValue(QStringLiteral("navigation/afterDelete"), -7);
+        settings.sync();
+        {
+            ix::SettingsDialog dialog;
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("navigation/afterDelete"))
+                         ->currentData().toInt(), 1);
+        }
+        QCOMPARE(ix::afterDeleteMode(0), ix::AfterDelete::OpenNext);
+        QCOMPARE(ix::afterDeleteMode(1), ix::AfterDelete::StayEmpty);
+        QCOMPARE(ix::afterDeleteMode(99), ix::AfterDelete::StayEmpty);
+        QCOMPARE(ix::afterDeleteMode(-99), ix::AfterDelete::StayEmpty);
     }
     void settingsApplyImmediatelyToMainWindow() {
         QSettings settings;

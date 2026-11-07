@@ -46,7 +46,13 @@ inline QString previousPathAfterRemoval(const QStringList &files, qsizetype inde
         if (!matches(files.at(i))) return files.at(i);
     return {};
 }
-// 0 keeps the previous behaviour (open the following image), 1 leaves the view in
-// its deliberate black state after a deletion.
-inline bool afterDeleteStaysEmpty(int value) { return value != 0; }
+// StayEmpty keeps the deliberate black state of a deletion (the default) while
+// OpenNext restores the previous behaviour of opening the following image.
+enum class AfterDelete { OpenNext = 0, StayEmpty = 1 };
+// Clamp hand-edited values so an out-of-range setting cannot silently flip the
+// default behaviour; unknown values fall back to staying empty.
+inline AfterDelete afterDeleteMode(int value) {
+    return value == int(AfterDelete::OpenNext) ? AfterDelete::OpenNext : AfterDelete::StayEmpty;
+}
+inline bool afterDeleteStaysEmpty(int value) { return afterDeleteMode(value) == AfterDelete::StayEmpty; }
 } // namespace ix
