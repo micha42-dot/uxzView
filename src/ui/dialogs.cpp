@@ -460,6 +460,82 @@ void histogramDialog(QWidget *parent, const QImage &image) {
     cancelled->store(true);
     watcher.waitForFinished();
 }
+void colorPickerDialog(QWidget *parent, const QImage &image, QPoint position) {
+    // A single document pixel, nothing derived: the dialog shows exactly the
+    // stored value, independent of zoom, fit or display sharpening. Out-of-range
+    // positions cannot occur (the picker clamps), but guard anyway.
+    const QColor color = (position.x() >= 0 && position.y() >= 0 && position.x() < image.width() &&
+                          position.y() < image.height())
+                             ? image.pixelColor(position.x(), position.y())
+                             : QColor();
+    if (!color.isValid())
+        return;
+    const QString hex = QStringLiteral("#%1%2%3")
+                            .arg(color.red(), 2, 16, QLatin1Char('0'))
+                            .arg(color.green(), 2, 16, QLatin1Char('0'))
+                            .arg(color.blue(), 2, 16, QLatin1Char('0'))
+                            .toUpper();
+    const QString rgb = QStringLiteral("%1, %2, %3").arg(color.red()).arg(color.green()).arg(color.blue());
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("colorPickerDialog"));
+    dialog.setWindowTitle(IX_TEXT("Farbpipette"));
+    dialog.resize(320, 220);
+    auto *layout = dialogLayout(&dialog);
+    auto *swatch = new QLabel;
+    swatch->setObjectName(QStringLiteral("colorPickerSwatch"));
+    swatch->setMinimumHeight(64);
+    swatch->setFrameStyle(QFrame::Box);
+    swatch->setAutoFillBackground(true);
+    QPalette palette = swatch->palette();
+    palette.setColor(QPalette::Window, color);
+    swatch->setPalette(palette);
+    swatch->setAccessibleName(IX_TEXT("Gewählte Farbe"));
+    layout->addWidget(swatch);
+    auto *positionLabel = new QLabel(IX_TEXT("Pixel (%1, %2)").arg(position.x()).arg(position.y()));
+    positionLabel->setObjectName(QStringLiteral("colorPickerPosition"));
+    positionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(positionLabel);
+    auto *hexRow = new QHBoxLayout;
+    auto *hexLabel = new QLabel(QStringLiteral("Hex:"));
+    auto *hexValue = new QLineEdit(hex);
+    hexValue->setObjectName(QStringLiteral("colorPickerHex"));
+    hexValue->setReadOnly(true);
+    auto *hexCopy = new QPushButton(IX_TEXT("Hex kopieren"));
+    hexCopy->setObjectName(QStringLiteral("colorPickerCopyHex"));
+    QObject::connect(hexCopy, &QPushButton::clicked, hexCopy, [hexCopy, hex] {
+        QApplication::clipboard()->setText(hex);
+        hexCopy->setText(IX_TEXT("Hex in Zwischenablage kopiert."));
+    });
+    hexRow->addWidget(hexLabel);
+    hexRow->addWidget(hexValue, 1);
+    hexRow->addWidget(hexCopy);
+    layout->addLayout(hexRow);
+    auto *rgbRow = new QHBoxLayout;
+    auto *rgbLabel = new QLabel(QStringLiteral("RGB:"));
+    auto *rgbValue = new QLineEdit(rgb);
+    rgbValue->setObjectName(QStringLiteral("colorPickerRgb"));
+    rgbValue->setReadOnly(true);
+    auto *rgbCopy = new QPushButton(IX_TEXT("RGB kopieren"));
+    rgbCopy->setObjectName(QStringLiteral("colorPickerCopyRgb"));
+    QObject::connect(rgbCopy, &QPushButton::clicked, rgbCopy, [rgbCopy, rgb] {
+        QApplication::clipboard()->setText(rgb);
+        rgbCopy->setText(IX_TEXT("RGB in Zwischenablage kopiert."));
+    });
+    rgbRow->addWidget(rgbLabel);
+    rgbRow->addWidget(rgbValue, 1);
+    rgbRow->addWidget(rgbCopy);
+    layout->addLayout(rgbRow);
+    if (color.alpha() < 255) {
+        auto *alphaLabel = new QLabel(IX_TEXT("Alpha: %1").arg(color.alpha()));
+        alphaLabel->setObjectName(QStringLiteral("colorPickerAlpha"));
+        alphaLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(alphaLabel);
+    }
+    auto *close = new QDialogButtonBox(QDialogButtonBox::Close);
+    layout->addWidget(close);
+    QObject::connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.exec();
+}
 void formatDialog(QWidget *p, const CodecRegistry &registry) {
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("üxzView – verfügbare Bildformate"));

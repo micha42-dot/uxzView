@@ -662,6 +662,13 @@
           "accessKey": null
         },
         {
+          "label": "Farbpipette...",
+          "shortcut": "",
+          "command": "colorPicker",
+          "verification": null,
+          "accessKey": null
+        },
+        {
           "label": "Farbe ersetzen...",
           "originalId": 127,
           "shortcut": "",

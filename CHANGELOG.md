@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add a color picker for single pixels under Bild → Farbpipette and in the image
+  context menu next to the QR and OCR tools. Picking arms the view with a cross
+  cursor; a left click opens the color (hex, RGB, position) with copy buttons,
+  a right click or Esc cancels. Document pixels are shown, independent of zoom
+  or display sharpening; any other command or a new image leaves the mode.
 - Keep the window responsive while a GUI-owned worker finishes: the join loop no
   longer suppresses user input (commands stay blocked by DocumentActivity,
   closing stays deferred, and only the caller's modal window takes clicks).

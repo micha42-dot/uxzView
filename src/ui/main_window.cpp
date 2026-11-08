@@ -155,6 +155,16 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     });
     connect(view_, &ImageView::navigate, this, &MainWindow::navigate);
     connect(view_, &ImageView::commandRequested, this, &MainWindow::dispatch);
+    connect(view_, &ImageView::colorPicked, this, [this](QPoint position) {
+        // The picker owns the click: picking ends the mode in both cases, and
+        // only a real pixel opens the dialog. (-1, -1) is the cancel signal for
+        // right-click, drags and clicks outside the image.
+        view_->setColorPicking(false);
+        updateStatus();
+        if (position.x() < 0 || document_.empty())
+            return;
+        colorPickerDialog(this, document_.pixels, position);
+    });
     connect(view_, &ImageView::pageRequested, this, [this](int direction) {
         if (activity_.busy()) {
             showBusyHint(true);
@@ -855,6 +865,8 @@ void MainWindow::buildExtraFeatures() {
         if (activity_.busy() || document_.empty()) return;
         QMenu menu(this);
         menu.setObjectName(QStringLiteral("imageRecognitionMenu"));
+        menu.addAction(actions_.value(QStringLiteral("colorPicker")));
+        menu.addSeparator();
         menu.addAction(actions_.value(QStringLiteral("zxing-cpp")));
         menu.addAction(actions_.value(QStringLiteral("tesseract-ocr")));
         menu.exec(position);
@@ -995,10 +1007,12 @@ void MainWindow::handleLoadFailure(const QString &error, DeferredOpen request) {
 }
 void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHistory) {
     // Any installed document ends the black state a deletion left behind, so a
-    // stale resume slot can never redirect a later navigation.
+    // stale resume slot can never redirect a later navigation. It also ends a
+    // pending color pick: the armed click belongs to the previous pixels.
     removedDocumentPath_.clear();
     resumeNextPath_.clear();
     resumePreviousPath_.clear();
+    view_->setColorPicking(false);
     const bool profileLoad = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
     QElapsedTimer loadTimer;
     if (profileLoad) loadTimer.start();
@@ -1735,6 +1749,12 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (QApplication::activeModalWidget())
         return;
+    // The picker arms exactly one click; any other command disarms it without
+    // side effects, so a stray mode can never shadow selection, pan or zoom.
+    if (cmd != QStringLiteral("colorPicker") && view_->colorPicking()) {
+        view_->setColorPicking(false);
+        updateStatus();
+    }
     if (cmd == QStringLiteral("open")) {
         auto p = openImageFile(this, IX_TEXT("Öffnen"),
                                QSettings().value(QStringLiteral("files/directory")).toString(), registry_);
@@ -2328,6 +2348,19 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (cmd == QStringLiteral("histogram")) {
         histogramDialog(this, document_.pixels);
+        return;
+    }
+    if (cmd == QStringLiteral("colorPicker")) {
+        if (document_.empty())
+            return;
+        // Entering the mode never edits: it only arms the next click. Any other
+        // command (including a second colorPicker while already picking) leaves
+        // it cleanly; navigation and edits keep working afterwards.
+        view_->setColorPicking(!view_->colorPicking());
+        view_->setInformationOverlay(view_->colorPicking()
+                                         ? IX_TEXT("Farbpipette: Klicke auf ein Pixel im Bild. Rechtsklick bricht ab.")
+                                         : QString(),
+                                     Qt::TopLeftCorner);
         return;
     }
 

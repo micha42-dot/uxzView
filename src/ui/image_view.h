@@ -40,6 +40,10 @@ class ImageView : public QAbstractScrollArea {
     QSize selectionAspectRatio() const {
         return aspectRatio_;
     }
+    void setColorPicking(bool value);
+    bool colorPicking() const {
+        return colorPicking_;
+    }
     QColor background = Qt::black;
     bool grid = false;
     QImage screenshot() const;
@@ -52,6 +56,7 @@ class ImageView : public QAbstractScrollArea {
     void selectionChanged(QRect);
     void navigate(int);
     void toggleFullscreen();
+    void colorPicked(QPoint imagePosition);
     void commandRequested(const QString &command);
     void pageRequested(int direction);
     void recognitionMenuRequested(QPoint globalPosition);
@@ -88,6 +93,7 @@ class ImageView : public QAbstractScrollArea {
     QRect movingSelection_;
     QSize selectionRatio_;
     QSize aspectRatio_;
+    bool colorPicking_ = false;
     bool fullscreenClick_ = false, clickDragged_ = false;
     Qt::MouseButton clickButton_ = Qt::NoButton;
     bool moving_ = false;

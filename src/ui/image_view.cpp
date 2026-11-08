@@ -49,6 +49,13 @@ void ImageView::setUnavailable(bool value) {
     unavailable_ = value;
     viewport()->update();
 }
+void ImageView::setColorPicking(bool value) {
+    if (colorPicking_ == value) return;
+    colorPicking_ = value;
+    if (!value)
+        setInformationOverlay({}, Qt::TopLeftCorner);
+    viewport()->update();
+}
 void ImageView::setZoom(double v) {
     fit_ = Fit::Original;
     zoom_ = std::clamp(v, .001, 64.0);
@@ -320,6 +327,10 @@ void ImageView::updateCursor(QPoint point) {
         viewport()->setCursor(Qt::BlankCursor);
         return;
     }
+    if (colorPicking_) {
+        viewport()->setCursor(Qt::CrossCursor);
+        return;
+    }
     if (selecting_) {
         viewport()->setCursor(Qt::CrossCursor);
         return;
@@ -392,6 +403,16 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
     clickButton_ = e->button();
     clickDragged_ = false;
     panStart_ = point;
+    if (colorPicking_) {
+        // The picker consumes the whole gesture: left picks the pixel under the
+        // cursor, right (or Esc, handled by the owner) cancels without picking.
+        // No selection, pan or navigation may start from this press.
+        selecting_ = panning_ = moving_ = false;
+        fullscreenClick_ = false;
+        updateCursor(point);
+        e->accept();
+        return;
+    }
     if (image_.isNull()) { e->accept(); return; }
     if (e->button() == Qt::LeftButton) {
         if (insideImage(point) && !fullscreenClick_ && (!aspectRatio_.isValid() || e->modifiers().testFlag(Qt::ControlModifier)) &&
@@ -471,6 +492,21 @@ void ImageView::mouseMoveEvent(QMouseEvent *e) {
 }
 void ImageView::mouseReleaseEvent(QMouseEvent *e) {
     mouseMoveEvent(e);
+    if (colorPicking_) {
+        // Release dispatches: a plain left click picks, a right click cancels.
+        // A drag never picks, so reconsidering the target cannot smear the value.
+        const bool plainLeft = e->button() == Qt::LeftButton && !clickDragged_;
+        const auto at = insideImage(e->position().toPoint()) ? imagePoint(e->position().toPoint()) : QPoint(-1, -1);
+        clickButton_ = Qt::NoButton;
+        fullscreenClick_ = false;
+        updateCursor(e->position().toPoint());
+        if (plainLeft && at.x() >= 0)
+            emit colorPicked(at);
+        else
+            emit colorPicked(QPoint(-1, -1));
+        e->accept();
+        return;
+    }
     if (e->button() == Qt::LeftButton && !clickDragged_ && selection_.isEmpty())
         aspectRatio_ = {};
     const bool navigateClick = fullscreenClick_ && !clickDragged_ && e->button() == clickButton_;
@@ -487,6 +523,12 @@ void ImageView::mouseReleaseEvent(QMouseEvent *e) {
     e->accept();
 }
 void ImageView::contextMenuEvent(QContextMenuEvent *event) {
+    if (colorPicking_) {
+        // The picker owns right-click as its cancel gesture; never open the
+        // recognition menu from it.
+        event->accept();
+        return;
+    }
     if (event->reason() == QContextMenuEvent::Keyboard && !image_.isNull())
         emit recognitionMenuRequested(viewport()->mapToGlobal(viewport()->rect().center()));
     // Mouse menus are dispatched on release so a right drag keeps moving/panning.
@@ -523,6 +565,12 @@ void ImageView::wheelEvent(QWheelEvent *e) {
     e->accept();
 }
 bool ImageView::handleKey(QKeyEvent *e) {
+    if (colorPicking_ && e->key() == Qt::Key_Escape && e->modifiers() == Qt::NoModifier) {
+        // Cancel the armed pick without touching selection, pan or navigation.
+        emit colorPicked(QPoint(-1, -1));
+        e->accept();
+        return true;
+    }
     if (image_.isNull() && !unavailable_)
         return false;
     const auto mods =

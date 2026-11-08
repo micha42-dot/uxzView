@@ -5185,6 +5185,97 @@ class IxTests : public QObject {
         QVERIFY(!window.document().modified);
         QCOMPARE(window.document().pixels, d.pixels);
     }
+    void colorPickerShowsDocumentPixel() {
+        // A known pixel through the real dialog: swatch values must match the
+        // stored document pixel exactly, not a display derivative.
+        QImage image(8, 8, QImage::Format_ARGB32);
+        image.fill(QColor(18, 52, 86, 255));
+        image.setPixelColor(3, 5, QColor(0x11, 0x22, 0x33, 255));
+        {
+            QTimer dialogTimer;
+            dialogTimer.setSingleShot(true);
+            QObject::connect(&dialogTimer, &QTimer::timeout, this, [] {
+                auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                QCOMPARE(dialog->objectName(), QStringLiteral("colorPickerDialog"));
+                auto *hex = dialog->findChild<QLineEdit *>(QStringLiteral("colorPickerHex"));
+                auto *rgb = dialog->findChild<QLineEdit *>(QStringLiteral("colorPickerRgb"));
+                QVERIFY(hex && rgb);
+                QCOMPARE(hex->text(), QStringLiteral("#112233"));
+                QCOMPARE(rgb->text(), QStringLiteral("17, 34, 51"));
+                QCOMPARE(dialog->findChild<QLabel *>(QStringLiteral("colorPickerPosition"))->text(),
+                         QStringLiteral("Pixel (3, 5)"));
+                QVERIFY(!dialog->findChild<QLabel *>(QStringLiteral("colorPickerAlpha")));
+                dialog->reject();
+            });
+            dialogTimer.start(0);
+            ix::colorPickerDialog(nullptr, image, {3, 5});
+        }
+        // Alpha channel surfaces only when the pixel is not opaque.
+        image.setPixelColor(3, 5, QColor(0x11, 0x22, 0x33, 128));
+        {
+            QTimer dialogTimer;
+            dialogTimer.setSingleShot(true);
+            QObject::connect(&dialogTimer, &QTimer::timeout, this, [] {
+                auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                auto *alpha = dialog->findChild<QLabel *>(QStringLiteral("colorPickerAlpha"));
+                QVERIFY(alpha);
+                QVERIFY(alpha->text().contains(QStringLiteral("128")));
+                dialog->reject();
+            });
+            dialogTimer.start(0);
+            ix::colorPickerDialog(nullptr, image, {3, 5});
+        }
+    }
+    void colorPickerMenuAndPickFlow() {
+        // Menu entry, context entry, mode lifecycle and the click pipeline.
+        const auto path = dir(QStringLiteral("picker.png"));
+        QImage source(64, 48, QImage::Format_ARGB32);
+        source.fill(QColor(10, 20, 30, 255));
+        source.setPixelColor(7, 9, QColor(0xAA, 0xBB, 0xCC, 255));
+        QVERIFY(source.save(path));
+        ix::MainWindow window;
+        window.openPath(path);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.document().empty(), 10000);
+        auto *menuAction = window.findChild<QAction *>(QStringLiteral("colorPicker"));
+        QVERIFY(menuAction);
+        QVERIFY(menuAction->isEnabled());
+        auto *view = window.findChild<ix::ImageView *>();
+        QVERIFY(view);
+        QVERIFY(!view->colorPicking());
+        window.dispatch(QStringLiteral("colorPicker"));
+        QVERIFY(view->colorPicking());
+        QTest::keyClick(view->viewport(), Qt::Key_Escape);
+        QVERIFY(!view->colorPicking());
+        window.dispatch(QStringLiteral("colorPicker"));
+        QVERIFY(view->colorPicking());
+        // A click outside the image cancels instead of picking.
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(-10, -10));
+        QVERIFY(!view->colorPicking());
+        window.dispatch(QStringLiteral("colorPicker"));
+        QVERIFY(view->colorPicking());
+        // Pick the known pixel through the real view pipeline.
+        QTimer pickTimer;
+        pickTimer.setSingleShot(true);
+        QObject::connect(&pickTimer, &QTimer::timeout, this, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            QCOMPARE(dialog->objectName(), QStringLiteral("colorPickerDialog"));
+            QCOMPARE(dialog->findChild<QLineEdit *>(QStringLiteral("colorPickerHex"))->text(),
+                     QStringLiteral("#AABBCC"));
+            dialog->reject();
+        });
+        pickTimer.start(0);
+        view->setZoom(1.0);
+        QTRY_VERIFY_WITH_TIMEOUT(view->visibleImageRect().contains(QPoint(7, 9)), 10000);
+        const QPoint viewportPoint = view->visibleImageRect().topLeft() + QPoint(7, 9);
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, viewportPoint);
+        QTRY_VERIFY_WITH_TIMEOUT(!view->colorPicking(), 10000);
+        // Never let the dialog timer outlive this test: a pending singleShot
+        // would otherwise close the next test's dialog.
+        pickTimer.stop();
+    }
     void histogramWorker() {
         QTimer::singleShot(0, this, [] {
             auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());

@@ -34,6 +34,7 @@ bool selectionDialog(QWidget *parent, QSize imageSize, QRect &selection);
 bool canvasDialog(QWidget *parent, int &left, int &right, int &top, int &bottom, QColor &color);
 void imageInformation(QWidget *parent, const ImageDocument &document);
 void histogramDialog(QWidget *parent, const QImage &image);
+void colorPickerDialog(QWidget *parent, const QImage &image, QPoint position);
 void formatDialog(QWidget *parent, const CodecRegistry &registry);
 BatchFileChanges batchDialog(QWidget *parent, const QStringList &initial);
 bool settingsDialog(QWidget *parent);
