@@ -347,7 +347,12 @@ bool selectionDialog(QWidget *p, QSize image, QRect &r) {
 QImage renderTextOverlay(const QImage &source, const TextOverlay &overlay, const QRect &area) {
     // The single place that draws text: dialog preview and final application
     // call exactly this, so the preview cannot diverge from the result.
-    auto image = source.convertToFormat(source.depth() > 32 ? QImage::Format_RGBA64 : QImage::Format_ARGB32);
+    const auto wanted =
+        source.depth() > 32 ? QImage::Format_RGBA64 : QImage::Format_ARGB32;
+    auto image = (source.format() == wanted || source.isNull())
+                     ? source
+                     : source.convertToFormat(wanted);
+    image.detach();
     if (overlay.text.isEmpty() || area.isEmpty())
         return image;
     QPainter painter(&image);
@@ -445,6 +450,17 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
     placeLabel->setWordWrap(true);
     placeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     previewBox->addWidget(placeLabel);
+    // The preview source never changes while the dialog lives: scale it once
+    // instead of on every keystroke.
+    const double factor = std::min(1.0, 480.0 / std::max(1, previewSource.width()));
+    const QImage small = factor >= 1.0 ? previewSource
+                                        : previewSource.scaledToWidth(
+                                              qMax(1, qRound(previewSource.width() * factor)));
+    const QRect smallArea =
+        factor >= 1.0 ? area
+                      : QRect(qRound(area.x() * factor), qRound(area.y() * factor),
+                              qMax(1, qRound(area.width() * factor)),
+                              qMax(1, qRound(area.height() * factor)));
     // The preview shows the selection, not the whole image: crop around the
     // text area with a margin, then scale to the label. The area stays fully
     // visible however small it is relative to the image.
@@ -464,16 +480,9 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
             placeLabel->clear();
             return;
         }
-        // The caller passes the full document with the full area; the dialog
-        // scales once for the preview. The factor also scales the point size so
-        // the preview and the final render use the same relative metrics.
-        const double factor = std::min(1.0, 480.0 / std::max(1, previewSource.width()));
-        const QImage small = previewSource.scaledToWidth(qMax(1, qRound(previewSource.width() * factor)));
-        const QRect smallArea = factor >= 1.0
-                                    ? area
-                                    : QRect(qRound(area.x() * factor), qRound(area.y() * factor),
-                                            qMax(1, qRound(area.width() * factor)),
-                                            qMax(1, qRound(area.height() * factor)));
+        // The caller passes the full document with the full area; the small image
+        // and area above were scaled once. The factor also scales the point size
+        // so the preview and the final render use the same relative metrics.
         TextOverlay scaled = overlay;
         if (factor < 1.0)
             scaled.pointSize = qMax(1, qRound(overlay.pointSize * factor));
