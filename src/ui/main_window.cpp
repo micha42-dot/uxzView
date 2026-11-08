@@ -2639,6 +2639,14 @@ void MainWindow::commitZoomEdit() {
         view_->setZoom(value / 100);
 }
 void MainWindow::keyPressEvent(QKeyEvent *e) {
+    if (e->key() == Qt::Key_Escape && e->modifiers() == Qt::NoModifier && view_->colorPicking()) {
+        // The armed pick is the innermost gesture: cancel it before fullscreen,
+        // slideshow or close can consume the key.
+        view_->setColorPicking(false);
+        updateStatus();
+        e->accept();
+        return;
+    }
     if (e->key() == Qt::Key_Escape) {
         if (isFullScreen())
             fullscreen();

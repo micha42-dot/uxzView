@@ -54,6 +54,7 @@ void ImageView::setColorPicking(bool value) {
     colorPicking_ = value;
     if (!value)
         setInformationOverlay({}, Qt::TopLeftCorner);
+    updateCursor(viewport()->mapFromGlobal(QCursor::pos()));
     viewport()->update();
 }
 void ImageView::setZoom(double v) {
