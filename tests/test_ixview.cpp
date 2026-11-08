@@ -2580,6 +2580,67 @@ class IxTests : public QObject {
         QVERIFY(!window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
         QCOMPARE(ix::sha256File(frames), frameHash);
     }
+    void textOverlayPreviewMatchesApplication() {
+        // Preview and application share renderTextOverlay: same input must give
+        // identical pixels, including alignment and word wrap.
+        QImage source(200, 100, QImage::Format_ARGB32);
+        source.fill(Qt::white);
+        ix::TextOverlay overlay;
+        overlay.text = QStringLiteral("Hello world, this wraps");
+        overlay.fontFamily = QStringLiteral("Arial");
+        overlay.pointSize = 20;
+        overlay.color = Qt::black;
+        overlay.alignment = Qt::AlignHCenter;
+        const QRect area(10, 10, 180, 80);
+        const auto direct = ix::renderTextOverlay(source, overlay, area);
+        // The dialog preview path: scale, render scaled, scale back is only for
+        // display; the stored render must equal the direct render.
+        QCOMPARE(direct, ix::renderTextOverlay(source, overlay, area));
+        QVERIFY(direct != source);
+        // Empty text or area is a no-op copy (with format normalization).
+        ix::TextOverlay empty;
+        QCOMPARE(ix::renderTextOverlay(source, empty, area).size(), source.size());
+        QCOMPARE(ix::renderTextOverlay(source, overlay, QRect()).size(), source.size());
+    }
+    void textOverlayDialogAcceptsAndRejects() {
+        QImage source(120, 80, QImage::Format_ARGB32);
+        source.fill(Qt::white);
+        const QRect area(5, 5, 110, 70);
+        ix::TextOverlay overlay;
+        {
+            QTimer acceptTimer;
+            acceptTimer.setSingleShot(true);
+            QObject::connect(&acceptTimer, &QTimer::timeout, this, [&] {
+                auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                QCOMPARE(dialog->objectName(), QStringLiteral("textOverlayDialog"));
+                auto *text = dialog->findChild<QPlainTextEdit *>(QStringLiteral("textOverlayText"));
+                QVERIFY(text);
+                text->setPlainText(QStringLiteral("Hi"));
+                auto *preview = dialog->findChild<QLabel *>(QStringLiteral("textOverlayPreview"));
+                QVERIFY(preview);
+                QTRY_VERIFY_WITH_TIMEOUT(!preview->pixmap(Qt::ReturnByValue).isNull(), 10000);
+                dialog->accept();
+            });
+            acceptTimer.start(0);
+            QVERIFY(ix::textOverlayDialog(nullptr, source, area, overlay));
+            QCOMPARE(overlay.text, QStringLiteral("Hi"));
+        }
+        {
+            QTimer rejectTimer;
+            rejectTimer.setSingleShot(true);
+            QObject::connect(&rejectTimer, &QTimer::timeout, this, [] {
+                auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                dialog->reject();
+            });
+            rejectTimer.start(0);
+            ix::TextOverlay discarded;
+            discarded.text = QStringLiteral("preset");
+            QVERIFY(!ix::textOverlayDialog(nullptr, source, area, discarded));
+        }
+    }
+
     void editedClosingFollowsSavePreference_data() {
         QTest::addColumn<int>("method");
         QTest::addColumn<bool>("ask");

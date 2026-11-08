@@ -2499,28 +2499,22 @@ void MainWindow::dispatch(const QString &cmd) {
         return;
     }
     if (cmd == QStringLiteral("text")) {
-        bool ok = false;
-        QString text =
-            QInputDialog::getMultiLineText(this, IX_TEXT("Text einfügen"), IX_TEXT("Text:"), {}, &ok);
-        if (!ok || text.isEmpty())
+        if (document_.empty())
             return;
-        QFont font = QFontDialog::getFont(&ok, QFont(QStringLiteral("Arial"), 24), this);
-        if (!ok)
+        const QRect area =
+            view_->selection().isEmpty() ? document_.pixels.rect() : view_->selection();
+        // A downscaled copy keeps the dialog snappy on very large images; the
+        // final application renders the same overlay onto the full pixels.
+        const double factor = std::min(1.0, 480.0 / std::max(1, document_.pixels.width()));
+        const QImage previewSource =
+            document_.pixels.scaledToWidth(qMax(1, qRound(document_.pixels.width() * factor)));
+        const QRect previewArea(qRound(area.x() * factor), qRound(area.y() * factor),
+                                qMax(1, qRound(area.width() * factor)),
+                                qMax(1, qRound(area.height() * factor)));
+        TextOverlay overlay;
+        if (!textOverlayDialog(this, previewSource, previewArea, overlay) || overlay.text.isEmpty())
             return;
-        QColor color = QColorDialog::getColor(Qt::white, this, IX_TEXT("Textfarbe"));
-        if (!color.isValid())
-            return;
-        QRect area = view_->selection().isEmpty() ? document_.pixels.rect() : view_->selection();
-        operation([=](const QImage &s) {
-            auto image = s.convertToFormat(s.depth() > 32 ? QImage::Format_RGBA64 : QImage::Format_ARGB32);
-            QPainter painter(&image);
-            painter.setFont(font);
-            painter.setPen(color);
-            painter.drawText(area, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, text);
-            painter.end();
-            inheritImageProperties(s, image);
-            return image;
-        });
+        operation([=](const QImage &s) { return renderTextOverlay(s, overlay, area); });
         return;
     }
     if (cmd == QStringLiteral("hex")) {

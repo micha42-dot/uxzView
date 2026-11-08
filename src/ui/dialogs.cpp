@@ -344,6 +344,145 @@ bool selectionDialog(QWidget *p, QSize image, QRect &r) {
     r = QRect(x->value(), y->value(), w->value(), h->value()).intersected(QRect(QPoint(), image));
     return true;
 }
+QImage renderTextOverlay(const QImage &source, const TextOverlay &overlay, const QRect &area) {
+    // The single place that draws text: dialog preview and final application
+    // call exactly this, so the preview cannot diverge from the result.
+    auto image = source.convertToFormat(source.depth() > 32 ? QImage::Format_RGBA64 : QImage::Format_ARGB32);
+    if (overlay.text.isEmpty() || area.isEmpty())
+        return image;
+    QPainter painter(&image);
+    QFont font(overlay.fontFamily, overlay.pointSize);
+    font.setBold(overlay.bold);
+    font.setItalic(overlay.italic);
+    font.setUnderline(overlay.underline);
+    painter.setFont(font);
+    painter.setPen(overlay.color);
+    painter.drawText(area, overlay.alignment | Qt::AlignTop | Qt::TextWordWrap, overlay.text);
+    painter.end();
+    inheritImageProperties(source, image);
+    return image;
+}
+
+bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect &area,
+                       TextOverlay &overlay) {
+    QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("textOverlayDialog"));
+    dialog.setWindowTitle(IX_TEXT("Text einfügen"));
+    dialog.resize(560, 520);
+    auto *layout = dialogLayout(&dialog);
+    auto *textEdit = new QPlainTextEdit(overlay.text);
+    textEdit->setObjectName(QStringLiteral("textOverlayText"));
+    textEdit->setPlaceholderText(IX_TEXT("Text:"));
+    textEdit->setMinimumHeight(70);
+    layout->addWidget(textEdit);
+    auto *form = dialogFormLayout();
+    layout->addLayout(form);
+    auto *family = new QFontComboBox;
+    family->setObjectName(QStringLiteral("textOverlayFont"));
+    family->setCurrentFont(QFont(overlay.fontFamily));
+    form->addRow(IX_TEXT("Schriftart:"), family);
+    auto *size = new QSpinBox;
+    size->setObjectName(QStringLiteral("textOverlaySize"));
+    size->setRange(6, 500);
+    size->setValue(overlay.pointSize);
+    form->addRow(IX_TEXT("Schriftgröße:"), size);
+    auto *styleRow = new QHBoxLayout;
+    auto *bold = new QPushButton(IX_TEXT("Fett"));
+    bold->setObjectName(QStringLiteral("textOverlayBold"));
+    bold->setCheckable(true);
+    bold->setChecked(overlay.bold);
+    auto *italic = new QPushButton(IX_TEXT("Kursiv"));
+    italic->setObjectName(QStringLiteral("textOverlayItalic"));
+    italic->setCheckable(true);
+    italic->setChecked(overlay.italic);
+    auto *underline = new QPushButton(IX_TEXT("Unterstrichen"));
+    underline->setObjectName(QStringLiteral("textOverlayUnderline"));
+    underline->setCheckable(true);
+    underline->setChecked(overlay.underline);
+    styleRow->addWidget(bold);
+    styleRow->addWidget(italic);
+    styleRow->addWidget(underline);
+    form->addRow(IX_TEXT("Stil:"), styleRow);
+    auto *colorRow = new QHBoxLayout;
+    auto *swatch = new QLabel;
+    swatch->setObjectName(QStringLiteral("textOverlaySwatch"));
+    swatch->setMinimumSize(48, 24);
+    swatch->setFrameStyle(QFrame::Box);
+    swatch->setAutoFillBackground(true);
+    auto *colorButton = new QPushButton(IX_TEXT("Textfarbe"));
+    colorButton->setObjectName(QStringLiteral("textOverlayColor"));
+    colorRow->addWidget(swatch);
+    colorRow->addWidget(colorButton, 1);
+    form->addRow(IX_TEXT("Farbe:"), colorRow);
+    auto *align = new QComboBox;
+    align->setObjectName(QStringLiteral("textOverlayAlign"));
+    align->addItem(IX_TEXT("Links"), int(Qt::AlignLeft));
+    align->addItem(IX_TEXT("Zentriert"), int(Qt::AlignHCenter));
+    align->addItem(IX_TEXT("Rechts"), int(Qt::AlignRight));
+    align->setCurrentIndex(qMax(0, align->findData(int(overlay.alignment))));
+    form->addRow(IX_TEXT("Ausrichtung:"), align);
+    auto *preview = new QLabel;
+    preview->setObjectName(QStringLiteral("textOverlayPreview"));
+    preview->setMinimumHeight(160);
+    preview->setFrameStyle(QFrame::Box);
+    preview->setAlignment(Qt::AlignCenter);
+    preview->setAccessibleName(IX_TEXT("Vorschau"));
+    layout->addWidget(preview);
+    // The preview renders the same pixels the final application writes: the
+    // source scaled down, the overlay scaled by the same factor, the selection
+    // rectangle drawn dashed so the placement stays visible.
+    auto refresh = [&] {
+        overlay.text = textEdit->toPlainText();
+        overlay.fontFamily = family->currentFont().family();
+        overlay.pointSize = size->value();
+        overlay.bold = bold->isChecked();
+        overlay.italic = italic->isChecked();
+        overlay.underline = underline->isChecked();
+        overlay.alignment = Qt::Alignment(align->currentData().toInt());
+        QPalette palette = swatch->palette();
+        palette.setColor(QPalette::Window, overlay.color);
+        swatch->setPalette(palette);
+        if (area.isEmpty() || previewSource.isNull()) {
+            preview->clear();
+            return;
+        }
+        const double factor = std::min(1.0, 480.0 / std::max(1, previewSource.width()));
+        const QImage small = previewSource.scaledToWidth(qMax(1, qRound(previewSource.width() * factor)));
+        TextOverlay scaled = overlay;
+        scaled.pointSize = qMax(1, qRound(overlay.pointSize * factor));
+        const QRect smallArea(qRound(area.x() * factor), qRound(area.y() * factor),
+                              qMax(1, qRound(area.width() * factor)),
+                              qMax(1, qRound(area.height() * factor)));
+        auto rendered = renderTextOverlay(small, scaled, smallArea);
+        QPainter frame(&rendered);
+        frame.setPen(QPen(Qt::DashLine));
+        frame.drawRect(smallArea.adjusted(0, 0, -1, -1));
+        frame.end();
+        preview->setPixmap(QPixmap::fromImage(rendered));
+    };
+    QObject::connect(textEdit, &QPlainTextEdit::textChanged, &dialog, refresh);
+    QObject::connect(family, &QFontComboBox::currentFontChanged, &dialog, refresh);
+    QObject::connect(size, qOverload<int>(&QSpinBox::valueChanged), &dialog, refresh);
+    QObject::connect(bold, &QPushButton::toggled, &dialog, refresh);
+    QObject::connect(italic, &QPushButton::toggled, &dialog, refresh);
+    QObject::connect(underline, &QPushButton::toggled, &dialog, refresh);
+    QObject::connect(align, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, refresh);
+    QObject::connect(colorButton, &QPushButton::clicked, &dialog, [&] {
+        const auto next = QColorDialog::getColor(overlay.color, &dialog, IX_TEXT("Textfarbe"));
+        if (next.isValid()) {
+            overlay.color = next;
+            refresh();
+        }
+    });
+    refresh();
+    buttons(dialog, layout);
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+    refresh();
+    return true;
+}
+
+
 bool canvasDialog(QWidget *p, int &l, int &r, int &t, int &b, QColor &c) {
     QDialog d(p);
     d.setWindowTitle(IX_TEXT("Farb-Rahmen hinzufügen (Leinwandgröße ändern)"));

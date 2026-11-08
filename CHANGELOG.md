@@ -7,6 +7,11 @@
   cursor; a left click opens the color (hex, RGB, position) with copy buttons,
   a right click or Esc cancels. Document pixels are shown, independent of zoom
   or display sharpening; any other command or a new image leaves the mode.
+- Combine text overlay into a single dialog with live preview: content, font,
+  size, style, color and alignment in one place instead of three sequential
+  dialogs. The preview renders the same function the final application uses,
+  on a downscaled copy with the selection rectangle marked; cancelling leaves
+  the document untouched. Empty text does nothing.
 - Keep the window responsive while a GUI-owned worker finishes: the join loop no
   longer suppresses user input (commands stay blocked by DocumentActivity,
   closing stays deferred, and only the caller's modal window takes clicks).

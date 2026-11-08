@@ -31,6 +31,20 @@ class ColorDialog : public QDialog {
 };
 bool newImageDialog(QWidget *parent, ImageDocument &output);
 bool selectionDialog(QWidget *parent, QSize imageSize, QRect &selection);
+// Single text overlay: one dialog for content, font, size, style, color and
+// alignment with a live preview. The preview and the final application share
+// renderTextOverlay, so the preview cannot diverge from the result.
+struct TextOverlay {
+    QString text;
+    QString fontFamily = QStringLiteral("Arial");
+    int pointSize = 24;
+    bool bold = false, italic = false, underline = false;
+    QColor color = Qt::white;
+    Qt::Alignment alignment = Qt::AlignLeft;
+};
+QImage renderTextOverlay(const QImage &source, const TextOverlay &overlay, const QRect &area);
+bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect &area,
+                       TextOverlay &overlay);
 bool canvasDialog(QWidget *parent, int &left, int &right, int &top, int &bottom, QColor &color);
 void imageInformation(QWidget *parent, const ImageDocument &document);
 void histogramDialog(QWidget *parent, const QImage &image);
