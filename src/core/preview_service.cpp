@@ -536,6 +536,13 @@ bool ImageLoadCache::hasDocument(const QString &path, int page) {
     QMutexLocker lock(&cacheMutex);
     return documents.contains({absolute, revision + QLatin1Char('/') + QString::number(page)});
 }
+qint64 ImageLoadCache::speculativeAllowance() {
+    QMutexLocker lock(&cacheMutex);
+    constexpr qint64 propertyReserve = 64 * 1024;
+    return std::max<qint64>(0, std::min({64 * MiB,
+        qint64(documentBudget) - documents.totalCost() - propertyReserve,
+        cacheBudget() - retainedCacheBytes.load() - propertyReserve}));
+}
 void ImageLoadCache::configure(int imageMiB, int previewMiB, bool rawPreviews) {
     QMutexLocker lock(&cacheMutex);
     ++cacheEpoch;

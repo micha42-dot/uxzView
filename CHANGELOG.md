@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Contain neighbour-prefetch failures and reject oversized/uncacheable targets
+  before decoding. Keep header/revision I/O on the worker; preserve cached
+  originals and bound queued speculation to the latest request.
+- Preserve JPEG COM descriptions through opening and export by retaining Qt's
+  text-aware reader for commented JPEGs. Use guaranteed opaque BGRA output in
+  the direct TurboJPEG path.
+- Resume navigation after deletion through the standard bounded traversal,
+  preserving unreadable-file skipping and the wrap preference in both directions.
+- Lay out preview text in original image coordinates and DPI, then scale the
+  presentation. Cache only the bounded selected-region background; resize the
+  preview with its viewport instead of rounding a reduced font or copying tall
+  intermediate images on every keystroke.
 - Add a color picker for single pixels under Bild → Farbpipette and in the image
   context menu next to the QR and OCR tools. Picking arms the view with a cross
   cursor; a left click opens the color (hex, RGB, position) with copy buttons,
@@ -10,7 +22,7 @@
 - Combine text overlay into a single dialog with live preview: content, font,
   size, style, color and alignment in one place instead of three sequential
   dialogs. The preview renders the same function the final application uses,
-  on a downscaled copy with the selection rectangle marked; cancelling leaves
+  in original coordinates with the selection rectangle marked; cancelling leaves
   the document untouched. Empty text does nothing.
 - Keep the window responsive while a GUI-owned worker finishes: the join loop no
   longer suppresses user input (commands stay blocked by DocumentActivity,

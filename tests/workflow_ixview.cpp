@@ -384,6 +384,41 @@ class WorkflowTests : public QObject {
         QFETCH(QStringList, files); QFETCH(int, index); QFETCH(QString, source); QFETCH(QString, expected);
         QCOMPARE(ix::nextPathAfterRemoval(files, index, source), expected);
     }
+    void removalResumeRespectsWrapAndDirection_data() {
+        QTest::addColumn<int>("removed"); QTest::addColumn<int>("direction");
+        QTest::addColumn<bool>("wrap"); QTest::addColumn<int>("expected");
+        QTest::newRow("first-previous-stops") << 0 << -1 << false << -1;
+        QTest::newRow("first-previous-wraps") << 0 << -1 << true << 2;
+        QTest::newRow("first-next") << 0 << 1 << false << 1;
+        QTest::newRow("middle-next") << 1 << 1 << false << 2;
+        QTest::newRow("middle-previous") << 1 << -1 << false << 0;
+        QTest::newRow("last-next-stops") << 2 << 1 << false << -1;
+        QTest::newRow("last-next-wraps") << 2 << 1 << true << 0;
+        QTest::newRow("last-previous") << 2 << -1 << false << 1;
+    }
+    void removalResumeRespectsWrapAndDirection() {
+        QFETCH(int, removed); QFETCH(int, direction); QFETCH(bool, wrap); QFETCH(int, expected);
+        const QStringList original{QStringLiteral("/a.png"), QStringLiteral("/b.png"), QStringLiteral("/c.png")};
+        const auto source = original[removed];
+        const auto next = ix::nextPathAfterRemoval(original, removed, source, false);
+        const auto previous = ix::previousPathAfterRemoval(original, removed, source);
+        auto current = original; current.removeAt(removed);
+        const auto traversal = ix::resumeAfterRemoval(current, source, next, previous, removed, direction, wrap);
+        QCOMPARE(traversal.has_value(), expected >= 0);
+        if (expected >= 0) QCOMPARE(traversal->path(), original[expected]);
+        if (removed == 2) QVERIFY(ix::nextPathAfterRemoval(original, removed, source, false).isEmpty());
+    }
+    void removalResumeKeepsBoundedUnreadableTraversalAndNewEntries() {
+        const QString source = QStringLiteral("/a.png"), broken = QStringLiteral("/b.png"), good = QStringLiteral("/c.png");
+        auto traversal = ix::resumeAfterRemoval({broken, good}, source, broken, {}, 0, 1, false);
+        QVERIFY(traversal); QCOMPARE(traversal->path(), broken);
+        QVERIFY(traversal->advance()); QCOMPARE(traversal->path(), good);
+        QVERIFY(!traversal->advance());
+        const QString inserted = QStringLiteral("/0.png");
+        traversal = ix::resumeAfterRemoval({inserted, good}, broken, good, source, 1, 1, false);
+        QVERIFY(traversal); QCOMPARE(traversal->path(), good);
+        QVERIFY(!ix::resumeAfterRemoval({}, source, {}, {}, 0, 1, false));
+    }
     void previousPostDeleteNavigation_data() {
         QTest::addColumn<QStringList>("files");
         QTest::addColumn<int>("index");

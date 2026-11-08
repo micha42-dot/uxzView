@@ -344,28 +344,86 @@ bool selectionDialog(QWidget *p, QSize image, QRect &r) {
     r = QRect(x->value(), y->value(), w->value(), h->value()).intersected(QRect(QPoint(), image));
     return true;
 }
-QImage renderTextOverlay(const QImage &source, const TextOverlay &overlay, const QRect &area) {
-    // The single place that draws text: dialog preview and final application
-    // call exactly this, so the preview cannot diverge from the result.
-    const auto wanted =
-        source.depth() > 32 ? QImage::Format_RGBA64 : QImage::Format_ARGB32;
-    auto image = (source.format() == wanted || source.isNull())
-                     ? source
-                     : source.convertToFormat(wanted);
-    image.detach();
-    if (overlay.text.isEmpty() || area.isEmpty())
-        return image;
-    QPainter painter(&image);
+namespace {
+void paintTextOverlay(QPainter &painter, const TextOverlay &overlay, const QRect &area) {
+    if (overlay.text.isEmpty() || area.isEmpty()) return;
     QFont font(overlay.fontFamily, overlay.pointSize);
-    font.setBold(overlay.bold);
-    font.setItalic(overlay.italic);
-    font.setUnderline(overlay.underline);
-    painter.setFont(font);
-    painter.setPen(overlay.color);
+    font.setBold(overlay.bold); font.setItalic(overlay.italic); font.setUnderline(overlay.underline);
+    painter.setFont(font); painter.setPen(overlay.color);
     painter.drawText(area, overlay.alignment | Qt::AlignTop | Qt::TextWordWrap, overlay.text);
+}
+QRect textPreviewCrop(const QImage &source, QRect area) {
+    area = area.intersected(source.rect());
+    if (area.isEmpty()) return {};
+    const int margin = std::max(8, qRound(.15 * std::max(area.width(), area.height())));
+    return area.adjusted(-margin, -margin, margin, margin).intersected(source.rect());
+}
+QImage textPreviewBackground(const QImage &source, QRect crop, QSize bounds) {
+    if (crop.isEmpty() || bounds.isEmpty()) return {};
+    bounds = bounds.boundedTo({1024, 1024});
+    auto size = crop.size().scaled(bounds, Qt::KeepAspectRatio);
+    size = {std::max(1, size.width()), std::max(1, size.height())};
+    QImage background(size, QImage::Format_ARGB32_Premultiplied);
+    if (background.isNull()) return {};
+    background.setColorSpace(source.colorSpace());
+    background.setDotsPerMeterX(source.dotsPerMeterX());
+    background.setDotsPerMeterY(source.dotsPerMeterY());
+    background.fill(Qt::transparent);
+    QPainter painter(&background);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    painter.drawImage(background.rect(), source, crop);
     painter.end();
+    return background;
+}
+QImage paintTextPreview(QImage background, QRect crop, const TextOverlay &overlay,
+                         const QRect &area, bool frame) {
+    if (background.isNull()) return {};
+    QPainter painter(&background);
+    // Layout keeps original coordinates and DPI. Only rasterization is scaled;
+    // rounding a reduced point size changes glyph metrics and word wrapping.
+    painter.setWindow(crop); painter.setViewport(background.rect());
+    paintTextOverlay(painter, overlay, area);
+    if (frame) {
+        QPen pen(Qt::DashLine);
+        pen.setWidthF(std::max(double(crop.width()) / background.width(),
+                              double(crop.height()) / background.height()));
+        painter.setPen(pen); painter.drawRect(area.adjusted(0, 0, -1, -1));
+    }
+    painter.end();
+    return background;
+}
+class TextPreview final : public QLabel {
+  public:
+    TextPreview(const QImage &source, const QRect &area)
+        : source_(source), area_(area), crop_(textPreviewCrop(source, area)) {}
+    void setOverlay(const TextOverlay &overlay) { overlay_ = overlay; refresh(); }
+  protected:
+    void resizeEvent(QResizeEvent *event) override {
+        QLabel::resizeEvent(event); background_ = {}; refresh();
+    }
+  private:
+    QImage source_, background_;
+    QRect area_, crop_;
+    TextOverlay overlay_;
+    void refresh() {
+        if (background_.isNull()) background_ = textPreviewBackground(source_, crop_, contentsRect().size());
+        setPixmap(QPixmap::fromImage(paintTextPreview(background_, crop_, overlay_, area_, true)));
+    }
+};
+} // namespace
+QImage renderTextOverlay(const QImage &source, const TextOverlay &overlay, const QRect &area) {
+    const auto wanted = source.depth() > 32 ? QImage::Format_RGBA64 : QImage::Format_ARGB32;
+    auto image = source.format() == wanted || source.isNull() ? source : source.convertToFormat(wanted);
+    image.detach();
+    if (image.isNull() || overlay.text.isEmpty() || area.isEmpty()) return image;
+    QPainter painter(&image); paintTextOverlay(painter, overlay, area); painter.end();
     inheritImageProperties(source, image);
     return image;
+}
+QImage renderTextOverlayPreview(const QImage &source, const TextOverlay &overlay,
+                               const QRect &area, QSize bounds, bool frame) {
+    const auto crop = textPreviewCrop(source, area);
+    return paintTextPreview(textPreviewBackground(source, crop, bounds), crop, overlay, area, frame);
 }
 
 bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect &area,
@@ -437,33 +495,19 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
     auto *previewLabel = new QLabel(IX_TEXT("Vorschau"));
     previewLabel->setObjectName(QStringLiteral("textOverlayPreviewLabel"));
     previewBox->addWidget(previewLabel);
-    auto *preview = new QLabel;
+    auto *preview = new TextPreview(previewSource, area);
     preview->setObjectName(QStringLiteral("textOverlayPreview"));
     preview->setMinimumSize(280, 240);
     preview->setFrameStyle(QFrame::Box);
     preview->setAlignment(Qt::AlignCenter);
     preview->setAccessibleName(IX_TEXT("Vorschau"));
-    preview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    preview->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     previewBox->addWidget(preview, 1);
     auto *placeLabel = new QLabel;
     placeLabel->setObjectName(QStringLiteral("textOverlayPlace"));
     placeLabel->setWordWrap(true);
     placeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     previewBox->addWidget(placeLabel);
-    // The preview source never changes while the dialog lives: scale it once
-    // instead of on every keystroke.
-    const double factor = std::min(1.0, 480.0 / std::max(1, previewSource.width()));
-    const QImage small = factor >= 1.0 ? previewSource
-                                        : previewSource.scaledToWidth(
-                                              qMax(1, qRound(previewSource.width() * factor)));
-    const QRect smallArea =
-        factor >= 1.0 ? area
-                      : QRect(qRound(area.x() * factor), qRound(area.y() * factor),
-                              qMax(1, qRound(area.width() * factor)),
-                              qMax(1, qRound(area.height() * factor)));
-    // The preview shows the selection, not the whole image: crop around the
-    // text area with a margin, then scale to the label. The area stays fully
-    // visible however small it is relative to the image.
     auto refresh = [&] {
         overlay.text = textEdit->toPlainText();
         overlay.fontFamily = family->currentFont().family();
@@ -480,25 +524,7 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
             placeLabel->clear();
             return;
         }
-        // The caller passes the full document with the full area; the small image
-        // and area above were scaled once. The factor also scales the point size
-        // so the preview and the final render use the same relative metrics.
-        TextOverlay scaled = overlay;
-        if (factor < 1.0)
-            scaled.pointSize = qMax(1, qRound(overlay.pointSize * factor));
-        auto rendered = renderTextOverlay(small, scaled, smallArea);
-        {
-            QPainter frame(&rendered);
-            frame.setPen(QPen(Qt::DashLine));
-            frame.drawRect(smallArea.adjusted(0, 0, -1, -1));
-        }
-        // Crop to the text area with a margin so the placement is always in
-        // view, then fit the crop into the preview label.
-        const int margin = qMax(8, qRound(0.15 * std::max(smallArea.width(), smallArea.height())));
-        const QRect crop = (smallArea.adjusted(-margin, -margin, margin, margin) & rendered.rect());
-        const QSize target = preview->size().isEmpty() ? QSize(280, 240) : preview->size();
-        preview->setPixmap(QPixmap::fromImage(rendered.copy(crop).scaled(
-            target, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+        preview->setOverlay(overlay);
         placeLabel->setText(IX_TEXT("Bereich: %1 × %2 an (%3, %4)")
                                 .arg(area.width())
                                 .arg(area.height())

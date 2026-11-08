@@ -197,8 +197,11 @@ void MainWindow::fileOperation(const QString &op) {
                 IX_TEXT("Datei in den Papierkorb des Betriebssystems verschieben?\n%1").arg(source)) !=
             QMessageBox::Yes)
             return;
-        const auto next = nextPathAfterRemoval(files_, fileIndex_, source);
+        const bool wrap = QSettings().value(QStringLiteral("navigation/wrap"), true).toBool();
+        const auto next = nextPathAfterRemoval(files_, fileIndex_, source, wrap);
+        const auto nextInOrder = nextPathAfterRemoval(files_, fileIndex_, source, false);
         const auto previous = previousPathAfterRemoval(files_, fileIndex_, source);
+        const auto removedIndex = fileIndex_;
         const bool stayEmpty =
             afterDeleteStaysEmpty(QSettings().value(QStringLiteral("navigation/afterDelete"), 1).toInt());
         // The trash move is a filesystem round trip with its own progress window.
@@ -237,15 +240,18 @@ void MainWindow::fileOperation(const QString &op) {
                 // installDocument() ends any previous black state, so the resume
                 // slot for this removal is recorded afterwards.
                 removedDocumentPath_ = source;
-                resumeNextPath_ = next;
+                resumeNextPath_ = nextInOrder;
                 resumePreviousPath_ = previous;
+                removedFileIndex_ = removedIndex;
                 // The install above ran before the slot was known, so the status
                 // bar still says "unreadable file"; refresh it for "deleted".
                 updateStatus();
             } else {
                 installDocument({});
-                if (!next.isEmpty() && !deferredOpen_)
-                    openPath(next, 0, false);
+                if (!next.isEmpty() && !deferredOpen_) {
+                    auto traversal = FolderTraversal::start(files_, files_.indexOf(next) - 1, 1, wrap, source);
+                    if (traversal) openRequested({traversal->path(), 0, false, std::move(traversal)});
+                }
             }
         } else if (stayEmpty) {
             // The move failed, so the file is still there: put the picture back

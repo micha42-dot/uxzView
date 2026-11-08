@@ -1,5 +1,11 @@
 # Codex handoff prompt — TurboJPEG hardening, first-open latency, freeze elimination
 
+November 9 follow-up: [review corrections](REVIEW_FIXES_2026-11-09.md) supersede
+the neighbour-admission and text-preview descriptions below. Neighbour loads
+now pass an exception-safe, bounded native-header/cache gate. JPEG COM files use
+Qt's text-aware path, and deletion resume carries ordinary navigation policy.
+The older measurements remain historical; no new whole-viewer speedup is claimed.
+
 Living brief for a follow-up agent. It records what these sessions changed, what was
 *measured*, and what remains open. Update "Completed" and "Open" as work lands; do
 not restate the invariants as new findings, and never replace a measured number

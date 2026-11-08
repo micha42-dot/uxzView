@@ -29,6 +29,7 @@ struct JpegHeader {
     bool parsed = false; // reached the scan with a valid SOF
     bool hasIcc = false;
     bool hasExif = false; // APP1 "Exif" — the only source of a non-trivial orientation
+    bool hasComment = false;
     int components = 0;  // 3 = color; 1 = grayscale; 4 = CMYK/YCCK
     int width = 0, height = 0;                        // SOF frame size
     int densityUnits = 0, densityX = 0, densityY = 0; // JFIF APP0
@@ -57,7 +58,9 @@ JpegHeader inspectJpegHeader(const char *data, qsizetype len) {
         const qsizetype payload = i + 4;
         const qsizetype end = payload + length - 2;
         if (end > len) return out;
-        if (marker == 0xE0 && length >= 16 && std::memcmp(data + payload, "JFIF\0", 5) == 0) {
+        if (marker == 0xFE) {
+            out.hasComment = true;
+        } else if (marker == 0xE0 && length >= 16 && std::memcmp(data + payload, "JFIF\0", 5) == 0) {
             out.densityUnits = quint8(data[payload + 7]);
             out.densityX = (quint8(data[payload + 8]) << 8) | quint8(data[payload + 9]);
             out.densityY = (quint8(data[payload + 10]) << 8) | quint8(data[payload + 11]);
@@ -98,6 +101,8 @@ void finishDocument(ImageDocument &document, const QString &path,
                     const QByteArray &head, qint64 fileBytes) {
     document.path = QFileInfo(path).absoluteFilePath();
     document.fileBytes = fileBytes;
+    for (const auto &key : document.pixels.textKeys())
+        document.text.insert(key, document.pixels.text(key));
     document.metadata = readMetadata(path, document.metadataWarning);
     if (document.metadata) {
         document.sourceHasExif = document.metadata->hasExif ||
@@ -138,7 +143,7 @@ bool TurboJpegCodec::accepts(const QString &path) const {
     // ICC profiles and non-RGB component layouts (grayscale, CMYK/YCCK) must
     // keep Qt's pixel format and colour handling. A frame height of zero (DNL)
     // or a broken frame size stays with Qt as well.
-    if (!header.parsed || header.hasIcc || header.components != 3 || header.width <= 0 ||
+    if (!header.parsed || header.hasIcc || header.hasComment || header.components != 3 || header.width <= 0 ||
         header.height <= 0)
         return false;
     // JPEG always decodes to 8-bit RGB (no alpha); the guard accounts the same
@@ -179,7 +184,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     QBuffer io(&buffer);
     io.open(QIODevice::ReadOnly);
     const auto header = inspectJpegHeader(buffer.constData(), buffer.size());
-    bool useQt = header.hasIcc || (header.parsed && header.components != 3);
+    bool useQt = header.hasIcc || header.hasComment || (header.parsed && header.components != 3);
     if (!useQt && header.hasExif) {
         QImageReader reader(&io, QByteArrayLiteral("jpeg"));
         useQt = !reader.canRead() ||
@@ -221,9 +226,9 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     // Format_RGB888 is 32-bit aligned, so handing TurboJPEG pitch 0 there shears
     // every row whose width is not a multiple of four.
 #if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
-    // Format_RGB32 stores 0xffRRGGBB, which is B,G,R,X in memory (TJPF_BGRX).
+    // RGB32 requires opaque high bytes; BGRX leaves X undefined by contract.
     QImage image(width, height, QImage::Format_RGB32);
-    constexpr int pixelFormat = TJPF_BGRX;
+    constexpr int pixelFormat = TJPF_BGRA;
 #else
     // Big-endian RGB32 stores 0xff,R,G,B; keep the portable conversion there.
     QImage image(width, height, QImage::Format_RGB888);

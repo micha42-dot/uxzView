@@ -4,12 +4,15 @@
 #include "localization.h"
 #include "preview_service.h"
 #include "processing.h"
+#include "apng_codec.h"
 #include <QColorSpace>
 #include <QElapsedTimer>
 #include <QDebug>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QSettings>
 #include <QThreadPool>
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <cstring>
@@ -79,6 +82,44 @@ std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const Imag
     if (cancel && cancel->load()) return {};
     if (profile) qInfo("ix-load worker prepared %.3f ms", timer.nsecsElapsed() / 1e6);
     return PreparedImage{std::move(result->document), std::move(display), {}};
+}
+bool prefetchImage(const CodecRegistry &registry, const ImageLoadRequest &request,
+                   const std::atomic_bool *cancel) noexcept {
+    try {
+        if ((cancel && cancel->load()) || ImageLoadCache::speculativeAllowance() <= 0)
+            return false;
+        if (ImageLoadCache::hasDocument(request.path, request.page)) return true;
+        if (request.page != 0 || isRawImage(request.path)) return false;
+        const auto suffix = QFileInfo(request.path).suffix().toLower();
+        if (suffix != QStringLiteral("jpg") && suffix != QStringLiteral("jpeg") &&
+            suffix != QStringLiteral("jpe") && suffix != QStringLiteral("jfif") &&
+            suffix != QStringLiteral("png") && suffix != QStringLiteral("bmp") && suffix != QStringLiteral("dib"))
+            return false;
+        QImageReader reader(request.path);
+        const auto format = reader.format();
+        // Keep expensive/multipage codecs out of speculation. These native
+        // headers provide dimensions without developing pixels or rendering PDF.
+        if (format != "jpeg" && format != "jpg" && format != "png" && format != "bmp") return false;
+        const auto size = reader.size();
+        const auto pixelFormat = reader.imageFormat();
+        const int bytesPerPixel = pixelFormat == QImage::Format_Invalid ? 8 :
+            std::max(8, QImage::toPixelFormat(pixelFormat).bitsPerPixel() / 8);
+        const auto bytes = imageBufferBytes(size, pixelFormat == QImage::Format_Invalid
+            ? QImage::Format_RGBA64 : pixelFormat);
+        if (bytes <= 0 || bytes > ImageLoadCache::speculativeAllowance() ||
+            !safeSize(size, bytesPerPixel)) return false;
+        const auto storage = imageStorageOptions();
+        if (storage.spillThresholdBytes > 0 && bytes > storage.spillThresholdBytes) return false;
+        if ((format == "png" && ApngCodec().accepts(request.path)) ||
+            (cancel && cancel->load())) return false;
+        const auto result = loadImage(registry, request, {}, cancel);
+        return result && result->error.isEmpty() && !(cancel && cancel->load()) &&
+            ImageLoadCache::hasDocument(request.path, request.page);
+    } catch (...) {
+        // A speculative failure must never terminate the app or open a dialog.
+        // An explicit open retains its own normal error handling.
+        return false;
+    }
 }
 namespace {
 // Speculative decode state. Intentionally leaked: a decode that is still running

@@ -2,10 +2,12 @@
 #pragma once
 #include <QDir>
 #include <QStringList>
+#include "folder_traversal.h"
+#include <algorithm>
 namespace ix {
 // Folder snapshots may lag behind the current image. Never reopen the removed
 // path, even when its position is unknown or duplicated in an older snapshot.
-inline QString nextPathAfterRemoval(const QStringList &files, qsizetype index, const QString &source) {
+inline QString nextPathAfterRemoval(const QStringList &files, qsizetype index, const QString &source, bool wrap = true) {
     const auto normalized = QDir::cleanPath(source);
     const auto matches = [&](const QString &path) {
 #ifdef Q_OS_WIN
@@ -20,6 +22,7 @@ inline QString nextPathAfterRemoval(const QStringList &files, qsizetype index, c
             if (matches(files.at(i))) { index = i; break; }
     }
     for (qsizetype visited = 0; visited < files.size(); ++visited) {
+        if (!wrap && index + 1 >= files.size()) return {};
         index = index + 1 == files.size() ? 0 : index + 1;
         if (!matches(files.at(index))) return files.at(index);
     }
@@ -45,6 +48,21 @@ inline QString previousPathAfterRemoval(const QStringList &files, qsizetype inde
     for (qsizetype i = index - 1; i >= 0; --i)
         if (!matches(files.at(i))) return files.at(i);
     return {};
+}
+// Neighbour anchors locate the removed slot in a fresh listing. Traversal owns
+// unreadable-file retries and wrapping exactly as it does for ordinary arrows.
+inline std::optional<FolderTraversal> resumeAfterRemoval(const QStringList &files,
+        const QString &source, const QString &next, const QString &previous,
+        qsizetype oldIndex, int direction, bool wrap) {
+    if (files.isEmpty() || direction == 0) return {};
+    auto slot = next.isEmpty() ? qsizetype(-1) : files.indexOf(next);
+    if (slot < 0 && !previous.isEmpty()) {
+        const auto before = files.indexOf(previous);
+        if (before >= 0) slot = before + 1;
+    }
+    if (slot < 0) slot = std::clamp<qsizetype>(oldIndex, 0, files.size());
+    return FolderTraversal::start(files, direction > 0 ? slot - 1 : slot,
+                                 direction > 0 ? 1 : -1, wrap, source);
 }
 // StayEmpty keeps the deliberate black state of a deletion (the default) while
 // OpenNext restores the previous behaviour of opening the following image.

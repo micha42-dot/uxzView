@@ -1,5 +1,15 @@
 # Performance in üxzView
 
+## Bounded neighbour loading and text preview
+
+The [November 9 corrections](REVIEW_FIXES_2026-11-09.md) bound speculative
+neighbour decoding by target dimensions and spare cache capacity, with an
+exception-safe worker boundary. Unsupported/large/mapped targets are skipped
+before full decode. Text preview reuses a selected-region background bounded
+to 1024 pixels per axis; keystrokes redraw only that small raster using the
+original font metrics. These changes remove measured wasted work and incorrect
+layout; they do not establish a universal opening-time speedup.
+
 ## First-session startup and clipboard contention
 
 The [startup review](STARTUP_CLIPBOARD_2026-11-03.md) separates actual process

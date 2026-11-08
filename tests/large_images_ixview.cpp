@@ -3,9 +3,11 @@
 #include "core/codec_registry.h"
 #include "core/turbojpeg_codec.h"
 #include "core/image_loading.h"
+#include "core/preview_service.h"
 #include "core/document_history.h"
 #include "resample_reference.h"
 #include "ui/image_view.h"
+#include "ui/main_window.h"
 #include <QApplication>
 #include <QBuffer>
 #include <QColorSpace>
@@ -14,6 +16,7 @@
 #include <QImageWriter>
 #include <QPainter>
 #include <QProcess>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QStorageInfo>
 #include <QtConcurrent>
@@ -220,6 +223,41 @@ private slots:
         QVERIFY2(read.document.pixels.dotsPerMeterX() > 0, "JFIF density lost");
         QVERIFY2(read.document.pixels.dotsPerMeterY() > 0, "JFIF density lost");
     }
+    void jpegCommentsSurviveOpeningAndExport_data() {
+        QTest::addColumn<bool>("icc");
+        QTest::newRow("comment-only") << false;
+        QTest::newRow("comment-and-icc") << true;
+    }
+    void jpegCommentsSurviveOpeningAndExport() {
+        QFETCH(bool, icc); ix::configureImageStorage({false});
+        const auto path = temp_.filePath(QStringLiteral("comment.jpg"));
+        QImage image(48, 32, QImage::Format_RGB32); image.fill(Qt::blue);
+        if (icc) image.setColorSpace(QColorSpace::DisplayP3);
+        QImageWriter writer(path, "jpeg");
+        writer.setText(QStringLiteral("Description"), QStringLiteral("Copyright and caption fixture"));
+        QVERIFY(writer.write(image));
+        QImageReader reader(path); const auto expected = reader.read(); QVERIFY(!expected.isNull());
+        const auto description = expected.text(QStringLiteral("Description")); QVERIFY(!description.isEmpty());
+        ix::TurboJpegCodec codec; QVERIFY(!codec.accepts(path));
+        // Cover the re-check after accepts(), as well as normal registry fallback.
+        for (const auto &result : {codec.read(path, 0), ix::CodecRegistry().read(path)}) {
+            QVERIFY2(result.ok(), qPrintable(result.error));
+            QCOMPARE(result.document.pixels.text(QStringLiteral("Description")), description);
+            QCOMPARE(result.document.text.value(QStringLiteral("Description")), description);
+            const auto output = temp_.filePath(QStringLiteral("comment.png"));
+            QVERIFY(ix::CodecRegistry().save(result.document, output, "png", 95, true).isEmpty());
+            QCOMPARE(QImage(output).text(QStringLiteral("Description")), description);
+        }
+    }
+    void prefetchPresentationFailureDoesNotTerminate() {
+        QProcess child;
+        child.start(QCoreApplication::applicationFilePath(),
+            {QStringLiteral("--prefetch-budget-probe"), QStringLiteral("-platform"), QStringLiteral("offscreen")});
+        QVERIFY(child.waitForFinished(20000));
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(child.exitCode() == 0, child.readAllStandardError().constData());
+        QVERIFY(child.readAllStandardOutput().contains("prefetch-failure-contained"));
+    }
     void turboJpegFallsBackForGrayscaleSources() {
         ix::configureImageStorage({false, 0, temp_.path()});
         QImage image(24, 18, QImage::Format_Grayscale8);
@@ -419,6 +457,30 @@ private slots:
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
     try {
+        if (app.arguments().contains(QStringLiteral("--prefetch-budget-probe"))) {
+            QTemporaryDir profile;
+            QCoreApplication::setOrganizationName(QStringLiteral("IxPrefetchProbe"));
+            QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
+            QSettings::setDefaultFormat(QSettings::IniFormat);
+            QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, profile.path());
+            qApp->setProperty("ixStorageData", profile.path());
+            ix::initializeImageMemoryLimit(32);
+            QSettings().setValue(QStringLiteral("performance/swapEnabled"), false);
+            QSettings().setValue(QStringLiteral("view/sharpenDisplay"), true);
+            const auto first = profile.filePath(QStringLiteral("a.png"));
+            const auto next = profile.filePath(QStringLiteral("b.png"));
+            QImage tiny(64,64,QImage::Format_RGB32); tiny.fill(Qt::red); if (!tiny.save(first)) return 3;
+            QImage larger(1536,1536,QImage::Format_RGB32); larger.fill(Qt::blue); if (!larger.save(next)) return 4;
+            larger = {};
+            {
+                ix::MainWindow window; window.openPath(first);
+                QElapsedTimer timeout; timeout.start();
+                while ((!ix::ImageLoadCache::hasDocument(next) || window.isBusy()) && timeout.elapsed() < 10000)
+                    QTest::qWait(1);
+                if (window.document().path != first || !ix::ImageLoadCache::hasDocument(next)) return 5;
+            } // Joins the speculative worker, including its failed sharpening.
+            std::puts("prefetch-failure-contained"); return 0;
+        }
         if (app.arguments().contains(QStringLiteral("--leave-swap"))) {
             ix::configureImageStorage({true,32*ix::MiB,app.arguments().last(),1});
             auto image=ix::allocateImage({20,20},QImage::Format_RGB32); image.fill(Qt::green);

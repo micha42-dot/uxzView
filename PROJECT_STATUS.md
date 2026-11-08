@@ -1,6 +1,6 @@
 # Projektstatus – üxzView
 
-**Version 0.5.4 · Stand: 03.11.2026**
+**Version 0.5.4 · Stand: 09.11.2026**
 
 C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Windows 10 ab 1809, Windows 11, Linux und macOS. Fertige Pakete werden zunächst für Windows x64 vorbereitet. Native Windows-10-/Linux-/macOS-Prüfungen bleiben offen.
 
@@ -8,6 +8,7 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 
 - Bild-/Ordnernavigation, Auswahlzoom, Vollbild, Diashow, Animationen und mehrseitige Bilder; optionale Nachbarvorschauen und rechts angeordnete Befehlssuche.
 - Größenänderung einschließlich exakter Pixelverdopplung, Freistellen mit eigenen Seitenverhältnissen, Drehen, Farbkorrektur und Bild-Undo.
+- Text einfügen mit gemeinsamer Vorschau und Farbpipette für einzelne Originalpixel.
 - Visuelle Stapelverarbeitung mit Profilen, Wasserzeichen, direktem Start, automatischer Zielprüfung, Such-/Formatfiltern und optionalem CSV-Protokoll; klassische Batch-Konvertierung und Umbenennung.
 - Bildverwaltung mit Bewertungen, Farbmarkierungen, Metadatensuche, identischen Dateien und Ähnlichkeitskandidaten; Systempapierkorb.
 - Offline-Texterkennung und QR-/Barcode-Lesen für ganze Bilder oder eine Auswahl. Beide Engines und fünf OCR-Sprachen sind unter `tools` mitgeliefert, einzeln entfernbar und nur bei Bedarf aktiv. Speicherorte sind konfigurierbar.
@@ -18,6 +19,7 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Unreleased: Fehler beim spekulativen Vorladen werden abgefangen; zu große oder nicht im freien Cache unterbringbare Ziele werden vor dem Dekodieren ausgelassen. JPEG-Kommentare bleiben beim Öffnen und Export erhalten. Die Navigation nach dem Löschen respektiert wieder Überspringen und Ordnerumlauf; die Textvorschau verwendet originale Schriftmetriken und einen begrenzten Ausschnitt. [Umsetzung und Prüfnachweise](docs/REVIEW_FIXES_2026-11-09.md).
 - Unreleased: Windows-Befehlszustände fragen nur angebotene Zwischenablageformate ab, statt beim Fensteraufbau und Bildwechsel auf einen fremden OLE-Anbieter zu warten. Bei kontrolliert 1,5 Sekunden belegter Zwischenablage sank der vollständige Start mit dem bereitgestellten 24-MP-JPEG im Median von 1782 auf 437 ms. Tatsächliches Einfügen bleibt bei Qt; optionale Zeitmarken erfassen jetzt auch den Fensteraufbau. 718 Qt-Fälle bestehen lokal und im SDK-freien portablen Paket, dazu 47 Python-Tests. Der ursprüngliche einmalige 4,9-Sekunden-Ausreißer ist damit noch nicht vollständig erklärt. [Messung und Grenzen](docs/STARTUP_CLIPBOARD_2026-11-03.md).
 
 - Unreleased: Standard-Schärfen für RGB32/ARGB32 arbeitet direkt auf Byte-Pixeln, auf x64 zusätzlich mit SSE2. Im lokalen 24-MP-Vergleich sank die Filterzeit von 633 auf 83 ms beziehungsweise mit Transparenz von 696 auf 89 ms; der zusätzliche private Prozessspeicher von rund 385 auf 96 MB. Pixel, Alpha, Metadaten und bisherige Zulassungsgrenzen bleiben erhalten. 713 Qt-Fälle bestehen im Entwicklungsbuild und SDK-freien portablen Paket, dazu 47 Python-Tests. [Messwerte und Grenzen](docs/NATIVE_SHARPEN_2026-11-03.md).

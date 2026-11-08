@@ -115,6 +115,7 @@ class MainWindow : public QMainWindow {
     // document's path and the two neighbours so the first navigation resumes from
     // the slot it held instead of from the edge of the listing.
     QString removedDocumentPath_, resumeNextPath_, resumePreviousPath_;
+    qsizetype removedFileIndex_ = -1;
     int loadGeneration_ = 0;
     bool rawPreviewShown_ = false;
     ImageView::Fit windowBrowsingFit_ = ImageView::Fit::LargeOnly;

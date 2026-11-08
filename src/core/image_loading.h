@@ -36,4 +36,8 @@ std::optional<PreparedImage> loadImage(const CodecRegistry &registry, const Imag
 void prewarmImage(const QString &path);
 // Join a running prewarm before the caches and the codec plugins are destroyed.
 void finishPrewarm();
+// Worker-only, best-effort neighbour loading. Refuses uncacheable/large targets
+// before decoding and contains decoder/presentation exceptions at this boundary.
+bool prefetchImage(const CodecRegistry &registry, const ImageLoadRequest &request,
+                   const std::atomic_bool *cancel = nullptr) noexcept;
 } // namespace ix

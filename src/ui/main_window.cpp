@@ -5,6 +5,7 @@
 #include "menu_support.h"
 #include "worker_wait.h"
 #include "image_file_dialog.h"
+#include "file_navigation.h"
 #include "view_fit_options.h"
 #include "extension_dialog.h"
 #include "action_search.h"
@@ -1012,6 +1013,7 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
     removedDocumentPath_.clear();
     resumeNextPath_.clear();
     resumePreviousPath_.clear();
+    removedFileIndex_ = -1;
     view_->setColorPicking(false);
     const bool profileLoad = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
     QElapsedTimer loadTimer;
@@ -1142,33 +1144,13 @@ void MainWindow::navigate(int direction) {
         // for step 0 because FolderTraversal::start rejects it.
         if (intent == 0)
             return;
-        const auto resume = intent > 0 ? resumeNextPath_ : resumePreviousPath_;
-        if (!resume.isEmpty() || !files_.isEmpty()) {
-            const auto step = intent > 0 ? 1 : -1;
-            // The slot is cleared by installDocument, not here: if the traversal
-            // finds no edge, or the load fails without installing anything, the
-            // placeholder (and its reconcileFilePath guard) must survive.
-            if (!resume.isEmpty()) {
-                openRequested({resume, 0, true});
-            } else {
-                // The resume slot is stale (new files arrived after the removal),
-                // but the listing is newer than the slot, so continue there
-                // instead of stranding navigation in the black state.
-                const auto traversal = FolderTraversal::start(
-                    files_, fileIndex_, step,
-                    QSettings().value(QStringLiteral("navigation/wrap"), true).toBool(), document_.path);
-                if (traversal)
-                    openRequested({traversal->path(), 0, true, std::move(*traversal)});
-                else {
-                    // At the edge with wrap off there is nowhere to go: consume
-                    // the intent instead of queueing it again forever, like the
-                    // ordinary edge below does.
-                    pendingNavigation_ = 0;
-                    return;
-                }
-            }
-            // An explicit open clears the queue, so the remaining steps of this
-            // burst are re-queued afterwards.
+        if (!files_.isEmpty()) {
+            const int step = intent > 0 ? 1 : -1;
+            auto traversal = resumeAfterRemoval(files_, document_.path, resumeNextPath_,
+                resumePreviousPath_, removedFileIndex_, step,
+                QSettings().value(QStringLiteral("navigation/wrap"), true).toBool());
+            if (!traversal) { pendingNavigation_ = 0; return; }
+            openRequested({traversal->path(), 0, true, std::move(traversal)});
             pendingNavigation_ = std::clamp(intent - step, -10000, 10000);
             return;
         }
@@ -1212,11 +1194,12 @@ void MainWindow::schedulePrefetch() {
     if (next < 0 || next >= files_.size())
         return; // never speculate across the ends of the listing
     const auto path = files_.at(next);
-    if (path.isEmpty() || path == document_.path || ImageLoadCache::hasDocument(path))
+    if (path.isEmpty() || path == document_.path)
         return;
     // A newer navigation supersedes the running speculation.
     if (prefetchCancel_)
         prefetchCancel_->store(true);
+    prefetchPool_.clear();
     auto token = prefetchCancel_ = std::make_shared<std::atomic_bool>(false);
     auto registry = registry_;
     const QSettings settings;
@@ -1228,7 +1211,7 @@ void MainWindow::schedulePrefetch() {
         if (token->load())
             return;
         // Results stay in the bounded caches; the GUI installs them on navigation.
-        loadImage(registry, request, {}, token.get());
+        (void)prefetchImage(registry, request, token.get());
     });
 }
 void MainWindow::page(int direction) {

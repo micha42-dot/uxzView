@@ -67,6 +67,8 @@ class ImageLoadCache {
     static qint64 retainedBytes();
     // True while a decoded original for this path and revision is retained.
     static bool hasDocument(const QString &path, int page = 0);
+    // Spare cache space only; speculation must not evict retained originals.
+    static qint64 speculativeAllowance();
     static void clear();
     // Evict only these lexical paths, across all revisions/pages and previews.
     // Retain unrelated neighbors; older in-flight reads cannot reinsert evicted entries.

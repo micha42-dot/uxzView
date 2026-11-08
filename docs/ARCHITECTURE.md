@@ -144,6 +144,22 @@ the navigation direction on a low-priority single-thread pool. Both issue the sa
 cache; neither installs a document nor touches the GUI, and both are cancelled and
 joined before the caches are destroyed.
 
+Neighbour work uses the `prefetchImage` exception boundary in
+`core/image_loading.*`. It checks native JPEG/PNG/BMP target headers and spare
+cache capacity on the worker before decoding, with a 64 MiB pixel ceiling and
+no speculative mapped/RAW/PDF/animated loads. Queued requests are replaced by
+the latest target. These limits do not alter startup prewarm or explicit opens.
+See [review corrections](REVIEW_FIXES_2026-11-09.md) for the failure/size tests.
+
+Deletion placeholders resume through `resumeAfterRemoval` and FolderTraversal,
+using a position and non-wrapping neighbour anchors from before deletion.
+The active snapshot, unreadable-file policy and wrap setting govern the resumed
+request. It must carry traversal context rather than become an explicit open.
+
+Text preview caches a bounded selected-region background. Preview and final
+editing share original-coordinate/DPI text layout; a painter viewport transform
+scales preview rasterization. Font sizes are not reduced/rounded for layout.
+
 `MainWindow::openPath` takes its path by value. Modal save questions process
 events; directory snapshots or caller selections may change before loading
 starts. Keep an owned, implicitly shared QString across that boundary, not a

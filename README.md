@@ -16,6 +16,7 @@
 - Optional, centered thumbnail strip with 1–5 previous and next images.
 - Search for editing commands directly from the toolbar.
 - Resize, crop with preset or custom aspect ratios, rotate, flip, adjust colors and automatic correction.
+- Text overlays with live preview and a single-pixel color picker.
 - Visual batch processing with reusable profiles, watermarks and conversion reports.
 - Ratings, color labels, metadata search and duplicate detection.
 - System trash and undo/redo for image edits.

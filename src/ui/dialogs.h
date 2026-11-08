@@ -32,8 +32,7 @@ class ColorDialog : public QDialog {
 bool newImageDialog(QWidget *parent, ImageDocument &output);
 bool selectionDialog(QWidget *parent, QSize imageSize, QRect &selection);
 // Single text overlay: one dialog for content, font, size, style, color and
-// alignment with a live preview. The preview and the final application share
-// renderTextOverlay, so the preview cannot diverge from the result.
+// alignment with a live preview laid out in original coordinates.
 struct TextOverlay {
     QString text;
     QString fontFamily = QStringLiteral("Arial");
@@ -43,6 +42,8 @@ struct TextOverlay {
     Qt::Alignment alignment = Qt::AlignLeft;
 };
 QImage renderTextOverlay(const QImage &source, const TextOverlay &overlay, const QRect &area);
+QImage renderTextOverlayPreview(const QImage &source, const TextOverlay &overlay,
+                               const QRect &area, QSize bounds, bool frame = true);
 bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect &area,
                        TextOverlay &overlay);
 bool canvasDialog(QWidget *parent, int &left, int &right, int &top, int &bottom, QColor &color);

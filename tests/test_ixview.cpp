@@ -640,6 +640,46 @@ class IxTests : public QObject {
         QTRY_COMPARE_WITH_TIMEOUT(window.document().path, second, 30000);
         QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::green));
     }
+    void prefetchContainsDecoderExceptions() {
+        class ThrowingCodec final : public ix::ImageCodec {
+          public:
+            bool accepts(const QString &) const override { return true; }
+            ix::ImageResult read(const QString &, int) const override { throw std::runtime_error("decode fixture"); }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+        };
+        const auto path = dir(QStringLiteral("prefetch-throw.png"));
+        QImage image(64, 64, QImage::Format_RGB32); image.fill(Qt::red); QVERIFY(image.save(path));
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(32, 0);
+        const auto restore = qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192, 16); });
+        ix::CodecRegistry registry; registry.add(std::make_shared<ThrowingCodec>());
+        const ix::ImageLoadRequest request{path, 0, true, true, false};
+        auto work = QtConcurrent::run([&] { return ix::prefetchImage(registry, request); });
+        QVERIFY(!work.result()); QVERIFY(!ix::ImageLoadCache::hasDocument(path));
+        QVERIFY(ix::ImageLoadCache::read(ix::CodecRegistry(), path).ok());
+    }
+    void prefetchRejectsUncacheableTargetsBeforeReading() {
+        class CountingCodec final : public ix::ImageCodec {
+          public:
+            mutable int reads = 0;
+            bool accepts(const QString &) const override { return true; }
+            ix::ImageResult read(const QString &, int) const override { ++reads; return {}; }
+            QList<ix::FormatCapability> capabilities() const override { return {}; }
+        };
+        const auto path = dir(QStringLiteral("prefetch-oversized.png"));
+        QImage image(5200, 5200, QImage::Format_RGB32); image.fill(Qt::blue); QVERIFY(image.save(path)); image = {};
+        ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192, 0);
+        const auto restore = qScopeGuard([] { ix::ImageLoadCache::clear(); ix::ImageLoadCache::configure(192, 16); });
+        auto codec = std::make_shared<CountingCodec>(); ix::CodecRegistry registry; registry.add(codec);
+        QVERIFY(!ix::prefetchImage(registry, {path})); QCOMPARE(codec->reads, 0);
+        const auto small = dir(QStringLiteral("prefetch-no-space.png"));
+        image = QImage(1536, 1536, QImage::Format_RGB32); image.fill(Qt::green); QVERIFY(image.save(small)); image = {};
+        ix::ImageLoadCache::configure(8, 0);
+        QVERIFY(!ix::prefetchImage(registry, {small})); QCOMPARE(codec->reads, 0);
+        ix::ImageLoadCache::configure(0, 0);
+        QVERIFY(!ix::prefetchImage(registry, {small})); QCOMPARE(codec->reads, 0);
+        ix::ImageLoadCache::configure(192, 0); std::atomic_bool cancel = true;
+        QVERIFY(!ix::prefetchImage(registry, {small}, &cancel)); QCOMPARE(codec->reads, 0);
+    }
     void prewarmsTheCommandLineImage() {
         // A previous test may have configured a smaller budget for its own
         // eviction scenario; a cached original needs a real one.
@@ -2602,6 +2642,37 @@ class IxTests : public QObject {
         QCOMPARE(ix::renderTextOverlay(source, empty, area).size(), source.size());
         QCOMPARE(ix::renderTextOverlay(source, overlay, QRect()).size(), source.size());
     }
+    void textPreviewUsesOriginalLayout_data() {
+        QTest::addColumn<int>("width"); QTest::addColumn<int>("dpi"); QTest::addColumn<int>("points");
+        QTest::newRow("camera-small-font") << 6000 << 96 << 6;
+        QTest::newRow("wide-small-font") << 16000 << 96 << 6;
+        QTest::newRow("print-small-font") << 6000 << 300 << 6;
+        QTest::newRow("camera-large-font") << 6000 << 96 << 24;
+    }
+    void textPreviewUsesOriginalLayout() {
+        QFETCH(int, width); QFETCH(int, dpi); QFETCH(int, points);
+        QImage source(width, 240, QImage::Format_RGB32); source.fill(Qt::white);
+        source.setDotsPerMeterX(qRound(dpi / .0254)); source.setDotsPerMeterY(qRound(dpi / .0254));
+        ix::TextOverlay overlay; overlay.text = QStringLiteral("Hello world 123");
+        overlay.pointSize = points; overlay.color = Qt::black;
+        QFont font(overlay.fontFamily, points);
+        const QRect area(100, 40, QFontMetrics(font, &source).horizontalAdvance(overlay.text) + 2, 80);
+        const int margin = std::max(8, qRound(.15 * std::max(area.width(), area.height())));
+        const auto crop = area.adjusted(-margin, -margin, margin, margin).intersected(source.rect());
+        const auto expected = ix::renderTextOverlay(source, overlay, area).copy(crop)
+            .convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        const auto preview = ix::renderTextOverlayPreview(source, overlay, area, crop.size(), false);
+        QCOMPARE(preview, expected);
+        QCOMPARE(source.pixelColor(100, 40), QColor(Qt::white));
+    }
+    void textPreviewBoundsTallImages() {
+        QImage source(800, 20000, QImage::Format_RGB32); source.fill(Qt::blue);
+        ix::TextOverlay empty;
+        const auto preview = ix::renderTextOverlayPreview(source, empty, source.rect(), {480, 320}, false);
+        QVERIFY(!preview.isNull()); QVERIFY(preview.width() <= 480); QVERIFY(preview.height() <= 320);
+        QVERIFY(preview.sizeInBytes() <= 480 * 320 * 4);
+        QCOMPARE(preview.pixelColor(preview.width()/2, preview.height()/2), QColor(Qt::blue));
+    }
     void textOverlayDialogAcceptsAndRejects() {
         QImage source(120, 80, QImage::Format_ARGB32);
         source.fill(Qt::white);
@@ -2620,6 +2691,9 @@ class IxTests : public QObject {
                 auto *preview = dialog->findChild<QLabel *>(QStringLiteral("textOverlayPreview"));
                 QVERIFY(preview);
                 QTRY_VERIFY_WITH_TIMEOUT(!preview->pixmap(Qt::ReturnByValue).isNull(), 10000);
+                dialog->resize(900, 650); QCoreApplication::processEvents();
+                QVERIFY(preview->pixmap(Qt::ReturnByValue).width() <= preview->contentsRect().width());
+                QVERIFY(preview->pixmap(Qt::ReturnByValue).height() <= preview->contentsRect().height());
                 // The preview shows the selection cropped, not the whole image.
                 auto *place = dialog->findChild<QLabel *>(QStringLiteral("textOverlayPlace"));
                 QVERIFY(place);
