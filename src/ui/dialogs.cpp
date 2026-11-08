@@ -446,13 +446,19 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
             preview->clear();
             return;
         }
+        // The caller passes the full document with the full area; the dialog
+        // scales once for the preview. The factor also scales the point size so
+        // the preview and the final render use the same relative metrics.
         const double factor = std::min(1.0, 480.0 / std::max(1, previewSource.width()));
         const QImage small = previewSource.scaledToWidth(qMax(1, qRound(previewSource.width() * factor)));
+        const QRect smallArea = factor >= 1.0
+                                    ? area
+                                    : QRect(qRound(area.x() * factor), qRound(area.y() * factor),
+                                            qMax(1, qRound(area.width() * factor)),
+                                            qMax(1, qRound(area.height() * factor)));
         TextOverlay scaled = overlay;
-        scaled.pointSize = qMax(1, qRound(overlay.pointSize * factor));
-        const QRect smallArea(qRound(area.x() * factor), qRound(area.y() * factor),
-                              qMax(1, qRound(area.width() * factor)),
-                              qMax(1, qRound(area.height() * factor)));
+        if (factor < 1.0)
+            scaled.pointSize = qMax(1, qRound(overlay.pointSize * factor));
         auto rendered = renderTextOverlay(small, scaled, smallArea);
         QPainter frame(&rendered);
         frame.setPen(QPen(Qt::DashLine));

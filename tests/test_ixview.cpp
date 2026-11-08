@@ -2593,8 +2593,8 @@ class IxTests : public QObject {
         overlay.alignment = Qt::AlignHCenter;
         const QRect area(10, 10, 180, 80);
         const auto direct = ix::renderTextOverlay(source, overlay, area);
-        // The dialog preview path: scale, render scaled, scale back is only for
-        // display; the stored render must equal the direct render.
+        // Identical inputs through the shared function must give identical
+        // pixels, including alignment and word wrap.
         QCOMPARE(direct, ix::renderTextOverlay(source, overlay, area));
         QVERIFY(direct != source);
         // Empty text or area is a no-op copy (with format normalization).

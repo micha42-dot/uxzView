@@ -2503,16 +2503,10 @@ void MainWindow::dispatch(const QString &cmd) {
             return;
         const QRect area =
             view_->selection().isEmpty() ? document_.pixels.rect() : view_->selection();
-        // A downscaled copy keeps the dialog snappy on very large images; the
-        // final application renders the same overlay onto the full pixels.
-        const double factor = std::min(1.0, 480.0 / std::max(1, document_.pixels.width()));
-        const QImage previewSource =
-            document_.pixels.scaledToWidth(qMax(1, qRound(document_.pixels.width() * factor)));
-        const QRect previewArea(qRound(area.x() * factor), qRound(area.y() * factor),
-                                qMax(1, qRound(area.width() * factor)),
-                                qMax(1, qRound(area.height() * factor)));
+        // The dialog scales internally for its preview; the final application
+        // renders the same overlay onto the full pixels.
         TextOverlay overlay;
-        if (!textOverlayDialog(this, previewSource, previewArea, overlay) || overlay.text.isEmpty())
+        if (!textOverlayDialog(this, document_.pixels, area, overlay) || overlay.text.isEmpty())
             return;
         operation([=](const QImage &s) { return renderTextOverlay(s, overlay, area); });
         return;
