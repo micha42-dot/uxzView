@@ -2620,6 +2620,15 @@ class IxTests : public QObject {
                 auto *preview = dialog->findChild<QLabel *>(QStringLiteral("textOverlayPreview"));
                 QVERIFY(preview);
                 QTRY_VERIFY_WITH_TIMEOUT(!preview->pixmap(Qt::ReturnByValue).isNull(), 10000);
+                // The preview shows the selection cropped, not the whole image.
+                auto *place = dialog->findChild<QLabel *>(QStringLiteral("textOverlayPlace"));
+                QVERIFY(place);
+                QTRY_VERIFY_WITH_TIMEOUT(!place->text().isEmpty(), 10000);
+                QVERIFY(place->text().contains(QStringLiteral("110")));
+                // The color row stays compact: swatch plus button, no stretching.
+                auto *colorButton = dialog->findChild<QPushButton *>(QStringLiteral("textOverlayColor"));
+                QVERIFY(colorButton);
+                QVERIFY(colorButton->sizePolicy().horizontalPolicy() != QSizePolicy::Expanding);
                 dialog->accept();
             });
             acceptTimer.start(0);

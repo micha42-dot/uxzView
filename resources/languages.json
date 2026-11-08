@@ -68,6 +68,7 @@
 ["Zentriert", "Centered", "가운데", "中央", "Centré"],
 ["Rechts", "Right", "오른쪽", "右", "Droite"],
 ["Vorschau", "Preview", "미리 보기", "プレビュー", "Aperçu"],
+["Bereich: %1 × %2 an (%3, %4)", "Area: %1 × %2 at (%3, %4)", "영역: (%3, %4)에 %1 × %2", "領域: (%3, %4) に %1 × %2", "Zone : %1 × %2 en (%3, %4)"],
 ["Gewählte Farbe", "Selected color", "선택한 색", "選択した色", "Couleur sélectionnée"],
 ["Alpha: %1", "Alpha: %1", "알파: %1", "アルファ: %1", "Alpha : %1"],
 ["Farbpipette", "Color picker", "스포이드", "スポイト", "Pipette"],

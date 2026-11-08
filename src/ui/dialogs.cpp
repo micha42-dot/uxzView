@@ -368,15 +368,19 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
     QDialog dialog(parent);
     dialog.setObjectName(QStringLiteral("textOverlayDialog"));
     dialog.setWindowTitle(IX_TEXT("Text einfügen"));
-    dialog.resize(560, 520);
+    dialog.resize(720, 480);
     auto *layout = dialogLayout(&dialog);
+    auto *columns = new QHBoxLayout;
+    layout->addLayout(columns, 1);
+    auto *left = new QVBoxLayout;
+    columns->addLayout(left, 0);
     auto *textEdit = new QPlainTextEdit(overlay.text);
     textEdit->setObjectName(QStringLiteral("textOverlayText"));
     textEdit->setPlaceholderText(IX_TEXT("Text:"));
     textEdit->setMinimumHeight(70);
-    layout->addWidget(textEdit);
+    left->addWidget(textEdit);
     auto *form = dialogFormLayout();
-    layout->addLayout(form);
+    left->addLayout(form);
     auto *family = new QFontComboBox;
     family->setObjectName(QStringLiteral("textOverlayFont"));
     family->setCurrentFont(QFont(overlay.fontFamily));
@@ -406,13 +410,15 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
     auto *colorRow = new QHBoxLayout;
     auto *swatch = new QLabel;
     swatch->setObjectName(QStringLiteral("textOverlaySwatch"));
-    swatch->setMinimumSize(48, 24);
+    swatch->setMinimumSize(64, 28);
     swatch->setFrameStyle(QFrame::Box);
     swatch->setAutoFillBackground(true);
     auto *colorButton = new QPushButton(IX_TEXT("Textfarbe"));
     colorButton->setObjectName(QStringLiteral("textOverlayColor"));
+    colorButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
     colorRow->addWidget(swatch);
-    colorRow->addWidget(colorButton, 1);
+    colorRow->addWidget(colorButton);
+    colorRow->addStretch(1);
     form->addRow(IX_TEXT("Farbe:"), colorRow);
     auto *align = new QComboBox;
     align->setObjectName(QStringLiteral("textOverlayAlign"));
@@ -421,16 +427,27 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
     align->addItem(IX_TEXT("Rechts"), int(Qt::AlignRight));
     align->setCurrentIndex(qMax(0, align->findData(int(overlay.alignment))));
     form->addRow(IX_TEXT("Ausrichtung:"), align);
+    auto *previewBox = new QVBoxLayout;
+    columns->addLayout(previewBox, 1);
+    auto *previewLabel = new QLabel(IX_TEXT("Vorschau"));
+    previewLabel->setObjectName(QStringLiteral("textOverlayPreviewLabel"));
+    previewBox->addWidget(previewLabel);
     auto *preview = new QLabel;
     preview->setObjectName(QStringLiteral("textOverlayPreview"));
-    preview->setMinimumHeight(160);
+    preview->setMinimumSize(280, 240);
     preview->setFrameStyle(QFrame::Box);
     preview->setAlignment(Qt::AlignCenter);
     preview->setAccessibleName(IX_TEXT("Vorschau"));
-    layout->addWidget(preview);
-    // The preview renders the same pixels the final application writes: the
-    // source scaled down, the overlay scaled by the same factor, the selection
-    // rectangle drawn dashed so the placement stays visible.
+    preview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    previewBox->addWidget(preview, 1);
+    auto *placeLabel = new QLabel;
+    placeLabel->setObjectName(QStringLiteral("textOverlayPlace"));
+    placeLabel->setWordWrap(true);
+    placeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    previewBox->addWidget(placeLabel);
+    // The preview shows the selection, not the whole image: crop around the
+    // text area with a margin, then scale to the label. The area stays fully
+    // visible however small it is relative to the image.
     auto refresh = [&] {
         overlay.text = textEdit->toPlainText();
         overlay.fontFamily = family->currentFont().family();
@@ -444,6 +461,7 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
         swatch->setPalette(palette);
         if (area.isEmpty() || previewSource.isNull()) {
             preview->clear();
+            placeLabel->clear();
             return;
         }
         // The caller passes the full document with the full area; the dialog
@@ -460,11 +478,23 @@ bool textOverlayDialog(QWidget *parent, const QImage &previewSource, const QRect
         if (factor < 1.0)
             scaled.pointSize = qMax(1, qRound(overlay.pointSize * factor));
         auto rendered = renderTextOverlay(small, scaled, smallArea);
-        QPainter frame(&rendered);
-        frame.setPen(QPen(Qt::DashLine));
-        frame.drawRect(smallArea.adjusted(0, 0, -1, -1));
-        frame.end();
-        preview->setPixmap(QPixmap::fromImage(rendered));
+        {
+            QPainter frame(&rendered);
+            frame.setPen(QPen(Qt::DashLine));
+            frame.drawRect(smallArea.adjusted(0, 0, -1, -1));
+        }
+        // Crop to the text area with a margin so the placement is always in
+        // view, then fit the crop into the preview label.
+        const int margin = qMax(8, qRound(0.15 * std::max(smallArea.width(), smallArea.height())));
+        const QRect crop = (smallArea.adjusted(-margin, -margin, margin, margin) & rendered.rect());
+        const QSize target = preview->size().isEmpty() ? QSize(280, 240) : preview->size();
+        preview->setPixmap(QPixmap::fromImage(rendered.copy(crop).scaled(
+            target, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+        placeLabel->setText(IX_TEXT("Bereich: %1 × %2 an (%3, %4)")
+                                .arg(area.width())
+                                .arg(area.height())
+                                .arg(area.x())
+                                .arg(area.y()));
     };
     QObject::connect(textEdit, &QPlainTextEdit::textChanged, &dialog, refresh);
     QObject::connect(family, &QFontComboBox::currentFontChanged, &dialog, refresh);
