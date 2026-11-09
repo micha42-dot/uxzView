@@ -249,7 +249,12 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
         bool acceptProgress = true; // Outlives the progress context and its queued calls.
         QProgressDialog progress(IX_TEXT("Bilder werden untersucht …"), IX_TEXT("Abbrechen"), 0, files.size(),
                                  &dialog);
-        progress.setWindowModality(Qt::WindowModal);
+        // Never become a native sheet: a sheet that is shown and hidden around a
+        // fast job can leave the platform's modal state inconsistent, stranding
+        // the result dialog that follows. An explicit application-modal top-level
+        // window behaves identically on every backend.
+        progress.setWindowFlags(progress.windowFlags() | Qt::Dialog);
+        progress.setWindowModality(Qt::ApplicationModal);
         progress.setAutoClose(false);
         progress.setAutoReset(false);
         QObject::connect(&progress, &QProgressDialog::canceled, &progress, [&] {
@@ -341,7 +346,18 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
                          [&] { openImage(table->currentRow(), table->currentColumn()); });
         box->addWidget(close);
         QObject::connect(close, &QDialogButtonBox::rejected, &matches, &QDialog::reject);
-        matches.exec();
+        // Join the dialog through its finished signal, not a bare exec(): if the
+        // driver (or the user) rejects the dialog before exec() starts its nested
+        // loop, a bare exec() would strand despite the earlier rejection. The
+        // result check covers a rejection that arrived before the loop started.
+        // ApplicationModal (not a sheet): the dialog blocks the whole window on
+        // every backend, exactly like the exec() it replaces.
+        matches.setWindowModality(Qt::ApplicationModal);
+        QEventLoop matchesLoop;
+        QObject::connect(&matches, &QDialog::finished, &matchesLoop, &QEventLoop::quit);
+        matches.open();
+        if (matches.result() == 0 && matches.isVisible())
+            matchesLoop.exec();
     };
     QObject::connect(index, &QPushButton::clicked, &dialog, [&] { run(0); });
     QObject::connect(exact, &QPushButton::clicked, &dialog, [&] { run(1); });

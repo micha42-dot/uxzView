@@ -69,12 +69,24 @@ QJsonObject checkCatalogProgress(const QString &action) {
         std::_Exit(17); // A regression must not strand the parent suite in a modal loop.
     });
     QTimer driver;
+    auto findDuplicateDialog = [] {
+        if (auto *active = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+            if (active->objectName() == QStringLiteral("duplicateDialog"))
+                return active;
+        for (auto *top : QApplication::topLevelWidgets())
+            if (auto *match = qobject_cast<QDialog *>(top))
+                if (match->objectName() == QStringLiteral("duplicateDialog") && match->isVisible())
+                    return match;
+        return static_cast<QDialog *>(nullptr);
+    };
     QObject::connect(&driver, &QTimer::timeout, qApp, [&] {
+        if (auto *matches = findDuplicateDialog()) {
+            completed = true;
+            matches->reject();
+            return;
+        }
         auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
         if (!dialog) return;
-        if (dialog->objectName() == QStringLiteral("duplicateDialog")) {
-            completed = true; dialog->reject(); return;
-        }
         if (dialog->objectName() != QStringLiteral("libraryDialog")) return;
         if (started && action == QStringLiteral("Metadaten indexieren")) {
             auto *status = dialog->findChild<QLabel *>(QStringLiteral("catalogStatus"));
@@ -193,25 +205,49 @@ class MaintenanceTests : public QObject {
     QTemporaryDir temporary_;
   private slots:
     void catalogCompletionDuringShowCannotStrandDialog_data() {
-        QTest::addColumn<QString>("action");
-        QTest::newRow("index") << QStringLiteral("Metadaten indexieren");
-        QTest::newRow("exact") << QStringLiteral("Identische Bilder");
-        QTest::newRow("similar") << QStringLiteral("Ähnliche Bilder");
+        // ASCII ids on the child command line: the German labels contain an
+        // umlaut ("Ähnliche Bilder") and shell/runner quoting has corrupted
+        // non-ASCII arguments before. The child maps the id back to the label.
+        QTest::addColumn<QString>("actionId");
+        QTest::newRow("index") << QStringLiteral("index");
+        QTest::newRow("exact") << QStringLiteral("exact");
+        QTest::newRow("similar") << QStringLiteral("similar");
     }
     void catalogCompletionDuringShowCannotStrandDialog() {
-        QFETCH(QString, action);
+        QFETCH(QString, actionId);
+        const QString action = actionId == QStringLiteral("index")
+                                   ? QStringLiteral("Metadaten indexieren")
+                               : actionId == QStringLiteral("exact")
+                                   ? QStringLiteral("Identische Bilder")
+                                   : QStringLiteral("Ähnliche Bilder");
         QProcess child;
+        QElapsedTimer clock;
+        clock.start();
         child.start(QCoreApplication::applicationFilePath(),
                     {QStringLiteral("--catalog-progress-probe"), action,
                      QStringLiteral("-platform"), QStringLiteral("offscreen")});
         const bool finished = child.waitForFinished(15000);
+        const auto elapsedMs = clock.elapsed();
         if (!finished) { child.kill(); child.waitForFinished(3000); }
-        QVERIFY2(finished, child.readAllStandardError().constData());
+        const auto childStderr = child.readAllStandardError();
+        const auto childStdout = child.readAllStandardOutput();
+        const auto diagnosis =
+            QStringLiteral("action=%1 finished=%2 exitStatus=%3 exitCode=%4 elapsedMs=%5 stdoutBytes=%6 stderrBytes=%7\nstdout=%8\nstderr=%9")
+                .arg(action)
+                .arg(finished)
+                .arg(child.exitStatus())
+                .arg(child.exitCode())
+                .arg(elapsedMs)
+                .arg(childStdout.size())
+                .arg(childStderr.size())
+                .arg(QString::fromUtf8(childStdout))
+                .arg(QString::fromUtf8(childStderr));
+        QVERIFY2(finished, qPrintable(diagnosis));
         QCOMPARE(child.exitStatus(), QProcess::NormalExit);
-        QVERIFY2(child.exitCode() == 0, child.readAllStandardError().constData());
-        const auto report = QJsonDocument::fromJson(child.readAllStandardOutput()).object();
-        QVERIFY(report.value(QStringLiteral("started")).toBool());
-        QVERIFY(report.value(QStringLiteral("completed")).toBool());
+        QVERIFY2(child.exitCode() == 0, qPrintable(diagnosis));
+        const auto report = QJsonDocument::fromJson(childStdout).object();
+        QVERIFY2(report.value(QStringLiteral("started")).toBool(), qPrintable(diagnosis));
+        QVERIFY2(report.value(QStringLiteral("completed")).toBool(), qPrintable(diagnosis));
     }
     void cancelledLoadSkipsQueuedReadAndPreDecodeWork() {
         ix::ImageLoadCache::clear(); ix::CodecRegistry registry;
@@ -1136,7 +1172,12 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
     const auto catalogProbe = app.arguments().indexOf(QStringLiteral("--catalog-progress-probe"));
     if (catalogProbe >= 0) {
-        const auto report = checkCatalogProgress(app.arguments().value(catalogProbe + 1));
+        // ASCII ids keep umlauts off the command line; map back to the label.
+        const auto id = app.arguments().value(catalogProbe + 1);
+        const auto action = id == QStringLiteral("index")   ? QStringLiteral("Metadaten indexieren")
+                            : id == QStringLiteral("exact") ? QStringLiteral("Identische Bilder")
+                                                            : QStringLiteral("Ähnliche Bilder");
+        const auto report = checkCatalogProgress(action);
         const auto bytes = QJsonDocument(report).toJson(QJsonDocument::Compact);
         QFile output;
         if (!output.open(stdout, QIODevice::WriteOnly) || output.write(bytes) != bytes.size()) return 2;
