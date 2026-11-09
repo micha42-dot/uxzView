@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 if(CMAKE_HOST_APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum target macOS version")
 endif()
-project(IxView VERSION 0.5.4 LANGUAGES CXX)
+project(IxView VERSION 0.5.4 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -17,17 +17,18 @@ endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets Concurrent PrintSupport Svg)
 qt_standard_project_setup()
 include(cmake/Dependencies.cmake)
+include(cmake/Jpegli.cmake)
 option(IX_REQUIRE_FULL_FEATURES "Fail if metadata, RAW previews, PDF or the extension manager are unavailable" OFF)
 add_library(ixcore STATIC
     src/core/image_document.cpp src/core/memory_policy.cpp src/core/image_storage.cpp src/core/image_memory.cpp src/core/document_history.cpp
-    src/core/codec_registry.cpp src/core/processing.cpp src/core/resampling.cpp src/core/localization.cpp
+    src/core/codec_registry.cpp src/core/save_formats.cpp src/core/jpegli_encoder.cpp src/core/processing.cpp src/core/resampling.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
     src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/turbojpeg_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
     src/core/file_operations.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_memory.cpp src/core/batch_plan.cpp src/core/batch_report.cpp src/core/plugin_store.cpp
     src/core/app_storage.cpp src/core/extension_storage.cpp src/core/tool_store.cpp src/core/recognition_input.cpp
     src/core/image_loading.cpp src/core/directory_index_service.cpp)
 target_include_directories(ixcore PUBLIC src)
-target_link_libraries(ixcore PUBLIC Qt6::Core Qt6::Gui Qt6::Concurrent PRIVATE IxView::TurboJPEG)
+target_link_libraries(ixcore PUBLIC Qt6::Core Qt6::Gui Qt6::Concurrent PRIVATE IxView::TurboJPEG IxView::Jpegli)
 if(TARGET IxView::Exiv2)
     target_link_libraries(ixcore PRIVATE IxView::Exiv2)
     target_compile_definitions(ixcore PRIVATE IX_HAVE_EXIV2)
@@ -289,14 +290,22 @@ if(BUILD_TESTING)
     add_test(NAME ixview_large_image_tests COMMAND ixview_large_image_tests -v1 -platform offscreen
         -o ${CMAKE_CURRENT_BINARY_DIR}/large-image-test-results.txt,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/large-image-test-results.xml,junitxml)
+    qt_add_executable(ixview_saving_tests tests/saving_ixview.cpp resources/app.qrc)
+    target_link_libraries(ixview_saving_tests PRIVATE ixui Qt6::Test)
+    if(TARGET IxView::Exiv2)
+        target_compile_definitions(ixview_saving_tests PRIVATE IX_TEST_EXIV2)
+    endif()
+    add_test(NAME ixview_saving_tests COMMAND ixview_saving_tests -v1 -platform offscreen
+        -o ${CMAKE_CURRENT_BINARY_DIR}/saving-test-results.txt,txt
+        -o ${CMAKE_CURRENT_BINARY_DIR}/saving-test-results.xml,junitxml)
     set_tests_properties(ixview_tests ixview_workflow_tests ixview_quality_tests
         ixview_storage_tests ixview_file_operation_tests ixview_extension_tests ixview_maintenance_tests
-        ixview_ui_quality_tests ixview_large_image_tests
+        ixview_ui_quality_tests ixview_large_image_tests ixview_saving_tests
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
     if(TARGET ixpdf)
         set_tests_properties(ixview_tests ixview_workflow_tests ixview_quality_tests
             ixview_storage_tests ixview_file_operation_tests ixview_extension_tests
-            ixview_maintenance_tests ixview_ui_quality_tests ixview_large_image_tests PROPERTIES
+            ixview_maintenance_tests ixview_ui_quality_tests ixview_large_image_tests ixview_saving_tests PROPERTIES
             ENVIRONMENT_MODIFICATION "QT_PLUGIN_PATH=set:${CMAKE_CURRENT_BINARY_DIR}/qt-plugins")
     endif()
 endif()

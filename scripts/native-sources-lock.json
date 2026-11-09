@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "sources": {
+    "jpegli": {
+      "repo": "google/jpegli",
+      "revision": "031a0077f5799a6041004267fc12b956c1f52a20",
+      "url": "https://codeload.github.com/google/jpegli/tar.gz/031a0077f5799a6041004267fc12b956c1f52a20",
+      "file": "jpegli-031a0077f5799a6041004267fc12b956c1f52a20.tar.gz",
+      "sha256": "269b3a75d6b2da2351f7fb2d642043f60f9b6d1bd5839f20c0d7c569be073367",
+      "bytes": 672337,
+      "license_files": [
+        "LICENSE",
+        "AUTHORS",
+        "PATENTS"
+      ],
+      "license": "BSD-3-Clause"
+    },
+    "highway": {
+      "repo": "google/highway",
+      "revision": "271a9a0ed9de1232d9117f1572c3fe28f8542ec1",
+      "url": "https://codeload.github.com/google/highway/tar.gz/271a9a0ed9de1232d9117f1572c3fe28f8542ec1",
+      "file": "highway-271a9a0ed9de1232d9117f1572c3fe28f8542ec1.tar.gz",
+      "sha256": "c42bcfe44d100223ea0043acb3da6de703103ca44bfb1d46b577c90939177f5f",
+      "bytes": 3660047,
+      "license_files": [
+        "LICENSE"
+      ],
+      "license": "Apache-2.0 OR BSD-3-Clause"
+    },
+    "jpeg_headers": {
+      "repo": "libjpeg-turbo/libjpeg-turbo",
+      "revision": "8ecba3647edb6dd940463fedf38ca33a8e2a73d1",
+      "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/tar.gz/8ecba3647edb6dd940463fedf38ca33a8e2a73d1",
+      "file": "libjpeg-turbo-8ecba3647edb6dd940463fedf38ca33a8e2a73d1.tar.gz",
+      "sha256": "ed729127097af5000bfeddc6b3e679c4363bb1618ebfc07efb6b47f576471b4b",
+      "bytes": 2266254,
+      "license_files": [
+        "LICENSE.md",
+        "README.ijg"
+      ],
+      "license": "IJG AND BSD-3-Clause AND Zlib"
+    }
+  }
+}

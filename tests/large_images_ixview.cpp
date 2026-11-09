@@ -2,6 +2,7 @@
 #include "core/image_storage.h"
 #include "core/codec_registry.h"
 #include "core/turbojpeg_codec.h"
+#include "core/jpegli_encoder.h"
 #include "core/image_loading.h"
 #include "core/preview_service.h"
 #include "core/document_history.h"
@@ -136,6 +137,15 @@ private slots:
         const auto display=ix::displayImage(image,true,false);
         QVERIFY(ix::imageIsFileBacked(display)); QCOMPARE(display,image.convertedToColorSpace(QColorSpace::SRgb));
         QCOMPARE(image.colorSpace(),QColorSpace(QColorSpace::DisplayP3));
+    }
+    void mappedGrayDisplayConversionMatchesQt() {
+        auto image=ix::allocateImage({37,19},QImage::Format_Grayscale8,0,true);
+        for(int y=0;y<image.height();++y) for(int x=0;x<image.width();++x) image.scanLine(y)[x]=uchar(x*5+y);
+        const QColorSpace gray(QPointF(0.3127,0.3290),QColorSpace::TransferFunction::Gamma,2.2f);
+        image.setColorSpace(gray);QCOMPARE(image.colorSpace(),gray);
+        const auto expected=image.convertedToColorSpace(QColorSpace::SRgb);QVERIFY(!expected.isNull());
+        const auto display=ix::displayImage(image,true,false);
+        QVERIFY(ix::imageIsFileBacked(display));QCOMPARE(display,expected);
     }
     void resizeMatchesReference_data() {
         QTest::addColumn<int>("format"); QTest::addColumn<int>("filter");
@@ -390,7 +400,11 @@ private slots:
         QVERIFY(ix::CodecRegistry().save(document,path,"jpeg",100,true).isEmpty());
         QImage expected(source.size(),QImage::Format_RGB32); expected.fill(Qt::white);
         { QPainter painter(&expected); painter.drawImage(0,0,source); }
-        QByteArray encoded; QBuffer buffer(&encoded); QVERIFY(buffer.open(QIODevice::WriteOnly)); QVERIFY(expected.save(&buffer,"jpeg",100));
+        QByteArray encoded; QBuffer buffer(&encoded); QVERIFY(buffer.open(QIODevice::WriteOnly));
+        // The independent reference is Qt's white composition. Compare it
+        // through the same lossy encoder, rather than requiring TurboJPEG and
+        // jpegli to quantize differently-compressed pixels identically.
+        QVERIFY(ix::writeJpegli(buffer,expected,100).isEmpty());
         QCOMPARE(QImage(path),QImage::fromData(encoded,"jpeg"));
     }
     void orientationsAndCrop() {

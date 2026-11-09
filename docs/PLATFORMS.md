@@ -4,6 +4,12 @@
 
 Alle Befehle werden im Wurzelverzeichnis eines Checkouts oder entpackten Quellpakets ausgeführt. Ein Windows-Build erzeugt keine Linux- oder macOS-Binärdatei; für diese Builds einen entsprechenden Host verwenden.
 
+Die neue jpegli-Integration wird auf allen Plattformen aus denselben gepinnten
+Quellen statisch gebaut. Der aktuelle Stand ist lokal unter Windows 11 geprüft;
+Linux, macOS und Windows 10 benötigen einen neuen nativen Lauf. CMake benötigt
+einen C- und C++20-Compiler. JPEG-Decoder und verlustfreie JPEG-Operationen
+verwenden weiterhin die bisherige libjpeg-turbo-Abhängigkeit.
+
 ZIP/CBZ benötigt zusätzlich ein zur verwendeten Qt-Version passendes
 `KF6Archive`-Entwicklungspaket. CMake baut bei vorhandenem `KF6::Archive` automatisch
 das separate `ixarchive`-Bildformat-Plugin; mit `-DIX_ARCHIVE_FORMATS=OFF` lässt es
@@ -30,7 +36,7 @@ Qt PDF erzeugt `ixpdf` für mehrseitige PDF-Dateien. Mit `-DIX_ENABLE_PDF=OFF` l
 
 Nach der Installation prüft `python3 scripts/verify_native_modules.py --stage dist/native` alle drei Zusatzmodule samt Einstiegspunkten über den Betriebssystem-Lader. Auf macOS führt der Prüfer dafür die App mit `--probe-modules` aus, damit die Bundle-Ladepfade zum richtigen Programm gehören. Die Unix-CI entfernt vorher SDK-Bibliothekspfade. Das prüft die ladbaren Module zusätzlich zum PNG-Starttest, ohne Erweiterungsdialoge oder Werkzeuge auszuführen. Auf Windows prüft derselbe Aufruf ohne `--stage` das portable Verzeichnis `dist/uxzView`.
 
-TurboJPEG wird zuerst über sein CMake-Paket, dann über pkg-config und schließlich über Header/Bibliothek gesucht. Exiv2 unterstützt beide verbreiteten CMake-Targetnamen sowie pkg-config. Es werden keine Abhängigkeiten während einer normalen CMake-Konfiguration aus dem Netz geladen.
+TurboJPEG wird zuerst über sein CMake-Paket, dann über pkg-config und schließlich über Header/Bibliothek gesucht. Exiv2 unterstützt beide verbreiteten CMake-Targetnamen sowie pkg-config. jpegli, Highway und die dazu passenden libjpeg-API-Header werden während der CMake-Konfiguration aus festgelegten, SHA-256-geprüften Quellarchiven bezogen und statisch eingebaut. Windows-Bootstrap lädt sie vorab in `.deps/cache`. Für Offline-Builds diesen Cache mit `python scripts/fetch_native_sources.py` auf einem Rechner mit Netzzugang vorbereiten und übernehmen. Es sind keine Git-Submodule und keine zusätzlichen Laufzeitinstallationen nötig. Quellen und Lizenztexte: [THIRD_PARTY.md](THIRD_PARTY.md).
 
 Die Formatmatrix `FORMAT_COMPATIBILITY.md` beschreibt **das gebaute Windows-Paket**. Decoder hängen auf Linux/macOS von den dort installierten Qt-/KImageFormats-Plugins ab. Qt Image Formats ergänzt unter anderem TIFF und WebP; KImageFormats ergänzt beispielsweise PSD und RAW. Die Tests verlangen die Basisformate; ein fehlendes optionales PSD-Plugin wird ausdrücklich als übersprungen protokolliert. Jeder Plattformlauf erzeugt seine eigene `tests/output/format-capabilities.json`. Die vorbereitete Unix-CI verwendet Qt Image Formats; das breite Windows-Pluginpaket ist damit noch nicht vollständig auf Unix nachgewiesen.
 

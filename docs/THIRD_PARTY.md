@@ -1,6 +1,8 @@
 # Drittanbieter
 
-üxzView verwendet dynamisch gelinkte Qt- und Codec-Bibliotheken. Die Versionen und SHA-256 der ursprünglichen SDK-Pakete sind in `scripts/sdk-lock.json` festgehalten. Bezugsquelle: signierte MSYS2-UCRT-Pakete von `repo.msys2.org`. Die Pakete werden in dieser Arbeitskopie projektlokal entpackt.
+üxzView verwendet Qt- und Codec-Bibliotheken sowie die nachstehend genannten Funktionserweiterungen. jpegli und sein Highway-Code sind statisch eingebaut; die übrigen Windows-Bibliotheken werden dynamisch geladen. Versionen und SHA-256 der SDK-Pakete stehen in `scripts/sdk-lock.json`, die nativen Quellrevisionen in `scripts/native-sources-lock.json` und die Erkennungspakete in `scripts/tool-sources-lock.json`.
+
+Das mit jedem Windows-Paket ausgelieferte **`SOURCES.md`** listet sämtliche ausgelieferten Drittanbieter-DLL-Pakete mit Version, Lizenz, Upstream-Projekt und Quellarchiv auf, anschließend die statisch eingebauten Komponenten, Erkennungswerkzeuge und Sprachmodelle. Die vollständigen Paket-Lizenztexte liegen unter **`licenses`** und bei den jeweiligen Werkzeugpaketen unter **`tools`**. `dependency-sources.json` und `native-dependencies.json` ordnen die Dateien ihren geprüften Quellen zu. Neue Bibliotheken oder Erweiterungen benötigen einen Lizenz-/Quelleneintrag vor der Auslieferung.
 
 Wichtige Komponenten:
 
@@ -9,6 +11,8 @@ Wichtige Komponenten:
 | Qt 6 Widgets/Gui/Core/Concurrent/PrintSupport/Svg/Network | native Oberfläche und Bild-I/O | LGPL-3.0 / GPL / Qt-Angebote je Modul |
 | KDE KImageFormats, KArchive | zusätzliche Qt-Decoder/Encoder | LGPL-/BSD-Varianten je Quelldatei |
 | libjpeg-turbo | JPEG und verlustfreie Koeffiziententransformation | BSD/IJG/zlib |
+| [Google jpegli](https://github.com/google/jpegli) | fest eingebauter JPEG-Encoder für Speichern und Batch | BSD-3-Clause |
+| [Google Highway](https://github.com/google/highway) | SIMD-Bausteine für jpegli und JPEG XL | Apache-2.0 oder BSD-3-Clause; Sonderlizenzen siehe vollständiger Text |
 | libpng, zlib | PNG und APNG-Pixel | libpng/zlib |
 | libtiff, libwebp | TIFF, WebP | BSD-Varianten |
 | libavif, AOM/dav1d | AVIF | BSD-/AOM-Varianten |
@@ -36,7 +40,46 @@ Das Programmsymbol basiert auf den von Michael Förtsch bereitgestellten transpa
 
 ## Optional recognition tools
 
-ZXing-C++ 3.0.0 and Tesseract 5.5.3 use Apache-2.0; Leptonica 1.85.0 uses its BSD-style license. The pinned tessdata_fast models include their Apache-2.0 license. The Windows package includes these engines/models unpacked under `tools`; separate `.ixtool` assets remain available for reinstallation. The QR fixture in `tests/extensions_ixview.cpp` derives from ZXing-C++ QREncoderTest (Copyright 2008 ZXing authors, Apache-2.0). Each pack includes applicable license texts and source URLs/hashes; Windows engine packs additionally record the compiler-runtime source packages. See `scripts/tool-sources-lock.json` and [tool extensions](TOOL_EXTENSIONS.md).
+[ZXing-C++](https://github.com/zxing-cpp/zxing-cpp) 3.0.0 and [Tesseract](https://github.com/tesseract-ocr/tesseract) 5.5.3 use Apache-2.0; [Leptonica](https://github.com/DanBloomberg/leptonica) 1.85.0 uses its BSD-style license. The pinned [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) models include their Apache-2.0 license. The Windows package includes these engines/models unpacked under `tools`; separate `.ixtool` assets remain available for reinstallation. The QR fixture in `tests/extensions_ixview.cpp` derives from ZXing-C++ QREncoderTest (Copyright 2008 ZXing authors, Apache-2.0). Each pack includes applicable license texts and source URLs/hashes; Windows engine packs additionally record the compiler-runtime source packages. See `scripts/tool-sources-lock.json` and [tool extensions](TOOL_EXTENSIONS.md).
+
+## Built-in jpegli
+
+`cmake/Jpegli.cmake` builds Google jpegli source revision
+`031a0077f5799a6041004267fc12b956c1f52a20`, its pinned Highway dependency and the
+matching libjpeg62 API headers. The headers come from the libjpeg-turbo revision
+recorded in `native-sources-lock.json`; no second libjpeg DLL is installed.
+The encoder calls unique `jpegli_*` symbols, while existing JPEG decoding and
+coefficient transforms retain libjpeg-turbo. JPEG XL retains its own codec.
+
+This software is based in part on the work of the Independent JPEG Group.
+
+The unmodified jpegli `LICENSE`, `AUTHORS`, `PATENTS`, Highway `LICENSE`, and
+libjpeg-turbo `LICENSE.md`/`README.ijg` are copied from hash-verified source
+archives into `licenses/native`. Native macOS installation places these inside
+the app bundle; Linux uses `share/IxView/licenses/native`. Windows additionally
+records every notice hash and the application hash in `native-dependencies.json`.
+Release validation rejects missing/changed native notices, a changed source lock
+or an application that differs from that inventory.
+
+## Build and CI tools
+
+These tools prepare or verify the project. Windows compiler/tool versions are
+fixed by the SDK lock; CI action versions are in `.github/workflows`.
+
+| Tool / repository | Use | License |
+| --- | --- | --- |
+| [CMake](https://github.com/Kitware/CMake) | Configure, compile and install | BSD-3-Clause |
+| [Ninja](https://github.com/ninja-build/ninja) | Build execution | Apache-2.0 |
+| [CPython](https://github.com/python/cpython) | SDK, packaging and validation scripts | PSF-2.0 and bundled component notices |
+| [Pillow](https://github.com/python-pillow/Pillow) | Regenerating logo assets | MIT-CMU / PIL notices |
+| [GCC](https://gcc.gnu.org/), [MinGW-w64](https://www.mingw-w64.org/), [MSYS2](https://www.msys2.org/) | Windows compiler, runtime and verified packages | GCC GPL / Runtime Library Exception; package-specific MinGW/MSYS2 licenses |
+| [aqtinstall](https://github.com/miurahr/aqtinstall), [install-qt-action](https://github.com/jurplel/install-qt-action) | Native CI Qt SDK installation | MIT |
+| [checkout](https://github.com/actions/checkout), [setup-python](https://github.com/actions/setup-python), [cache](https://github.com/actions/cache), [upload-artifact](https://github.com/actions/upload-artifact) | GitHub CI checkout, setup, cache and artifacts | MIT; each action retains its own bundled notices |
+| [Git](https://github.com/git/git) | Source checkout and version control | GPL-2.0 |
+
+Other compiler/system packages on Linux and macOS retain the license notices of
+their platform distributors. Runtime source/notice auditing for native
+Linux/macOS release artifacts is separate from the verified Windows inventory.
 
 ## PDF reading
 

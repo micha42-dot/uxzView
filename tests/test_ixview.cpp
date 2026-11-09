@@ -2396,7 +2396,7 @@ class IxTests : public QObject {
         window.dispatch(QStringLiteral("saveAs"));
         timer.stop();
         QCOMPARE(window.document().path, target);
-        QCOMPARE(window.document().format, QByteArray("jpg"));
+        QCOMPARE(window.document().format, QByteArray("jpeg"));
         QVERIFY(window.findChild<QAction *>(QStringLiteral("jpegTransform"))->isEnabled());
     }
     void watermarkConvertsTaggedColorSpace() {

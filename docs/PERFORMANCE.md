@@ -1,5 +1,16 @@
 # Performance in üxzView
 
+## Built-in JPEG export
+
+The [jpegli/save review](JPEGLI_SAVING_REVIEW.md) records the pinned native encoder,
+row memory planning and a 24 MP component comparison. Encoding time is comparable
+in the synthetic sample; additional peak private commit falls from 127 to 32 MB
+when flattening transparency. Integer quality values are not a proof of matched
+perceptual quality. The encoder adds no resident process or browsing worker, and
+writer enumeration waits until the Save settings page is opened. JPEG decoding
+retains the previous backend. Native platform and memory-accounting limits are
+documented with the results.
+
 ## APNG validation and recognition input
 
 The [November 9 follow-up](ROUND_REVIEW_2026-11-09.md) replaces per-bit APNG CRC

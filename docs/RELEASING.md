@@ -14,7 +14,15 @@ Im Projektverzeichnis mit Windows x64 und Python 3.14+:
 # ./scripts/prepare_release.ps1
 ```
 
-Das Skript prüft zunächst SDK-Installer, Übersetzungen und Registry-Erzeugung offline. Es lädt beziehungsweise prüft die fünf festgelegten CC0-Kamera-RAWs, baut außerdem die separaten QR-/OCR-Werkzeugpakete und Sprachmodelle, baut Release mit aktivierten Tests und führt alle acht CTest-Suiten aus. Es prüft die Windows-Versionsressource, erzeugt die Formatmatrix, baut die portable Laufzeit frisch auf und wiederholt alle acht Suiten mit ausschließlich Windows-Systemverzeichnissen im PATH. Die HEIF-/AVIF-Neubauten benötigen beim ersten Lauf ihre hashgeprüften Quellarchive und verwenden das gesperrte SDK. Danach ordnet der Ablauf unveränderte DLLs den SDK-Paketen und die zwei Neubauten ihren dokumentierten Quellen/Rezepten zu. Die Verfügbarkeit aller zugehörigen Quellpakete wird im MSYS2-Index geprüft. Netzwerk wird für fehlende Quellen/RAW-Fixtures und die abschließende Verfügbarkeitsprüfung benötigt. Quellen werden mit dem lokalen Compiler gebaut; heruntergeladene Testbilder werden ausschließlich dekodiert.
+Das Skript prüft zunächst SDK-Installer, Übersetzungen und Registry-Erzeugung offline. Es lädt beziehungsweise prüft die fünf festgelegten CC0-Kamera-RAWs, baut außerdem die separaten QR-/OCR-Werkzeugpakete und Sprachmodelle, baut Release mit aktivierten Tests und führt alle zehn CTest-Suiten aus. Es prüft die Windows-Versionsressource, erzeugt die Formatmatrix, baut die portable Laufzeit frisch auf und wiederholt alle zehn Suiten mit ausschließlich Windows-Systemverzeichnissen im PATH. Die HEIF-/AVIF-Neubauten benötigen beim ersten Lauf ihre hashgeprüften Quellarchive und verwenden das gesperrte SDK. Danach ordnet der Ablauf unveränderte DLLs den SDK-Paketen und die zwei Neubauten ihren dokumentierten Quellen/Rezepten zu. Die Verfügbarkeit aller zugehörigen Quellpakete wird im MSYS2-Index geprüft. Netzwerk wird für fehlende Quellen/RAW-Fixtures und die abschließende Verfügbarkeitsprüfung benötigt. Quellen werden mit dem lokalen Compiler gebaut; heruntergeladene Testbilder werden ausschließlich dekodiert.
+
+jpegli, Highway und die privaten JPEG-API-Header werden anhand von
+`scripts/native-sources-lock.json` gebaut. Revision, Download und SHA-256 gemeinsam
+aktualisieren; danach neu bauen und alle Tests ausführen. Bootstrap und CMake
+prüfen die Archive, der Offline-Cache liegt unter `.deps/cache`. Deployment
+übernimmt die originalen Lizenztexte nach `licenses/native`; Paketierung prüft
+diese Texte, den Quell-Lock und den EXE-Hash gegen `native-dependencies.json`.
+Fehlende oder veraltete Nachweise erfordern einen neuen Build/Deployment-Lauf.
 
 Unter `dist` entstehen:
 

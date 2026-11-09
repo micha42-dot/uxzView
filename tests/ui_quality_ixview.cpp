@@ -441,7 +441,7 @@ class UiQualityTests : public QObject {
             QCOMPARE(scroll->horizontalScrollBar()->maximum(),0);
             for(auto *number:scroll->findChildren<QSpinBox *>()) QVERIFY(number->width() <= 200);
             for(auto *number:scroll->findChildren<QDoubleSpinBox *>()) QVERIFY(number->width() <= 200);
-            if(i==0 || i==2 || i==4 || i==7) capture(&dialog,QStringLiteral("settings-compact-%1-%2-%3").arg(theme,language).arg(i));
+            if(i==0 || i==2 || i==4 || i==7 || i==9) capture(&dialog,QStringLiteral("settings-compact-%1-%2-%3").arg(theme,language).arg(i));
         }
         auto *buttons=dialog.findChild<QDialogButtonBox *>(); QVERIFY(buttons && buttons->isVisible());
     }

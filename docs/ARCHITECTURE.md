@@ -46,6 +46,28 @@ or resident services.
 
 ## Document ownership and operations
 
+`core/jpegli_encoder.*` is the required, statically linked JPEG writer used by
+`CodecRegistry::save`, including batch and selection exports. `cmake/Jpegli.cmake`
+uses the pinned upstream source list and private libjpeg62 headers only for this
+translation unit. Existing TurboJPEG/libjpeg coefficient code retains its SDK
+headers and symbols; the ABI-compatible jpegli `jpeg_*` wrapper is not built.
+Codec initialization happens on export, with no new startup worker or resident
+process. Sequential non-optimized coding retains jpegli's bounded MCU-row path.
+`jpegliWorkingBytes` is shared with batch admission; its conservative row-plane
+allowance is also checked against the operation's image-memory budget. All codec
+state is per call. Native error and IO failures unwind before QSaveFile commit.
+
+`core/save_formats.*` owns canonical format aliases, available writer options and
+pure destination planning. It contains no settings or dialog code. The UI reads
+`save/preferOriginal` (absent means true) and `save/format` (absent means PNG).
+A different/unavailable preferred format forces Save As; an explicit supported
+filename suffix is a per-export choice. Unsupported/absent suffixes receive the
+chosen filter's extension. Core rejects a requested encoder/suffix mismatch.
+These preferences do not rewrite batch profiles or trigger unmodified JPEG saves.
+Settings snapshots portable values through the existing profile transaction;
+writer discovery occurs only on the Save page. A never-visited page retains an
+existing fixed-format key, including a temporarily unavailable format.
+
 `ImageDocument` holds original pixel precision, metadata, source revision and page/animation state. `core/image_loading.*` owns the load pipeline (optional RAW preview, revision-aware cache read and presentation conversion) with an explicit `ImageLoadRequest`. `displayImage` prepares presentation pixels. `ImageView` owns fitting, scrolling, selection and its bounded optional display cache. Display caches must never supply pixels for save/export.
 
 `ui/crop_geometry.h` computes edge/corner adjustments using half-open image-pixel

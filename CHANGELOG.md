@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Reject oversized JPEG comments without truncating UTF-8 text or replacing the
+  existing target. Empty EXIF/IPTC/XMP containers no longer force a full-file
+  export buffer and metadata rewrite; ICC, image text and density remain intact.
+
+- Build Google jpegli into the shared JPEG export path, retaining TurboJPEG
+  reading/lossless operations, quality values, ICC/text metadata and atomic saves.
+  Stream rows with white alpha composition and account for encoder row buffers
+  in batch admission. Ship pinned source/license inventories for static code.
+- Replace Settings → Storage locations with Save: original format by default,
+  optional fixed format from available encoders, safe Save As on format changes.
+  Compact the settings layout while retaining 32-pixel controls; discover writers
+  only when the Save page is opened. Keep existing portable profile behavior.
 - Resize crop selections by dragging corners or edges, with fixed-ratio constraints,
   zoom-independent hit targets and protected fullscreen navigation. Preserve the
   selected region and ratio when a trash transaction fails.

@@ -15,3 +15,4 @@ def fetch(package):
     part.replace(target)
 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:list(pool.map(fetch,manifest['packages']))
 subprocess.run([sys.executable,str(root/'scripts/extract_sdk.py')],check=True)
+subprocess.run([sys.executable,str(root/'scripts/fetch_native_sources.py')],check=True)

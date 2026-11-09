@@ -18,6 +18,7 @@ from source_archive import source_files, documentation_files, ROOT_FILES
 from bundle_tools import IDS, prepare as prepare_tools, release_tools
 from build_tool_packs import pack
 from package_native import archive_stage
+from native_dependencies import install_notices
 
 
 class ReadmeSourceTests(unittest.TestCase):
@@ -63,11 +64,34 @@ class ReleaseRuntimeTests(unittest.TestCase):
             'source_urls_checked_at': datetime.now(timezone.utc).isoformat(),
             'sdk_lock_sha256': hashlib.sha256(lock.read_bytes()).hexdigest(),
             'runtime_files': {}, 'packages': []}))
+        native = {'schema': 1, 'sources': {'jpegli': {'license_files': ['LICENSE'],
+                   'revision': 'test-revision', 'license': 'BSD-3-Clause'}}}
+        (self.root / 'scripts/native-sources-lock.json').write_text(json.dumps(native))
+        notices = self.root / 'build/third-party-notices'
+        (notices / 'jpegli').mkdir(parents=True)
+        (notices / 'native-sources-lock.json').write_text(json.dumps(native))
+        (notices / 'jpegli/LICENSE').write_text('test license text')
+        install_notices(self.root, self.runtime)
         self.addCleanup(patch.stopall)
         patch.object(release_package, 'ROOT', self.root).start()
 
     def test_matching_built_application_and_modules_are_accepted(self):
         release_package.validate_release(self.runtime)
+
+    def test_missing_native_license_is_rejected(self):
+        (self.runtime / 'licenses/native/jpegli/LICENSE').unlink()
+        with self.assertRaises(RuntimeError):
+            release_package.validate_release(self.runtime)
+
+    def test_modified_native_license_is_rejected(self):
+        (self.runtime / 'licenses/native/jpegli/LICENSE').write_text('changed license')
+        with self.assertRaises(RuntimeError):
+            release_package.validate_release(self.runtime)
+
+    def test_changed_native_source_lock_is_rejected(self):
+        (self.root / 'scripts/native-sources-lock.json').write_text('{"sources":{}}')
+        with self.assertRaises(RuntimeError):
+            release_package.validate_release(self.runtime)
 
     def _stale_source_inventory(self):
         path = self.runtime / 'dependency-sources.json'

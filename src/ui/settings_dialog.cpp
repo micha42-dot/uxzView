@@ -6,6 +6,9 @@
 #include "core/localization.h"
 #include "core/app_storage.h"
 #include "core/preview_service.h"
+#include "core/codec_registry.h"
+#include "core/save_formats.h"
+#include "worker_wait.h"
 #include "image_view.h"
 #include "fullscreen_info.h"
 #include "file_navigation.h"
@@ -29,17 +32,23 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         "QComboBox::drop-down { width: 24px; }"
         "QComboBox::down-arrow { width: 8px; height: 5px; }"));
     const auto available = screen()->availableGeometry().size();
-    resize(QSize(800, 500).boundedTo(available - QSize(32, 48)));
+    resize(QSize(760, 460).boundedTo(available - QSize(32, 48)));
     QSettings settings;
     auto *layout = dialogLayout(this);
+    layout->setContentsMargins(12, 12, 12, 12);
+    layout->setSpacing(10);
     auto *body = new QHBoxLayout;
-    body->setSpacing(spacing::column);
+    body->setSpacing(12);
     categories_ = new QListWidget;
     categories_->setObjectName(QStringLiteral("settingsCategories"));
     categories_->setAccessibleName(IX_TEXT("Einstellungsbereiche"));
     categories_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     categories_->setFrameShape(QFrame::NoFrame);
-    categories_->setSpacing(2);
+    categories_->setSpacing(1);
+    categories_->setStyleSheet(QStringLiteral(
+        "QListWidget { background: palette(alternate-base); border: 0; border-radius: 6px; padding: 4px; }"
+        "QListWidget::item { border-radius: 4px; padding-left: 8px; padding-right: 8px; }"
+        "QListWidget::item:selected { background: palette(highlight); color: palette(highlighted-text); }"));
     pages_ = new QStackedWidget;
     pages_->setObjectName(QStringLiteral("settingsPages"));
     body->addWidget(categories_);
@@ -52,6 +61,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         outer->setContentsMargins(0, 0, 0, 0);
         outer->setSpacing(spacing::section);
         auto *form = dialogFormLayout();
+        form->setVerticalSpacing(4);
+        form->setHorizontalSpacing(12);
         form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         outer->addLayout(form);
@@ -329,7 +340,42 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     crop->parentWidget()->setObjectName(QStringLiteral("cropSettingsPage"));
     cropRatios_ = new CropRatioEditor(settings.value(QStringLiteral("crop/customRatios")).toStringList());
     crop->addRow(IX_TEXT("Eigene Seitenverhältnisse:"), cropRatios_);
-    auto *storage = page(IX_TEXT("Speicherorte"));
+    auto *storage = page(IX_TEXT("Speichern"));
+    storage->parentWidget()->setObjectName(QStringLiteral("saveSettingsPage"));
+    savePreference_ = new QComboBox;
+    savePreference_->setObjectName(QStringLiteral("save/preferOriginal"));
+    savePreference_->addItem(IX_TEXT("Ursprüngliches Dateiformat bevorzugen"), true);
+    savePreference_->addItem(IX_TEXT("Festgelegtes Dateiformat bevorzugen"), false);
+    savePreference_->setCurrentIndex(settings.value(QStringLiteral("save/preferOriginal"), true).toBool() ? 0 : 1);
+    storage->addRow(IX_TEXT("Standardformat:"), savePreference_);
+    saveFormat_ = new QComboBox;
+    saveFormat_->setObjectName(QStringLiteral("save/format"));
+    const auto storedFormat = canonicalSaveFormat(settings.value(QStringLiteral("save/format"), QStringLiteral("png")).toByteArray());
+    const auto loadSaveFormats = [this, storedFormat] {
+        if (saveFormatsLoaded_) return;
+        saveFormatsLoaded_ = true;
+        for (const auto &format : writableSaveFormats(CodecRegistry()))
+            saveFormat_->addItem(format.label, QString::fromLatin1(format.id));
+        saveFormat_->setCurrentIndex(saveFormat_->findData(QString::fromLatin1(storedFormat)));
+    };
+    const int savePageIndex = pages_->count() - 1;
+    connect(categories_, &QListWidget::currentRowChanged, this, [loadSaveFormats, savePageIndex](int index) {
+        if (index == savePageIndex) loadSaveFormats();
+    });
+    saveFormat_->setPlaceholderText(IX_TEXT("Format nicht verfügbar"));
+    storage->addRow(IX_TEXT("Format:"), saveFormat_);
+    auto updateSaveFormat = [this, storage] {
+        const bool enabled = !savePreference_->currentData().toBool();
+        saveFormat_->setEnabled(enabled);
+        storage->labelForField(saveFormat_)->setEnabled(enabled);
+    };
+    connect(savePreference_, &QComboBox::currentIndexChanged, this, [loadSaveFormats, updateSaveFormat] {
+        loadSaveFormats(); updateSaveFormat();
+    });
+    updateSaveFormat();
+    auto *storageDivider = new QFrame;
+    storageDivider->setFrameShape(QFrame::HLine);
+    storage->addRow(storageDivider);
     portable_ = new OptionCheckBox(IX_TEXT("Portabelmodus verwenden (nach Neustart)"));
     portable_->setObjectName(QStringLiteral("storage/portable"));
     portable_->setChecked(AppStorage::portableRequested(storageHome_));
@@ -375,7 +421,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     for (auto *edit : findChildren<QLineEdit *>())
         edit->setMinimumHeight(edit->isReadOnly() ? controlHeight : controlHeight - 4);
     for (auto *button : findChildren<QPushButton *>()) button->setMinimumHeight(controlHeight);
-    categories_->setFixedWidth(std::max(150, categories_->sizeHintForColumn(0) + 28));
+    categories_->setFixedWidth(std::max(140, categories_->sizeHintForColumn(0) + 24));
     categories_->setCurrentRow(0);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     buttons->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));
@@ -406,6 +452,11 @@ void SettingsDialog::selectPage(const QString &objectName) {
             }
 }
 void SettingsDialog::accept() {
+    if (saveFormatsLoaded_ && !savePreference_->currentData().toBool() && saveFormat_->currentIndex() < 0) {
+        QMessageBox::warning(this, IX_TEXT("Speichern"), IX_TEXT("Bitte ein verfügbares Ausgabeformat wählen."));
+        selectPage(QStringLiteral("saveSettingsPage"));
+        return;
+    }
     const auto cropRatios = cropRatios_->ratios();
     const auto shortcut = captureShortcut_->keySequence();
     if (!shortcut.isEmpty() && parentWidget()) {
@@ -445,11 +496,13 @@ void SettingsDialog::accept() {
     values.insert(QStringLiteral("fullscreen/background"), fullscreenBackground_);
     values.insert(QStringLiteral("ui/language"), language_->currentData());
     values.insert(QStringLiteral("ui/theme"), theme_->currentData());
+    values.insert(QStringLiteral("save/preferOriginal"), savePreference_->currentData());
+    if (saveFormat_->currentIndex() >= 0) values.insert(QStringLiteral("save/format"), saveFormat_->currentData());
     values.insert(QStringLiteral("capture/shortcut"), shortcut.toString(QKeySequence::PortableText));
     const bool switchMode = portable_->isChecked() != AppStorage::portableRequested(storageHome_);
     if (switchMode) {
         if (settings.status() != QSettings::NoError || !settings.isWritable()) {
-            QMessageBox::warning(this, IX_TEXT("Speicherorte"), IX_TEXT("Einstellungen konnten nicht gespeichert werden."));
+            QMessageBox::warning(this, IX_TEXT("Speichern"), IX_TEXT("Einstellungen konnten nicht gespeichert werden."));
             return;
         }
         QString error;
@@ -465,20 +518,12 @@ void SettingsDialog::accept() {
             watcher.setFuture(QtConcurrent::run([home, source, values, &cancel] {
                 return AppStorage::preparePortable(home, values, source, cancel);
             }));
-            progress.exec();
-            // Cancel closes QProgressDialog immediately; keep the event loop
-            // responsive until the worker has discarded its staging directory.
-            if (!watcher.isFinished()) {
-                QEventLoop loop;
-                connect(&watcher, &QFutureWatcherBase::finished, &loop, &QEventLoop::quit);
-                if (!watcher.isFinished())
-                    loop.exec();
-            }
+            waitForGuiWorker(watcher, progress, true);
             error = watcher.result();
         } else
             error = AppStorage::disablePortable(storageHome_);
         if (!error.isEmpty()) {
-            QMessageBox::warning(this, IX_TEXT("Speicherorte"), error);
+            QMessageBox::warning(this, IX_TEXT("Speichern"), error);
             return;
         }
     }
@@ -486,11 +531,11 @@ void SettingsDialog::accept() {
         settings.setValue(it.key(), it.value());
     settings.sync();
     if (settings.status() != QSettings::NoError) {
-        QMessageBox::warning(this, IX_TEXT("Speicherorte"), IX_TEXT("Einstellungen konnten nicht gespeichert werden."));
+        QMessageBox::warning(this, IX_TEXT("Speichern"), IX_TEXT("Einstellungen konnten nicht gespeichert werden."));
         return;
     }
     if (switchMode)
-        QMessageBox::information(this, IX_TEXT("Speicherorte"), IX_TEXT("Der Speichermodus wird nach einem Neustart wirksam."));
+        QMessageBox::information(this, IX_TEXT("Speichern"), IX_TEXT("Der Speichermodus wird nach einem Neustart wirksam."));
     QDialog::accept();
 }
 } // namespace ix

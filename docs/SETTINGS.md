@@ -12,7 +12,7 @@
 | Diashow | Anzeigedauer, Start im Vollbild, Wiederholung, Zufallsreihenfolge; sonst Sortierung unter Navigation |
 | Screenshots | Einstellbare Tastenkombination, Verzögerung, Bildschirm unter Mauszeiger oder Hauptbildschirm; unter Windows optional systemweites Kürzel während üxzView läuft |
 | Freistellen | Sechs Standardverhältnisse und bis zu 32 eigene Formate (Breite-/Höhe-Felder mit Hinzufügen/Entfernen) |
-| Speicherorte | Portabelmodus nach Neustart, Datenordner anzeigen/öffnen, vorhandenes Benutzerprofil auf Wunsch als portable Kopie übernehmen |
+| Speichern | Ursprungsformat bevorzugen (Standard) oder festes, tatsächlich schreibbares Standardformat; Portabelmodus nach Neustart, Datenordner anzeigen/öffnen, Benutzerprofil als portable Kopie übernehmen |
 | Leistung | Bild-/Miniaturcachebudget einschließlich Abschalten, eingebettete RAW-Vorschauen, anfängliche Zahl paralleler Batchdateien, Caches leeren |
 
 Ohne vorhandene Voreinstellung werden ungespeicherte Bearbeitungen beim Bildwechsel und Schließen ohne Nachfrage verworfen. Bereits ausdrücklich gespeicherte Entscheidungen bleiben erhalten. Unter **Navigation → Beim Bildwechsel und Schließen nach ungespeicherten Änderungen fragen** lässt sich die Abfrage mit Speichern, Verwerfen und Abbrechen ein- oder ausschalten. Die Einstellung gilt auch beim bewussten Neuladen, beim Ersetzen oder Leeren des Dokuments, beim Seitenwechsel in mehrseitigen Bildern und beim Schließen über Escape oder „Beenden“. Bei eingeschalteter Abfrage fragt eine Diashow vor dem ersten Wechsel von einem bearbeiteten Bild; Abbrechen stoppt die Diashow. Abbrechen oder ein fehlgeschlagener Speicherversuch erhält Bearbeitung und Undo/Redo. Escape im Vollbild wechselt weiterhin zunächst zurück ins Fenster; dabei bleiben Bearbeitungen erhalten. Gespeicherte Originaldateien werden durch das Verwerfen nicht verändert. Bei einem fehlgeschlagenen ausdrücklichen Öffnen oder einer erfolglosen Suche nach dem nächsten lesbaren Bild bleibt die bisherige Bearbeitung erhalten.
@@ -117,7 +117,7 @@ Größenvorgaben, Halb/Doppelt und Seiten vertauschen aktivieren die absoluten G
 
 Manuelle und automatisch berechnete DPI liegen zwischen 1 und 100000. Extremes Skalieren kann diese Grenze erreichen; die Druckgröße wird dann nicht mehr exakt erhalten. Ungültige Auflösungswerte werden vor der Verarbeitung abgelehnt.
 
-Die Einstellungsseiten enthalten die Bedienelemente ohne begleitende Anleitungsabsätze. Unter Speicherorte bleibt der aktuell aktive Modus sichtbar; das schreibgeschützte Datenordnerfeld lässt sich markieren und kopieren. Der Portabel-Schalter wird weiterhin erst nach erfolgreicher Übernahme und Neustart wirksam.
+Die Einstellungsseiten enthalten die Bedienelemente ohne begleitende Anleitungsabsätze. Unter Speichern bleibt der aktuell aktive Modus sichtbar; das schreibgeschützte Datenordnerfeld lässt sich markieren und kopieren. Der Portabel-Schalter wird weiterhin erst nach erfolgreicher Übernahme und Neustart wirksam.
 
 ## Stapelverarbeitung
 
@@ -160,3 +160,25 @@ performance/swapEnabled defaults to true; performance/swapLimitMiB defaults to
 65536 MiB, aggregated across active mappings in this process. Changes affect new
 allocations immediately; existing images remain usable. See the storage and
 format limits in [large images](LARGE_IMAGES.md).
+
+## Standardformat beim Speichern
+
+Unter **Speichern** bleibt **Ursprüngliches Dateiformat bevorzugen** der Standard.
+**Festgelegtes Dateiformat bevorzugen** aktiviert die Liste der verfügbaren Encoder.
+Die Liste wird erst beim Öffnen dieser Seite ermittelt. Die Bedienelemente bleiben
+gut anklickbar; das Dialogfenster startet kompakter mit 760 × 460 logischen Pixeln.
+
+Die Schlüssel `save/preferOriginal` (Standard `true`) und `save/format` (Standard
+`png`) werden mit dem Profil gespeichert und beim Portabel-Import übernommen.
+Nicht schreibbare Quellen und nicht mehr verfügbare Wunschformate führen zu
+„Speichern unter“ mit einer tatsächlich schreibbaren Vorauswahl. Der gewählte
+Dateityp und eine ausdrücklich eingegebene unterstützte Endung können das Format
+für diesen einen Export ändern; die globale Präferenz bleibt erhalten. Eine
+fehlende Endung ergänzt der Dialog passend zum Dateityp. Vorhandene Ziele werden
+weiterhin ausdrücklich bestätigt und atomar ersetzt.
+
+Weicht das bevorzugte Format vom Original ab, wird ein neuer Dateiname mit der
+passenden Endung vorgeschlagen. Unveränderte JPEG-Dateien werden durch normales
+„Speichern“ nicht neu komprimiert; „Speichern unter“ bleibt ein bewusster Export.
+Der Standard-JPEG-Encoder ist jpegli. Qualität und Verlusthinweise bleiben gültig;
+Transparenz wird auf Weiß reduziert. JPEG XL bleibt ein eigenes Format.

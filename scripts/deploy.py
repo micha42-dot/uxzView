@@ -5,6 +5,7 @@ from build_exiv2 import build as build_exiv2
 from runtime_files import runtime_files, clean_runtime
 from bundle_tools import prepare as bundle_tools
 from source_archive import documentation_files
+from native_dependencies import install_notices
 root=pathlib.Path(__file__).resolve().parents[1]
 sdk=root/'.deps/sdk/ucrt64'; dest=root/'dist/uxzView'
 custom_heif = build_heif()
@@ -91,4 +92,6 @@ print(f'Portable app: {dest}; {len(seen)} PE modules, all imports resolved.')
 for source in (root/'scripts/windows').glob('*'):
     if source.is_file():shutil.copy2(source,dest/source.name)
 inventory = bundle_tools(root, dest)
+native = install_notices(root, dest)
+print(f"Native dependency notices: {len(native['components'])} pinned components.")
 print(f"Bundled tools: {len(inventory['packages'])} packages, {sum(item['bytes'] for item in inventory['files'].values())/1e6:.2f} MB; existing installed tools preserved.")

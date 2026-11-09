@@ -29,6 +29,8 @@ class SettingsDialog : public QDialog {
     QComboBox *fit_, *sort_, *iconSize_, *language_, *previewBackground_, *theme_, *fullscreenFit_, *fullscreenScreen_;
     QComboBox *unreadableFiles_;
     QComboBox *afterDelete_;
+    QComboBox *savePreference_, *saveFormat_;
+    bool saveFormatsLoaded_ = false;
     QListWidget *categories_;
     QStackedWidget *pages_;
     QKeySequenceEdit *captureShortcut_;

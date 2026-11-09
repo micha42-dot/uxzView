@@ -2,6 +2,8 @@
 #include "batch_memory.h"
 #include "batch_pipeline.h"
 #include "processing.h"
+#include "jpegli_encoder.h"
+#include "save_formats.h"
 #include <QScopeGuard>
 #include <algorithm>
 #include <chrono>
@@ -37,6 +39,9 @@ qint64 estimatedPipelineMemory(QSize size, QImage::Format format,
             size = options.size;
             bytes = bufferBytes(size, format);
         } else {
+            if (step.type == QStringLiteral("export") &&
+                canonicalSaveFormat(p.value(QStringLiteral("format")).toString().toLatin1()) == "jpeg")
+                peak = std::max(peak, std::min(limit, bytes + jpegliWorkingBytes(size.width())));
             // Full-frame filtering, painting or export conversion can retain
             // source, normalized 16-bit pixels and destination simultaneously.
             peak = std::max(peak, std::min(limit, bytes + qint64(size.width()) * size.height() * 24));

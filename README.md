@@ -23,6 +23,7 @@
 - Configurable screenshots and keyboard shortcuts.
 - JPEG, PNG, WebP, TIFF, GIF, APNG, PSD composite images, SVG, RAW and additional plugin-provided formats.
 - Multi-page PDF reading with page navigation and image export.
+- Built-in jpegli JPEG export and a configurable default save format.
 - Configurable handling of unreadable files: skip, show a named error or continue with a black display.
 - Multi-page images, animation playback, 16-bit image data and ICC/EXIF/IPTC/XMP support where supported by the format.
 - ZIP/CBZ image collections through the optional archive format plugin.
@@ -37,11 +38,11 @@ Program files and downloads use the ASCII name `uxzView`. Existing settings and 
 
 ## Portable mode
 
-Portable mode is available under **Options → Settings → Storage locations** and takes effect after restarting. Existing user data is copied on first activation and retained in its original location. Move `portable.mode`, `IxView-data` and `tools` together with the app. [Details](docs/PORTABLE.md).
+Portable mode is available under **Options → Settings → Save** and takes effect after restarting. Existing user data is copied on first activation and retained in its original location. Move `portable.mode`, `IxView-data` and `tools` together with the app. [Details](docs/PORTABLE.md).
 
 ## Build from source
 
-Requirements: a C++20 compiler, CMake 3.24+, Qt 6.8+ (including Qt PDF for PDF reading) and libjpeg-turbo. The Windows SDK bootstrap installs the project's pinned dependencies locally.
+Requirements: C/C++ compilers with C++20 support, CMake 3.24+, Qt 6.8+ (including Qt PDF for PDF reading) and libjpeg-turbo. The Windows SDK bootstrap installs the project's pinned dependencies locally. CMake fetches the pinned jpegli/Highway source archives automatically and verifies their SHA-256 hashes; these are built into the app. No additional runtime installation is needed.
 
 ### Windows
 

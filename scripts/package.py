@@ -10,6 +10,7 @@ from prepare_github import audit
 from source_archive import ROOT, create_source_archive
 from runtime_files import release_files
 from dependency_sources import OWN_DLLS
+from native_dependencies import validate_notices
 
 
 def validate_own_runtime(runtime):
@@ -28,6 +29,7 @@ def validate_own_runtime(runtime):
 
 def validate_runtime_inventory(runtime):
     validate_own_runtime(runtime)
+    validate_notices(ROOT, runtime)
     dependencies = json.loads((runtime / "dependency-sources.json").read_text(encoding="utf-8"))
     if json.loads((runtime / "runtime-manifest.json").read_text())["unresolved"]:
         raise RuntimeError("Unresolved runtime dependencies")

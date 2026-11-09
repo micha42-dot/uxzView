@@ -12,7 +12,8 @@ fileops=dest/'ixview_runtime_file_operation_tests.exe'
 maintenance=dest/'ixview_runtime_maintenance_tests.exe'
 uiquality=dest/'ixview_runtime_ui_quality_tests.exe'
 largeimages=dest/'ixview_runtime_large_image_tests.exe'
-if any(path.exists() for path in [tests,qt_test,quality,storage,extensions,workflows,fileops,maintenance,uiquality,largeimages]):raise SystemExit('Temporary runtime-test filenames already exist; inspect them first.')
+saving=dest/'ixview_runtime_saving_tests.exe'
+if any(path.exists() for path in [tests,qt_test,quality,storage,extensions,workflows,fileops,maintenance,uiquality,largeimages,saving]):raise SystemExit('Temporary runtime-test filenames already exist; inspect them first.')
 try:
  shutil.copy2(root/'build/ixview_tests.exe',tests)
  shutil.copy2(root/'build/ixview_quality_tests.exe',quality)
@@ -23,6 +24,7 @@ try:
  shutil.copy2(root/'build/ixview_maintenance_tests.exe',maintenance)
  shutil.copy2(root/'build/ixview_ui_quality_tests.exe',uiquality)
  shutil.copy2(root/'build/ixview_large_image_tests.exe',largeimages)
+ shutil.copy2(root/'build/ixview_saving_tests.exe',saving)
  shutil.copy2(root/'.deps/sdk/ucrt64/bin/Qt6Test.dll',qt_test)
  env=os.environ.copy();env['PATH']=str(Path(env['WINDIR'])/'System32')+';'+env['WINDIR']
  for key in ['QT_PLUGIN_PATH','QT_QPA_PLATFORM_PLUGIN_PATH','QML2_IMPORT_PATH','CMAKE_PREFIX_PATH']:env.pop(key,None)
@@ -69,6 +71,9 @@ try:
  if result.returncode:raise SystemExit(result.returncode)
  result=subprocess.run([str(largeimages),'-platform','offscreen','-o',str(root/'build/portable-large-image-test-results.txt')+',txt','-o',str(root/'build/portable-large-image-test-results.xml')+',junitxml'],cwd=dest,env=env,timeout=180)
  print((root/'build/portable-large-image-test-results.txt').read_text(encoding='utf-8',errors='replace'))
+ if result.returncode:raise SystemExit(result.returncode)
+ result=subprocess.run([str(saving),'-platform','offscreen','-o',str(root/'build/portable-saving-test-results.txt')+',txt','-o',str(root/'build/portable-saving-test-results.xml')+',junitxml'],cwd=dest,env=env,timeout=180)
+ print((root/'build/portable-saving-test-results.txt').read_text(encoding='utf-8',errors='replace'))
  if result.returncode:raise SystemExit(result.returncode)
  with tempfile.TemporaryDirectory(prefix='run-portable-startup-',dir=root/'tests/output') as temporary:
   before=Path(temporary)/'before';after=Path(temporary)/'after'
@@ -131,4 +136,5 @@ finally:
  if maintenance.exists():maintenance.unlink()
  if uiquality.exists():uiquality.unlink()
  if largeimages.exists():largeimages.unlink()
+ if saving.exists():saving.unlink()
  if qt_test.exists():qt_test.unlink()

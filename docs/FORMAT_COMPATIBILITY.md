@@ -1,6 +1,6 @@
 # Formatkompatibilität
 
-Stand: 01.11.2026, Windows-x64-Paket. Linux/macOS besitzen je nach installierten Qt-/KImageFormats-Plugins andere Fähigkeiten. Die Erkennung basiert auf den tatsächlich geladenen Plugins des getesteten Builds. „Rundlauf“ bedeutet: ein synthetisches RGB-Bild speichern, wieder öffnen und die Größe prüfen. Das ist keine vollständige Konformitätsprüfung aller Formatvarianten. Zusätzlich wurden 5 reale Kamera-RAW-Formate geprüft. Weitere Qualitätsnachweise und Grenzen stehen in [QUALITY.md](QUALITY.md). Die folgenden Rundlaufmarkierungen beziehen sich auf die synthetische Funktionssuite.
+Stand: 09.11.2026, Windows-x64-Paket. Linux/macOS besitzen je nach installierten Qt-/KImageFormats-Plugins andere Fähigkeiten. Die Erkennung basiert auf den tatsächlich geladenen Plugins des getesteten Builds. „Rundlauf“ bedeutet: ein synthetisches RGB-Bild speichern, wieder öffnen und die Größe prüfen. Das ist keine vollständige Konformitätsprüfung aller Formatvarianten. Zusätzlich wurden 5 reale Kamera-RAW-Formate geprüft. Weitere Qualitätsnachweise und Grenzen stehen in [QUALITY.md](QUALITY.md). Die folgenden Rundlaufmarkierungen beziehen sich auf die synthetische Funktionssuite.
 
 | Dateiformat | Lesen | Schreiben | Mehrseitigkeit | Animation | Metadaten | Verwendete Bibliothek | Implementierungsstatus |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -42,9 +42,8 @@ Stand: 01.11.2026, Windows-x64-Paket. Linux/macOS besitzen je nach installierten
 | IM32 (im32) | Ja (Decoder geladen) | Nein | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | Qt / KImageFormats | Decoder/Encoder vorhanden; keine Formatfixture |
 | IM8 (im8) | Ja (Decoder geladen) | Nein | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | Qt / KImageFormats | Decoder/Encoder vorhanden; keine Formatfixture |
 | J2K (j2k) | Ja (getestet) | Ja (Rundlauf) | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | Qt/KImageFormats / JasPer/OpenJPEG | Synthetischer Test bestanden |
-| JFIF (jfif) | Ja (getestet) | Ja (Rundlauf) | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | Qt / libjpeg-turbo | Synthetischer Test bestanden |
 | JP2 (jp2) | Ja (getestet) | Ja (Rundlauf) | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | Qt/KImageFormats / JasPer/OpenJPEG | Synthetischer Test bestanden |
-| JPEG (jpeg, jpg) | Ja (getestet) | Ja (Rundlauf) | Nicht separat geprüft | Nicht separat geprüft | EXIF lesen / Orientierungsanwendung getestet | Qt / libjpeg-turbo | Synthetischer Test bestanden |
+| JPEG (jfif, jpeg, jpg) | Ja (getestet) | Ja (Rundlauf) | Nicht separat geprüft | Nicht separat geprüft | EXIF lesen / Orientierungsanwendung getestet | libjpeg-turbo / jpegli (encoder) | Synthetischer Test bestanden |
 | JPF (jpf) | Ja (Decoder geladen) | Nein | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | Qt / KImageFormats | Decoder/Encoder vorhanden; keine Formatfixture |
 | JXL (jxl) | Ja (getestet) | Ja (Rundlauf) | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | KImageFormats / libjxl | Synthetischer Test bestanden |
 | K25 (k25) | Ja (Decoder geladen) | Nein | Nicht separat geprüft | Nicht separat geprüft | QImage / ggf. Exiv2; Kombination nicht separat geprüft | KImageFormats / LibRaw | Decoder/Encoder vorhanden; keine Formatfixture |

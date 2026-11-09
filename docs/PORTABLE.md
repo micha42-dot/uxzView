@@ -4,7 +4,7 @@
 
 ## Enable it
 
-Open **Options → Settings → Storage locations**, enable **Use portable mode (after restart)** and confirm with OK. On first activation, üxzView copies the current settings and application data into `IxView-data` beside the application. Copying runs in the background and can be cancelled. The old user profile is retained. Restart üxzView to use the portable copy.
+Open **Options → Settings → Save**, enable **Use portable mode (after restart)** and confirm with OK. On first activation, üxzView copies the current settings and application data into `IxView-data` beside the application. Copying runs in the background and can be cancelled. The old user profile is retained. Restart üxzView to use the portable copy.
 
 The copy includes settings and screenshot shortcuts, resize/color presets, batch profiles saved in the default profile folder, ratings and metadata catalog, installed extensions and their preferences. Image and watermark files outside the application data folder are referenced, not copied. Profiles explicitly saved elsewhere also remain external.
 

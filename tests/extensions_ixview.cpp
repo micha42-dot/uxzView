@@ -554,7 +554,8 @@ class ExtensionTests : public QObject {
         QVERIFY(ix::ToolStore().remove(QStringLiteral("tessdata-fra"), keepGoing).isEmpty());
         use.reset();
         installReal({QStringLiteral("tessdata-fra")});
-        QVERIFY(ix::ToolStore().setEnabled(QStringLiteral("tessdata-deu"), false).isEmpty());
+        const auto disableError = ix::ToolStore().setEnabled(QStringLiteral("tessdata-deu"), false);
+        QVERIFY2(disableError.isEmpty(), qPrintable(disableError));
         QCOMPARE(ix::ToolStore().languages().size(), 4);
         QSettings().setValue(QStringLiteral("tools/ocrLanguages"), QStringList{QStringLiteral("eng")});
         QImage image(1400, 240, QImage::Format_RGB32); image.fill(Qt::white);

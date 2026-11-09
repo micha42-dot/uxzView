@@ -9,6 +9,8 @@
 #include "plugin_store.h"
 #include "preview_service.h"
 #include "turbojpeg_codec.h"
+#include "jpegli_encoder.h"
+#include "save_formats.h"
 #include <QBuffer>
 #include <QColorSpace>
 #include <QElapsedTimer>
@@ -53,7 +55,7 @@ QString backend(const QByteArray &f) {
     if (f == "cbz" || f == "zip")
         return QStringLiteral("üxzView / KArchive");
     if (f == "jpeg" || f == "jfif")
-        return QStringLiteral("Qt / libjpeg-turbo");
+        return QStringLiteral("libjpeg-turbo / jpegli (encoder)");
     if (f == "png")
         return QStringLiteral("Qt / libpng");
     if (f == "tiff")
@@ -82,12 +84,7 @@ bool alphaWritable(const QByteArray &f) {
         .contains(f);
 }
 QByteArray normalized(QByteArray f) {
-    f = f.toLower();
-    if (f == "jpg" || f == "jpe")
-        return "jpeg";
-    if (f == "tif")
-        return "tiff";
-    return f;
+    return canonicalSaveFormat(std::move(f));
 }
 class QtCodec final : public ImageCodec {
   public:
@@ -278,6 +275,11 @@ class QtCodec final : public ImageCodec {
                 f.write = key != "icns";
                 f.library = backend(key);
             }
+            auto &jpeg = formats[QByteArray("jpeg")];
+            jpeg.name = QStringLiteral("JPEG"); jpeg.write = true;
+            jpeg.library = backend("jpeg");
+            for (const auto &extension : {QStringLiteral("jpg"), QStringLiteral("jpeg"), QStringLiteral("jfif")})
+                if (!jpeg.extensions.contains(extension)) jpeg.extensions.append(extension);
             return formats.values();
         }();
         auto result = cached;
@@ -324,6 +326,7 @@ bool CodecRegistry::canWrite(const QByteArray &f) {
         return false;
     if (normalized(f) == "icns" || normalized(f) == "pdf")
         return false;
+    if (normalized(f) == "jpeg") return true;
     static const auto writers = QImageWriter::supportedImageFormats();
     for (const auto &x : writers)
         if (normalized(x) == normalized(f))
@@ -337,7 +340,7 @@ QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray
         losses.append(IX_TEXT("Es wird nur die aktuelle Seite / der aktuelle Frame gespeichert."));
     if (d.sourceHasExif && (!d.metadata || !metadataWritable(format) || exportNeedsStreaming(d.pixels)))
         losses.append(
-            IX_TEXT("EXIF-, IPTC- und XMP-Daten werden vom Qt-Encoder nicht vollständig übernommen. "
+            IX_TEXT("EXIF-, IPTC- und XMP-Daten werden beim Export nicht vollständig übernommen. "
                     "Die EXIF-Ausrichtung ist bereits auf die Pixel angewendet."));
     if (d.pixels.hasAlphaChannel() && !alphaWritable(format))
         losses.append(IX_TEXT("Dieses Ausgabeformat erhält den Alphakanal nicht zuverlässig. "
@@ -359,12 +362,14 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
         return IX_TEXT("Kein Bild geladen.");
     if (!canWrite(format))
         return IX_TEXT("Kein Encoder für %1 verfügbar.").arg(QString::fromLatin1(format));
+    if (normalized(QFileInfo(path).suffix().toLatin1()) != format)
+        return IX_TEXT("Dateiendung und Ausgabeformat stimmen nicht überein.");
     if (!allowLoss && !exportLosses(d, format).isEmpty())
         return exportLosses(d, format).join(QLatin1Char('\n'));
     const bool large = exportNeedsStreaming(d.pixels);
     if (format == "jpeg" && (d.pixels.width()>65500 || d.pixels.height()>65500))
         return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
-    if (large && qint64(d.pixels.width())*64 + qint64(d.pixels.height())*sizeof(void *) > imageMemoryLimit())
+    if (large && qint64(d.pixels.width())*64 + qint64(d.pixels.height())*qint64(sizeof(void *)) > imageMemoryLimit())
         return imageSizeLimitError({d.pixels.width(),1},64);
     if (large && format != "png" && format != "jpeg")
         return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
@@ -388,7 +393,12 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
         return file.errorString();
     QByteArray encoded;
     QBuffer buffer(&encoded);
-    const bool attach = d.metadata && metadataWritable(format) && !large;
+    // A successful Exiv2 read can own an entirely empty metadata container.
+    // Do not collect/rewrite the complete encoded file merely for that object;
+    // ICC, text and density already belong to the image encoder's output.
+    const bool attach = d.metadata && d.metadata->data &&
+                        (d.metadata->hasExif || d.metadata->hasIptc || d.metadata->hasXmp) &&
+                        metadataWritable(format) && !large;
     QIODevice *destination = &file;
     if (attach) {
         buffer.open(QIODevice::WriteOnly);
@@ -399,7 +409,7 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
     QImageWriter writer(destination, format);
     writer.setQuality(quality);
     QImage output = d.pixels;
-    if (output.hasAlphaChannel() && !alphaWritable(format)) {
+    if (format != "jpeg" && output.hasAlphaChannel() && !alphaWritable(format)) {
         QImage flat;
         try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
         catch (const std::exception &error) { file.cancelWriting(); return localized(QString::fromUtf8(error.what())); }
@@ -418,9 +428,11 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
         inheritImageProperties(output, flat);
         output = flat;
     }
-    if (!writer.write(output)) {
+    const QString encodeError = format == "jpeg" ? writeJpegli(*destination, output, quality)
+                                                : writer.write(output) ? QString() : writer.errorString();
+    if (!encodeError.isEmpty()) {
         file.cancelWriting();
-        return writer.errorString();
+        return encodeError;
     }
     if (attach) {
         QString error;
@@ -480,9 +492,7 @@ QString CodecRegistry::openFilter() const {
 }
 QString CodecRegistry::saveFilter() const {
     QStringList filters;
-    for (const auto &f : capabilities())
-        if (f.write)
-            filters << QStringLiteral("%1 (*.%2)").arg(f.name, f.extensions.first());
+    for (const auto &f : writableSaveFormats(*this)) filters.append(f.filter());
     return filters.join(QStringLiteral(";;"));
 }
 } // namespace ix

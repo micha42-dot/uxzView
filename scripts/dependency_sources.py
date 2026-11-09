@@ -167,6 +167,8 @@ def collect(check_urls=False):
     manifest = {"schema": 1, "source_index": SOURCE_BASE, "source_urls_checked_at": checked,
                 "sdk_lock_sha256": digest(lock), "runtime_files": dict(sorted(owners.items())),
                 "packages": sorted(packages.values(), key=lambda p: p["name"])}
+    from native_dependencies import validate_notices
+    manifest['static_dependencies'] = validate_notices(ROOT, runtime)
     (runtime / "dependency-sources.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     lines = ["# Corresponding third-party sources / Drittanbieter-Quellcode", "",
              "üxzView sources and build instructions are included in the accompanying source ZIP.",
@@ -181,9 +183,15 @@ def collect(check_urls=False):
              "The distributor must keep these sources accessible while distributing the binaries; archive a mirror",
              "before upstream removes versions and update these directions if hosting changes.", "",
              "Source-index availability check: " + (checked or "NOT RUN; required before release"), "",
-             "| Package | Version | Corresponding source |", "| --- | --- | --- |"]
+             "| Package | Version | License | Upstream | Corresponding source |", "| --- | --- | --- | --- | --- |"]
     for p in manifest["packages"]:
-        lines.append(f"| {p['name']} | {p['version']} | [source archive]({p['source_url']}) |")
+        lines.append(f"| {p['name']} | {p['version']} | {' / '.join(p['license'])} | [project]({p['upstream']}) | [source archive]({p['source_url']}) |")
+    lines += ['', '## Statically linked native components', '',
+              'jpegli is the built-in JPEG encoder; libjpeg-turbo decoding and coefficient transforms remain separate.',
+              'Exact revisions, archive hashes and license-file hashes are in native-dependencies.json.',
+              'Build recipe: cmake/Jpegli.cmake; licenses: licenses/native/.', '']
+    for name, entry in manifest['static_dependencies']['components'].items():
+        lines.append(f"- {name} ({entry['repo']}, `{entry['revision']}`): {entry['license']}; [source]({entry['url']}); SHA-256 `{entry['sha256']}`.")
     tool_lock = json.loads((ROOT / 'scripts/tool-sources-lock.json').read_text())
     lines += ['', '## Bundled recognition tools', '',
               'ZXing-C++, Tesseract, Leptonica and tessdata_fast models are included under tools/.',

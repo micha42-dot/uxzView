@@ -3,6 +3,7 @@
 #include "core/image_export_policy.h"
 #include "core/localization.h"
 #include "core/preview_service.h"
+#include "core/save_formats.h"
 #include "main_window.h"
 #include "worker_wait.h"
 #include "file_navigation.h"
@@ -43,6 +44,8 @@ bool MainWindow::confirmDiscard() {
 bool MainWindow::saveImage(bool selection, bool forceDialog) {
     if (document_.empty() || activity_.busy())
         return false;
+    if (!selection && !forceDialog && !document_.modified && !document_.path.isEmpty() &&
+        canonicalSaveFormat(document_.format) == "jpeg" && QFileInfo::exists(document_.path)) return true;
     activity_.begin(DocumentActivity::Phase::Saving);
     refreshState();
     auto release = qScopeGuard([this] {
@@ -53,28 +56,41 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     ImageDocument output = document_;
     const QRect selectedArea = view_->selection();
     QString path = output.path;
-    QString selected = QStringLiteral("PNG (*.png)");
-    const bool writable = CodecRegistry::canWrite(QFileInfo(path).suffix().toLatin1());
-    bool dialog = forceDialog || path.isEmpty() || !writable;
+    const auto formats = writableSaveFormats(registry_);
+    const QSettings settings;
+    auto target = preferredSaveTarget(path, output.format, formats,
+        settings.value(QStringLiteral("save/preferOriginal"), true).toBool(),
+        settings.value(QStringLiteral("save/format"), QStringLiteral("png")).toByteArray());
+    if (target.format.id.isEmpty()) { showError(IX_TEXT("Kein schreibbares Bildformat verfügbar.")); return false; }
+    QString selected = target.format.filter();
+    bool dialog = forceDialog || target.needsDialog;
     if (dialog) {
-        QString suggested = path;
-        if (!path.isEmpty() && !writable)
-            suggested = QFileInfo(path).dir().filePath(QFileInfo(path).completeBaseName() +
-                                                       QStringLiteral(".png"));
+        QString suggested = target.suggestedPath;
+        if (suggested.isEmpty()) suggested = QDir(settings.value(QStringLiteral("files/directory"), QDir::homePath()).toString())
+            .filePath(QStringLiteral("Bild.") + target.format.suffix());
         // A single app-side question below covers Save, Save As and externally
         // changed files; the native chooser must not confirm overwrites itself.
-        path = QFileDialog::getSaveFileName(
-            this, IX_TEXT("Speichern unter"),
-            path.isEmpty() ? QSettings().value(QStringLiteral("files/directory")).toString() +
-                                 QStringLiteral("/Bild.png")
-                           : suggested,
-            registry_.saveFilter(), &selected, QFileDialog::DontConfirmOverwrite);
-        if (path.isEmpty())
-            return false;
-        if (QFileInfo(path).suffix().isEmpty()) {
-            auto match = QRegularExpression(QStringLiteral("\\*\\.([a-zA-Z0-9]+)")).match(selected);
-            path += QLatin1Char('.') + (match.hasMatch() ? match.captured(1) : QStringLiteral("png"));
-        }
+        QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, registry_.saveFilter());
+        chooser.setAcceptMode(QFileDialog::AcceptSave);
+        chooser.setFileMode(QFileDialog::AnyFile);
+        chooser.setOption(QFileDialog::DontConfirmOverwrite);
+        chooser.selectNameFilter(selected);
+        chooser.setDefaultSuffix(target.format.suffix());
+        auto previous = target.format;
+        connect(&chooser, &QFileDialog::filterSelected, &chooser, [&](const QString &filter) {
+            const auto next = std::find_if(formats.cbegin(), formats.cend(), [&](const auto &f) { return f.filter() == filter; });
+            if (next == formats.cend()) return;
+            const auto name = chooser.selectedFiles().value(0);
+            if (next->id != previous.id && !name.isEmpty() && canonicalSaveFormat(QFileInfo(name).suffix().toLatin1()) == previous.id)
+                chooser.selectFile(QFileInfo(name).dir().filePath(QFileInfo(name).completeBaseName() + QLatin1Char('.') + next->suffix()));
+            chooser.setDefaultSuffix(next->suffix());
+            previous = *next;
+        });
+        if (chooser.exec() != QDialog::Accepted) return false;
+        target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
+        path = target.suggestedPath;
+        if (path.isEmpty()) return false;
+        chooser.selectNameFilter(target.format.filter());
     }
     const auto targetRevision = QFileInfo::exists(path) ? imageFileKey(path) : QString();
     // The chooser above never confirms overwrites, so ask exactly once here,
@@ -106,7 +122,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         output.pixels = std::move(result.pixels);
         output.modified = true;
     }
-    auto format = QFileInfo(path).suffix().toLower().toLatin1();
+    const auto format = target.format.id;
     auto losses = CodecRegistry::exportLosses(output, format);
     if (!losses.isEmpty() &&
         QMessageBox::warning(this, IX_TEXT("Hinweise zum Ausgabeformat"),

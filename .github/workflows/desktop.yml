@@ -19,7 +19,7 @@ jobs:
       - uses: actions/cache@v6.1.0
         with:
           path: .deps/cache
-          key: windows-sdk-${{ hashFiles('scripts/sdk-lock.json') }}
+          key: windows-sdk-${{ hashFiles('scripts/sdk-lock.json', 'scripts/native-sources-lock.json') }}
       - name: Install locked project SDK
         run: python scripts/bootstrap_sdk.py
       - name: Build and test
