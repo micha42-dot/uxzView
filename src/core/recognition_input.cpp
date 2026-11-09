@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QRegularExpression>
 #include <QSet>
+#include <algorithm>
 namespace ix {
 QString prepareRecognitionInput(const QImage &image, QRect area, const QString &directory,
                                 const QList<RecognitionLanguage> &languages,
@@ -22,20 +23,37 @@ QString prepareRecognitionInput(const QImage &image, QRect area, const QString &
             return IX_TEXT("Sprachdaten konnten nicht vorbereitet werden.");
         codes.insert(language.code);
     }
-    QImage pixels(area.size(), QImage::Format_RGB888);
+    // The protocol is row-oriented: never materialize the entire selected
+    // region merely to write it to disk. A 1 MiB tile amortizes painter setup.
+    const qint64 rowStride = (qint64(area.width()) * 3 + 3) & ~qint64(3);
+    const int rows = int(std::clamp<qint64>(1024 * 1024 / rowStride, 1, 64));
+    QImage pixels(area.width(), rows, QImage::Format_RGB888);
     if (pixels.isNull()) return IX_TEXT("Nicht genügend Speicher.");
-    pixels.fill(Qt::white);
-    { QPainter painter(&pixels); painter.drawImage(QPoint(), image, area); }
     QFile file(directory + QStringLiteral("/input.ppm"));
     if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return file.errorString();
-    const auto header = QByteArray("P6\n") + QByteArray::number(pixels.width()) + ' ' +
-                        QByteArray::number(pixels.height()) + "\n255\n";
+    const auto header = QByteArray("P6\n") + QByteArray::number(area.width()) + ' ' +
+                        QByteArray::number(area.height()) + "\n255\n";
     if (file.write(header) != header.size()) return file.errorString();
-    for (int y = 0; y < pixels.height(); ++y) {
+    for (int top = 0; top < area.height(); top += rows) {
         if (cancel.load()) return IX_TEXT("Abgebrochen.");
-        const auto bytes = qint64(pixels.width()) * 3;
-        if (file.write(reinterpret_cast<const char *>(pixels.constScanLine(y)), bytes) != bytes)
-            return file.errorString();
+        const int count = std::min(rows, area.height() - top);
+        pixels.fill(Qt::white);
+        {
+            QPainter painter(&pixels);
+            painter.drawImage(QPoint(), image, QRect(area.x(), area.y() + top, area.width(), count));
+        }
+        const auto bytes = qint64(area.width()) * 3;
+        if (pixels.bytesPerLine() == bytes) {
+            // Aligned RGB rows are already a complete PPM payload: one write
+            // per strip avoids thousands of small filesystem calls.
+            const auto length = bytes * count;
+            if (file.write(reinterpret_cast<const char *>(pixels.constBits()), length) != length)
+                return file.errorString();
+        } else {
+            for (int y = 0; y < count; ++y)
+                if (file.write(reinterpret_cast<const char *>(pixels.constScanLine(y)), bytes) != bytes)
+                    return file.errorString();
+        }
     }
     if (!file.flush()) return file.errorString();
     if (!languages.isEmpty() && !QDir().mkpath(directory + QStringLiteral("/tessdata")))

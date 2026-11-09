@@ -1,5 +1,15 @@
 # Performance in üxzView
 
+## APNG validation and recognition input
+
+The [November 9 follow-up](ROUND_REVIEW_2026-11-09.md) replaces per-bit APNG CRC
+work with a constant lookup table and removes concatenated checksum inputs.
+Opening a local six-frame 25.18 MB APNG falls from 405 to 161 ms in the controlled
+component comparison. OCR/QR exports reuse RGB strips rather than a full selected
+image copy: measured additional peak private commit falls from 96.37 to 1.00 MB
+for a 32 MP selection. Export times vary; this establishes a memory improvement,
+not a universal OCR/QR speedup. Recognition engines remain separate processes.
+
 ## Bounded neighbour loading and text preview
 
 The [November 9 corrections](REVIEW_FIXES_2026-11-09.md) bound speculative

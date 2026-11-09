@@ -48,7 +48,7 @@ void waitForGuiWorker(QFutureWatcher<Result> &watcher, QProgressDialog &progress
     QTimer delayedShow;
     delayedShow.setSingleShot(true);
     QObject::connect(&delayedShow, &QTimer::timeout, &progress, [&] {
-        if (!watcher.isFinished()) progress.show();
+        if (!watcher.isFinished() && (!cancellable || !progress.wasCanceled())) progress.show();
     });
     QTimer keepVisible;
     if (!cancellable) {

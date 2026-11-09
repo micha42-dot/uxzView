@@ -175,6 +175,9 @@ class ToolDialog final : public QDialog {
     }
     void finish(const QString &message) {
         use_.reset();
+        // Results live in bytes_/output_, not in the exported image or copied
+        // language files. Release potentially large private jobs immediately.
+        job_.reset();
         timer_.stop(); run_->setEnabled(true); abort_->setEnabled(false); manage_->setEnabled(true);
         if (languages_) languages_->setEnabled(true);
         status_->setText(localized(message));

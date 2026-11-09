@@ -12,6 +12,8 @@
 #include "core/batch_memory.h"
 #include <QColorSpace>
 #include "ui/main_window.h"
+#include "ui/library_dialog.h"
+#include "core/localization.h"
 #include <QClipboard>
 #include <QImageReader>
 #include <QSemaphore>
@@ -25,6 +27,7 @@
 #include <vector>
 #include <stdexcept>
 #include <cstdio>
+#include <cstdlib>
 #ifdef IX_TEST_ARCHIVE
 #include <KZip>
 #endif
@@ -34,6 +37,64 @@
 #endif
 
 namespace {
+// Model a native show() that dispatches completion before QDialog::exec() can
+// start. Fast catalog jobs must finish through the future, never a dialog loop.
+class CatalogShowProbe final : public QObject {
+  public:
+    bool injected = false;
+    bool eventFilter(QObject *object, QEvent *event) override {
+        if (!injected && event->type() == QEvent::Show && qobject_cast<QProgressDialog *>(object)) {
+            injected = true;
+            QElapsedTimer timer; timer.start();
+            while (timer.elapsed() < 80) {
+                QCoreApplication::processEvents();
+                QThread::msleep(1);
+            }
+        }
+        return false;
+    }
+};
+QJsonObject checkCatalogProgress(const QString &action) {
+    QTemporaryDir folder;
+    if (!folder.isValid()) return {{QStringLiteral("error"), QStringLiteral("Temporary folder failed")}};
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, folder.path());
+    qApp->setProperty("ixStorageData", folder.filePath(QStringLiteral("profile")));
+    bool started = false, completed = false;
+    CatalogShowProbe probe; qApp->installEventFilter(&probe);
+    const auto remove = qScopeGuard([&] { qApp->removeEventFilter(&probe); });
+    QTimer watchdog; watchdog.setSingleShot(true);
+    QObject::connect(&watchdog, &QTimer::timeout, qApp, [&] {
+        std::fputs("catalog-progress-deadline\n", stderr); std::fflush(stderr);
+        std::_Exit(17); // A regression must not strand the parent suite in a modal loop.
+    });
+    QTimer driver;
+    QObject::connect(&driver, &QTimer::timeout, qApp, [&] {
+        auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        if (dialog->objectName() == QStringLiteral("duplicateDialog")) {
+            completed = true; dialog->reject(); return;
+        }
+        if (dialog->objectName() != QStringLiteral("libraryDialog")) return;
+        if (started && action == QStringLiteral("Metadaten indexieren")) {
+            auto *status = dialog->findChild<QLabel *>(QStringLiteral("catalogStatus"));
+            completed = status && !status->text().isEmpty();
+        }
+        if (completed) { dialog->reject(); return; }
+        if (!started && dialog->property("catalogReady").toBool())
+            for (auto *button : dialog->findChildren<QAbstractButton *>())
+                if (button->text() == ix::localized(action)) {
+                    started = true;
+                    QTimer::singleShot(0, button, [button] { button->click(); });
+                    break;
+                }
+    });
+    driver.start(5); watchdog.start(5000);
+    ix::libraryDialog(nullptr, {}, {});
+    driver.stop(); watchdog.stop();
+    return {{QStringLiteral("started"), started}, {QStringLiteral("completed"), completed},
+            {QStringLiteral("show_injected"), probe.injected}};
+}
 QJsonObject checkSmallCacheBudget() {
     ix::initializeImageMemoryLimit(8);
     QTemporaryDir folder;
@@ -131,6 +192,27 @@ class MaintenanceTests : public QObject {
     Q_OBJECT
     QTemporaryDir temporary_;
   private slots:
+    void catalogCompletionDuringShowCannotStrandDialog_data() {
+        QTest::addColumn<QString>("action");
+        QTest::newRow("index") << QStringLiteral("Metadaten indexieren");
+        QTest::newRow("exact") << QStringLiteral("Identische Bilder");
+        QTest::newRow("similar") << QStringLiteral("Ähnliche Bilder");
+    }
+    void catalogCompletionDuringShowCannotStrandDialog() {
+        QFETCH(QString, action);
+        QProcess child;
+        child.start(QCoreApplication::applicationFilePath(),
+                    {QStringLiteral("--catalog-progress-probe"), action,
+                     QStringLiteral("-platform"), QStringLiteral("offscreen")});
+        const bool finished = child.waitForFinished(15000);
+        if (!finished) { child.kill(); child.waitForFinished(3000); }
+        QVERIFY2(finished, child.readAllStandardError().constData());
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QVERIFY2(child.exitCode() == 0, child.readAllStandardError().constData());
+        const auto report = QJsonDocument::fromJson(child.readAllStandardOutput()).object();
+        QVERIFY(report.value(QStringLiteral("started")).toBool());
+        QVERIFY(report.value(QStringLiteral("completed")).toBool());
+    }
     void cancelledLoadSkipsQueuedReadAndPreDecodeWork() {
         ix::ImageLoadCache::clear(); ix::CodecRegistry registry;
         const auto path=temporary_.filePath(QStringLiteral("cancel-before.png"));
@@ -1052,6 +1134,14 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("IxViewMaintenanceTests"));
     QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
+    const auto catalogProbe = app.arguments().indexOf(QStringLiteral("--catalog-progress-probe"));
+    if (catalogProbe >= 0) {
+        const auto report = checkCatalogProgress(app.arguments().value(catalogProbe + 1));
+        const auto bytes = QJsonDocument(report).toJson(QJsonDocument::Compact);
+        QFile output;
+        if (!output.open(stdout, QIODevice::WriteOnly) || output.write(bytes) != bytes.size()) return 2;
+        return report.contains(QStringLiteral("error")) ? 1 : 0;
+    }
     if (app.arguments().contains(QStringLiteral("--small-cache-budget"))) {
         const auto report=checkSmallCacheBudget();
         const auto bytes=QJsonDocument(report).toJson(QJsonDocument::Compact);

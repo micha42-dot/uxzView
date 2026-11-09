@@ -29,6 +29,7 @@
 #include "ui/action_search.h"
 #include "ui/application.h"
 #include "ui/crop_ratios.h"
+#include "ui/crop_geometry.h"
 #include "ui/dialogs.h"
 #include "ui/icons.h"
 #include "ui/library_dialog.h"
@@ -928,8 +929,8 @@ class IxTests : public QObject {
             ix::SettingsDialog dialog;
             auto *ask = dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"));
             QVERIFY(ask);
-            QVERIFY(ask->isChecked());
-            ask->setChecked(false);
+            QVERIFY(!ask->isChecked());
+            ask->setChecked(true);
             dialog.findChild<QComboBox *>(QStringLiteral("preview/background"))->setCurrentIndex(2);
             dialog.findChild<QSpinBox *>(QStringLiteral("preview/previous"))->setValue(4);
             dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip"))->setChecked(true);
@@ -3475,6 +3476,45 @@ class IxTests : public QObject {
         QCOMPARE(first.document.pixels.pixelColor(0, 0), QColor(Qt::red));
         QCOMPARE(second.document.pixels.pixelColor(0, 0), QColor(Qt::green));
     }
+    void apngChunkIntegrityAndRecovery_data() {
+        QTest::addColumn<int>("damage");
+        QTest::newRow("valid-all-byte-values") << 0;
+        QTest::newRow("corrupt-data") << 1;
+        QTest::newRow("corrupt-checksum") << 2;
+    }
+    void apngChunkIntegrityAndRecovery() {
+        QFETCH(int, damage);
+        QByteArray payload;
+        for (int i = 0; i < 4096; ++i) payload.append(char(i % 256));
+        const QByteArray type("raNd"); // Private ancillary PNG chunk, ignored by the pixel decoder.
+        quint32 crc = 0xffffffff;
+        for (auto byte : type + payload) {
+            crc ^= quint8(byte);
+            for (int bit = 0; bit < 8; ++bit)
+                crc = (crc >> 1) ^ (0xedb88320 & quint32(-qint32(crc & 1)));
+        }
+        QByteArray extra(4, 0);
+        qToBigEndian(quint32(payload.size()), reinterpret_cast<uchar *>(extra.data()));
+        extra += type; extra += payload;
+        QByteArray checksum(4, 0);
+        qToBigEndian(~crc, reinterpret_cast<uchar *>(checksum.data())); extra += checksum;
+        auto valid = ix::test::apngFixture(2, {3, 2});
+        valid.insert(33, extra); // After the complete IHDR chunk.
+        auto bytes = valid;
+        if (damage == 1) bytes[33 + 8 + 123] = char(bytes.at(33 + 8 + 123) ^ 1);
+        if (damage == 2) bytes[33 + extra.size() - 1] = char(bytes.at(33 + extra.size() - 1) ^ 1);
+        QFile file(dir(QStringLiteral("crc-%1.apng").arg(damage)));
+        QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write(bytes), qint64(bytes.size())); file.close();
+        ix::ApngCodec codec;
+        const auto decoded = codec.read(file.fileName(), 0);
+        QCOMPARE(decoded.ok(), damage == 0);
+        if (damage) QVERIFY(decoded.error.contains(QStringLiteral("CRC")));
+        QVERIFY(file.open(QIODevice::WriteOnly)); QCOMPARE(file.write(valid), qint64(valid.size())); file.close();
+        const auto recovered = codec.read(file.fileName(), 1);
+        QVERIFY2(recovered.ok(), qPrintable(recovered.error));
+        QCOMPARE(recovered.document.pixels.size(), QSize(3, 2));
+        QCOMPARE(recovered.document.pixels.pixelColor(2, 1), QColor(58, 47, 58, 255));
+    }
     void apngComposition() {
         auto be32 = [](quint32 value) {
             QByteArray data(4, Qt::Uninitialized);
@@ -4127,6 +4167,17 @@ class IxTests : public QObject {
         ix::waitForGuiWorker(watcher, cancellable, true);
         QVERIFY2(!visibleAfterHide, "A cancelled transaction must not resurrect its progress window");
     }
+    void workerJoinDoesNotShowAlreadyCancelledProgress() {
+        QProgressDialog progress(QStringLiteral("Pending"), QStringLiteral("Cancel"), 0, 0);
+        progress.cancel();
+        QSemaphore release;
+        bool shown = true;
+        QFutureWatcher<void> watcher;
+        watcher.setFuture(QtConcurrent::run([&] { release.acquire(); }));
+        QTimer::singleShot(300, &progress, [&] { shown = progress.isVisible(); release.release(); });
+        ix::waitForGuiWorker(watcher, progress, true);
+        QVERIFY(progress.wasCanceled()); QVERIFY(!shown);
+    }
     void busyHintExplainsBlockedCommands() {
         const auto source = dir(QStringLiteral("busy-hint-save.png"));
         const auto target = dir(QStringLiteral("busy-hint-save.webp"));
@@ -4435,6 +4486,107 @@ class IxTests : public QObject {
         QCOMPARE(qobject_cast<QSpinBox *>(table->cellWidget(1, 1))->value(), 3);
     }
 
+    void cropHandlesResizeWithoutZoom_data() {
+        QTest::addColumn<int>("edges"); QTest::addColumn<QSize>("ratio"); QTest::addColumn<double>("zoom");
+        const QList<Qt::Edges> handles{Qt::LeftEdge, Qt::RightEdge, Qt::TopEdge, Qt::BottomEdge,
+            Qt::LeftEdge | Qt::TopEdge, Qt::RightEdge | Qt::TopEdge,
+            Qt::LeftEdge | Qt::BottomEdge, Qt::RightEdge | Qt::BottomEdge};
+        for (const auto edges : handles)
+            for (const auto ratio : {QSize(), QSize(16, 9), QSize(9, 16)})
+                for (double zoom : {.5, 1.0, 2.0})
+                    QTest::newRow(qPrintable(QStringLiteral("%1-%2x%3-%4")
+                        .arg(int(edges)).arg(ratio.width()).arg(ratio.height()).arg(zoom)))
+                        << int(edges) << ratio << zoom;
+    }
+    void cropHandlesResizeWithoutZoom() {
+        QFETCH(int, edges); QFETCH(QSize, ratio); QFETCH(double, zoom);
+        ix::ImageView view; view.resize(800, 600);
+        const auto image = pattern(800, 600);
+        view.setImage(image); view.setZoom(zoom); view.show(); QCoreApplication::processEvents();
+        view.horizontalScrollBar()->setValue(zoom > 1 ? 50 : 0);
+        view.verticalScrollBar()->setValue(zoom > 1 ? 30 : 0);
+        view.setSelection({100, 90, 160, 120}); view.setSelectionAspectRatio(ratio);
+        const auto before = view.selection(); const Qt::Edges sides(edges);
+        const bool left = sides.testFlag(Qt::LeftEdge), right = sides.testFlag(Qt::RightEdge);
+        const bool top = sides.testFlag(Qt::TopEdge), bottom = sides.testFlag(Qt::BottomEdge);
+        const QPointF imageHandle(left ? before.x() : right ? before.x() + before.width() : before.x() + before.width() / 2.0,
+                                 top ? before.y() : bottom ? before.y() + before.height() : before.y() + before.height() / 2.0);
+        const QPointF origin(std::max(0.0, (view.viewport()->width() - image.width() * zoom) / 2),
+                             std::max(0.0, (view.viewport()->height() - image.height() * zoom) / 2));
+        const auto point = (origin + imageHandle * zoom -
+            QPointF(view.horizontalScrollBar()->value(), view.verticalScrollBar()->value())).toPoint();
+        auto *surface = view.viewport();
+        QSignalSpy changes(&view, &ix::ImageView::selectionChanged), navigation(&view, &ix::ImageView::navigate);
+        QTest::mousePress(surface, Qt::LeftButton, Qt::NoModifier, point);
+        const auto expectedCursor = !(top || bottom) ? Qt::SizeHorCursor : !(left || right) ? Qt::SizeVerCursor
+            : left == top ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor;
+        QCOMPARE(surface->cursor().shape(), expectedCursor);
+        QTest::mouseRelease(surface, Qt::LeftButton, Qt::NoModifier, point);
+        QCOMPARE(view.selection(), before); QCOMPARE(changes.count(), 0); // Pressing a grip alone never jumps.
+        const QPoint delta(qRound((left ? -20 : right ? 20 : 0) * zoom),
+                           qRound((top ? -16 : bottom ? 16 : 0) * zoom));
+        QTest::mousePress(surface, Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseMove(surface, point + delta);
+        QTest::mouseRelease(surface, Qt::LeftButton, Qt::NoModifier, point + delta);
+        const auto after = view.selection();
+        QVERIFY(after != before); QVERIFY(image.rect().contains(after)); QVERIFY(!after.isEmpty());
+        if (left) QCOMPARE(after.x() + after.width(), before.x() + before.width());
+        if (right) QCOMPARE(after.x(), before.x());
+        if (top) QCOMPARE(after.y() + after.height(), before.y() + before.height());
+        if (bottom) QCOMPARE(after.y(), before.y());
+        if (ratio.isValid()) {
+            QVERIFY(std::abs(qint64(after.width()) * ratio.height() - qint64(after.height()) * ratio.width())
+                    <= std::max(ratio.width(), ratio.height()));
+            if (!(top || bottom)) QVERIFY(std::abs(after.y() + after.height() / 2.0 - before.y() - before.height() / 2.0) <= .5);
+            if (!(left || right)) QVERIFY(std::abs(after.x() + after.width() / 2.0 - before.x() - before.width() / 2.0) <= .5);
+        } else {
+            if (!(top || bottom)) QCOMPARE(after.height(), before.height());
+            if (!(left || right)) QCOMPARE(after.width(), before.width());
+        }
+        QCOMPARE(view.zoom(), zoom); QCOMPARE(navigation.count(), 0);
+        QCOMPARE(view.image().cacheKey(), image.cacheKey());
+        QVERIFY(changes.count() > 0);
+        if (edges == int(Qt::RightEdge | Qt::BottomEdge) && zoom == 1)
+            QVERIFY(surface->grab().save(QStringLiteral(IX_TEST_OUTPUT "/crop-handles-%1x%2.png")
+                    .arg(ratio.width()).arg(ratio.height())));
+    }
+    void cropHandleInFullscreenDoesNotNavigate() {
+        ix::ImageView view; view.setCentered(false); view.setImage(pattern(400, 300));
+        view.setZoom(1); view.showFullScreen(); QCoreApplication::processEvents();
+        view.setSelection({30, 40, 100, 80});
+        QSignalSpy navigation(&view, &ix::ImageView::navigate);
+        QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, {130, 120});
+        QCOMPARE(view.selection(), QRect(30, 40, 100, 80)); QCOMPARE(navigation.count(), 0);
+        QTest::mousePress(view.viewport(), Qt::LeftButton, Qt::NoModifier, {130, 120});
+        QTest::mouseMove(view.viewport(), {150, 130});
+        QTest::mouseRelease(view.viewport(), Qt::LeftButton, Qt::NoModifier, {150, 130});
+        QCOMPARE(view.selection(), QRect(30, 40, 120, 90)); QCOMPARE(navigation.count(), 0);
+        view.showNormal();
+    }
+    void tinyCropRetainsMagnifierInterior() {
+        ix::ImageView view; view.resize(800, 600); view.setCentered(false);
+        view.setImage(pattern(600, 400)); view.setZoom(1); view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view)); view.setSelection({80, 60, 10, 8});
+        QTest::mouseMove(view.viewport(), {85, 64});
+        QTRY_VERIFY_WITH_TIMEOUT(!view.viewport()->cursor().pixmap().isNull(), 1000);
+        QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, {85, 64});
+        QVERIFY(view.zoom() > 1); QVERIFY(view.selection().isEmpty());
+    }
+    void cropHandleGeometryStaysBoundedAtImageEdges() {
+        const QSize image(400, 300);
+        for (const auto ratio : {QSize(), QSize(16, 9), QSize(9, 16), QSize(1, 1), QSize(239, 100), QSize(10000, 1)})
+            for (const auto edges : {Qt::Edges(Qt::LeftEdge), Qt::Edges(Qt::RightEdge), Qt::Edges(Qt::TopEdge),
+                 Qt::Edges(Qt::BottomEdge), Qt::LeftEdge | Qt::TopEdge, Qt::RightEdge | Qt::BottomEdge})
+                for (const auto delta : {QPointF(-10000, -10000), QPointF(10000, 10000), QPointF(-10000, 10000), QPointF(0, 0)}) {
+                    const QRect before(25, 30, 120, 90);
+                    const auto after = ix::resizeCropSelection(before, edges, delta, image, ratio);
+                    QVERIFY(!after.isEmpty()); QVERIFY(QRect(QPoint(), image).contains(after));
+                    if (delta.isNull()) QCOMPARE(after, before);
+                    else if (ratio.isValid())
+                        QVERIFY(std::abs(qint64(after.width()) * ratio.height() - qint64(after.height()) * ratio.width())
+                                <= std::max(ratio.width(), ratio.height()));
+                }
+    }
     void aspectRatioSelectionDragResizeAndMove() {
         ix::ImageView view;
         view.resize(600, 450);
@@ -4540,6 +4692,13 @@ class IxTests : public QObject {
             QCOMPARE(view->selection(), ratioSelection);
         }
         QVERIFY(window.grab().save(QStringLiteral(IX_TEST_OUTPUT "/aspect-crop.png")));
+        view->setCentered(false); view->setZoom(1);
+        const auto initial = view->selection();
+        const QPoint corner(initial.x() + initial.width(), initial.y() + initial.height());
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, corner);
+        QTest::mouseMove(view->viewport(), corner - QPoint(40, 23));
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, corner - QPoint(40, 23));
+        QVERIFY(view->selection() != initial);
         const auto selected = view->selection();
         window.findChild<QAction *>(QStringLiteral("crop"))->trigger();
         QTRY_VERIFY(window.document().modified);
@@ -4770,7 +4929,8 @@ class IxTests : public QObject {
         QTest::mouseMove(surface, {200, 160});
         QTest::mouseRelease(surface, Qt::LeftButton, Qt::NoModifier, {200, 160});
         QCOMPARE(view.selection(), QRect(80, 60, 121, 101));
-        QVERIFY(!surface->cursor().pixmap().isNull());
+        QTest::mouseMove(surface, {130, 100});
+        QTRY_VERIFY_WITH_TIMEOUT(!surface->cursor().pixmap().isNull(), 1000);
         auto marked = view.selection();
         QTest::mouseClick(surface, Qt::LeftButton, Qt::NoModifier, {130, 100});
         QVERIFY(view.zoom() > 4);

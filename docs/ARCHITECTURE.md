@@ -48,6 +48,14 @@ or resident services.
 
 `ImageDocument` holds original pixel precision, metadata, source revision and page/animation state. `core/image_loading.*` owns the load pipeline (optional RAW preview, revision-aware cache read and presentation conversion) with an explicit `ImageLoadRequest`. `displayImage` prepares presentation pixels. `ImageView` owns fitting, scrolling, selection and its bounded optional display cache. Display caches must never supply pixels for save/export.
 
+`ui/crop_geometry.h` computes edge/corner adjustments using half-open image-pixel
+boundaries. It owns no view state: `ImageView` supplies the initial rectangle,
+pointer delta, image bounds and optional aspect ratio. Corners retain the opposite
+corner; sides retain the opposite side and perpendicular centre. Screen-space
+hit targets stay independent of zoom, and selection changes repaint only the
+old/new outlines and grips without invalidating the image cache. Failed trash
+transactions restore both the displayed selection and its ratio.
+
 `QtCodec` takes metadata presence from a successful `readMetadata` result,
 including a valid empty metadata set. Only when the reader supplies no result
 does it scan the bounded 256 KiB header for conservative EXIF/IPTC/XMP export
@@ -97,12 +105,14 @@ Deferred explicit choices take priority over automatic skip continuations.
 `MainWindow` currently coordinates the active document, commands, history and asynchronous completion. `DocumentActivity` is the single GUI-thread gate for loading/editing, saving, file transactions and delayed capture. Saving and file operations hold it across nested dialog event loops. Mutating commands must acquire the appropriate phase; queued opens/navigation run after the transaction finishes. `WorkMode` tells completion how to install a result and update history. Changing it while its worker runs is unsafe.
 
 Discard confirmation has one policy for document replacement and closing:
-the existing `navigation/askToSave` preference, defaulting to true when absent.
-Only an explicit Discard or a successful Save authorizes replacement. Cancel,
+the existing `navigation/askToSave` preference, defaulting to false when absent.
+An explicitly stored preference takes priority; changing the default does not
+rewrite profiles. With confirmation enabled,
+only an explicit Discard or a successful Save authorizes replacement. Cancel,
 dialog rejection and unsuccessful saves preserve the document and history.
-Fixtures for the legacy discard mode set that preference explicitly.
+Tests cover the absent preference and both explicitly stored choices.
 
-Save/trash/move/copy transactions use the progress overload in `worker_wait.h`.
+Save/trash/move/copy transactions and catalog jobs use the progress overload in `worker_wait.h`.
 It joins the future through the existing GUI event loop, showing progress after
 200 ms only if work remains. It does not enter QDialog::exec, so completion
 during native show cannot close a dialog before its event loop starts. Saving is

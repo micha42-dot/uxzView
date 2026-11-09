@@ -60,12 +60,108 @@ class WorkflowTests : public QObject {
         return nullptr;
     }
   private slots:
-    void freshProfileAsksBeforeDiscardingEdits_data() {
+    void freshProfileDiscardsWithoutWritingSource_data() {
+        QTest::addColumn<QString>("route");
+        for (const auto *route : {"next", "close", "escape"})
+            QTest::newRow(route) << QString::fromLatin1(route);
+    }
+    void freshProfileDiscardsWithoutWritingSource() {
+        QFETCH(QString, route);
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("navigation/askToSave"));
+        const auto restore = qScopeGuard([&] {
+            if (previous.isValid()) settings.setValue(QStringLiteral("navigation/askToSave"), previous);
+            else settings.remove(QStringLiteral("navigation/askToSave"));
+        });
+        settings.remove(QStringLiteral("navigation/askToSave"));
+        {
+            ix::SettingsDialog dialog;
+            auto *ask = dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"));
+            QVERIFY(ask); QVERIFY(!ask->isChecked()); dialog.reject();
+            QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
+        }
+        const auto first = photo(QStringLiteral("fresh-discard-%1/1.png").arg(route), Qt::red);
+        const auto second = photo(QStringLiteral("fresh-discard-%1/2.png").arg(route), Qt::green);
+        const auto original = ix::sha256File(first);
+        ix::MainWindow window; window.show(); window.openPath(first);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == first);
+        auto *index = window.findChild<ix::DirectoryIndexService *>(); QVERIFY(index);
+        QTRY_VERIFY(!index->isBusy());
+        window.dispatch(QStringLiteral("grayscale"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        int questions = 0;
+        QTimer driver;
+        connect(&driver, &QTimer::timeout, &window, [&] {
+            if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                ++questions; box->reject();
+            }
+        });
+        driver.start(10);
+        if (route == QStringLiteral("next")) {
+            window.dispatch(QStringLiteral("next"));
+            QTRY_VERIFY(!window.isBusy() && window.document().path == second && !window.document().modified);
+        } else if (route == QStringLiteral("close")) {
+            QVERIFY(window.close());
+        } else {
+            auto *view = window.findChild<ix::ImageView *>(); QVERIFY(view);
+            QTest::keyClick(view, Qt::Key_Escape);
+            QTRY_VERIFY(!window.isVisible());
+        }
+        driver.stop(); QCOMPARE(questions, 0);
+        QCOMPARE(ix::sha256File(first), original);
+        QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
+    }
+    void failedTrashRestoresCropSelection_data() {
+        QTest::addColumn<QSize>("ratio");
+        QTest::newRow("free") << QSize();
+        QTest::newRow("16x9") << QSize(16, 9);
+    }
+    void failedTrashRestoresCropSelection() {
+        QFETCH(QSize, ratio);
+        QSettings settings;
+        const auto previous = settings.value(QStringLiteral("navigation/afterDelete"));
+        const auto restore = qScopeGuard([&] {
+            if (previous.isValid()) settings.setValue(QStringLiteral("navigation/afterDelete"), previous);
+            else settings.remove(QStringLiteral("navigation/afterDelete"));
+        });
+        settings.setValue(QStringLiteral("navigation/afterDelete"), 1);
+        const auto path = photo(QStringLiteral("failed-trash-%1/source.png").arg(ratio.width()), Qt::red);
+        ix::MainWindow window; window.show(); window.openPath(path);
+        QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        auto *view = window.findChild<ix::ImageView *>(); QVERIFY(view);
+        view->setZoom(2); view->setSelection({10, 10, 50, 40}); view->setSelectionAspectRatio(ratio);
+        const auto selection = view->selection(); const auto shown = view->image().cacheKey();
+        bool changed = false, checked = false, preserved = false;
+        QString replacementHash;
+        QTimer driver;
+        connect(&driver, &QTimer::timeout, &window, [&] {
+            auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+            if (!box) return;
+            if (!changed && box->button(QMessageBox::Yes)) {
+                // Reject stale deletion authorization before reaching the OS trash.
+                QFile file(path);
+                changed = file.open(QIODevice::Append) && file.write("external-change") == 15;
+                file.close(); replacementHash = ix::sha256File(path);
+                box->button(QMessageBox::Yes)->click();
+            } else {
+                if (box->text() == ix::localized(QStringLiteral("Die Datei wurde während des Lesens verändert. Bitte erneut öffnen."))) {
+                    checked = true;
+                    preserved = view->selection() == selection && view->selectionAspectRatio() == ratio &&
+                                view->image().cacheKey() == shown && view->zoom() == 2;
+                }
+                box->accept();
+            }
+        });
+        driver.start(5); window.dispatch(QStringLiteral("delete")); driver.stop();
+        QVERIFY(changed); QVERIFY(checked); QVERIFY(preserved);
+        QVERIFY(QFileInfo::exists(path)); QCOMPARE(ix::sha256File(path), replacementHash);
+    }
+    void configuredProfileAsksBeforeDiscardingEdits_data() {
         QTest::addColumn<QString>("route");
         for (const auto *route : {"open","next","reload","page","close","escape","exit","clear","slideshow"})
             QTest::newRow(route) << QString::fromLatin1(route);
     }
-    void freshProfileAsksBeforeDiscardingEdits() {
+    void configuredProfileAsksBeforeDiscardingEdits() {
         QFETCH(QString,route);
         QSettings settings; QVariantMap previous;
         for (const auto &key : settings.allKeys()) previous.insert(key,settings.value(key));
@@ -79,7 +175,7 @@ class WorkflowTests : public QObject {
             QVERIFY(ask); QCOMPARE(ask->isChecked(),configured); dialog.reject();
             QCOMPARE(settings.value(QStringLiteral("navigation/askToSave")).toBool(),configured);
         }
-        settings.remove(QStringLiteral("navigation/askToSave"));
+        settings.setValue(QStringLiteral("navigation/askToSave"), true);
         settings.setValue(QStringLiteral("slideshow/seconds"),.1);
         settings.setValue(QStringLiteral("slideshow/fullscreen"),false);
         settings.setValue(QStringLiteral("slideshow/random"),false);
@@ -89,7 +185,7 @@ class WorkflowTests : public QObject {
             ix::SettingsDialog dialog;
             auto *ask=dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"));
             QVERIFY(ask); QVERIFY(ask->isChecked()); dialog.reject();
-            QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
+            QVERIFY(settings.value(QStringLiteral("navigation/askToSave")).toBool());
         }
         const auto first=photo(QStringLiteral("fresh-%1/1.png").arg(route),Qt::red);
         const auto second=photo(QStringLiteral("fresh-%1/2.png").arg(route),Qt::green);
@@ -128,12 +224,12 @@ class WorkflowTests : public QObject {
         QCOMPARE(view->selection(),selection); QCOMPARE(ix::sha256File(first),original);
         QVERIFY(window.findChild<QAction *>(QStringLiteral("undo"))->isEnabled());
         QVERIFY(window.findChild<QAction *>(QStringLiteral("redo"))->isEnabled());
-        QVERIFY(!settings.contains(QStringLiteral("navigation/askToSave")));
+        QVERIFY(settings.value(QStringLiteral("navigation/askToSave")).toBool());
     }
     void failedSaveDuringCloseRetainsEditsAndBothHistoryDirections() {
         QSettings settings; const auto old=settings.value(QStringLiteral("navigation/askToSave"));
         const auto restore=qScopeGuard([&] { settings.setValue(QStringLiteral("navigation/askToSave"),old); });
-        settings.remove(QStringLiteral("navigation/askToSave"));
+        settings.setValue(QStringLiteral("navigation/askToSave"), true);
         const auto path=photo(QStringLiteral("failed-close/source.png"),Qt::red);
         ix::MainWindow window; window.show(); window.openPath(path); QTRY_VERIFY(!window.isBusy());
         window.dispatch(QStringLiteral("grayscale")); QTRY_VERIFY(!window.isBusy());

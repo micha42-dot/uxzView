@@ -54,6 +54,12 @@ verworfen. Die gemeinsame Speicherabfrage lässt sich unter
 [Einstellungen → Navigation](SETTINGS.md) einschalten. Das reine Verlassen des
 Vollbilds verändert Bearbeitungen nicht.
 
+Auswahlrahmen lassen sich an allen Ecken und Kanten mit der linken Maustaste
+nachjustieren. Ein gewähltes Seitenverhältnis bleibt erhalten; die rechte
+Maustaste verschiebt weiterhin die Auswahl. Im freien Modus bleibt der Klick
+ins Innere für die Lupe erhalten. Die Griffe haben bei Vollbildklicks Vorrang vor
+der Bildnavigation.
+
 ## Noch offen
 
-Nicht alle historischen oder pluginbezogenen Hotkeys sind implementiert. Dazu gehören unter anderem das separate Strg+Shift-Maus-Lupenfenster, Strg+Shift-Pfeil-Feinrotation, sämtliche proportionalen Maus-/Randgriffe, Tastenneubelegung sowie vollständige Vollbild-/Slideshow-Spezialbelegungen. Die Hilfe zeigt diese nicht als verfügbare Funktionen an. Eine vollständige Prüfung von Tastaturlayouts, Nummernblock, Apple-Command-Zuordnung und nativen Desktop-Fokuswechseln steht aus.
+Nicht alle historischen oder pluginbezogenen Hotkeys sind implementiert. Dazu gehören unter anderem das separate Strg+Shift-Maus-Lupenfenster, Strg+Shift-Pfeil-Feinrotation, Tastenneubelegung sowie vollständige Vollbild-/Slideshow-Spezialbelegungen. Die Hilfe zeigt diese nicht als verfügbare Funktionen an. Eine vollständige Prüfung von Tastaturlayouts, Nummernblock, Apple-Command-Zuordnung und nativen Desktop-Fokuswechseln steht aus.

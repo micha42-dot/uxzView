@@ -74,6 +74,10 @@ limits and optional-feature requirements were not relaxed.
 
 ### One discard decision
 
+The default described below is historical. The [November 9 follow-up](ROUND_REVIEW_2026-11-09.md)
+restores silent discard for an absent preference at the user's request; explicitly
+stored choices and the confirmation safety checks remain in effect.
+
 Absent `navigation/askToSave` now means true, both in Settings and at runtime.
 Explicit false/true values remain untouched. Document replacement and closing
 share one decision instead of separate implicit Ask/UsePreference paths.

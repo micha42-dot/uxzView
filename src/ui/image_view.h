@@ -91,6 +91,8 @@ class ImageView : public QAbstractScrollArea {
     QRect selection_;
     QPoint anchor_, panStart_, scrollStart_;
     QRect movingSelection_;
+    Qt::Edges resizingEdges_;
+    QPointF resizeAnchor_;
     QSize selectionRatio_;
     QSize aspectRatio_;
     bool colorPicking_ = false;
@@ -105,6 +107,7 @@ class ImageView : public QAbstractScrollArea {
     QPointF origin() const;
     bool insideImage(QPointF point) const;
     void updateCursor(QPoint point);
+    Qt::Edges selectionEdgesAt(QPointF point) const;
     void centerOn(QPointF imagePoint);
 };
 } // namespace ix

@@ -3,6 +3,7 @@
 #include "apng_codec.h"
 #include "preview_service.h"
 #include <QBuffer>
+#include <QByteArrayView>
 #include <QColorSpace>
 #include <QFile>
 #include <QFileInfo>
@@ -11,6 +12,7 @@
 #include <QMutex>
 #include <QtEndian>
 #include <algorithm>
+#include <array>
 #include <atomic>
 namespace ix {
 namespace {
@@ -25,13 +27,21 @@ void put32(QByteArray &out, quint32 value) {
     qToBigEndian(value, reinterpret_cast<uchar *>(bytes));
     out.append(bytes, 4);
 }
-quint32 crc32(const QByteArray &data) {
-    quint32 crc = 0xffffffff;
-    for (auto c : data) {
-        crc ^= quint8(c);
+constexpr auto crcTable = [] {
+    std::array<quint32, 256> table{};
+    for (quint32 i = 0; i < table.size(); ++i) {
+        quint32 value = i;
         for (int bit = 0; bit < 8; ++bit)
-            crc = (crc >> 1) ^ (0xedb88320 & quint32(-qint32(crc & 1)));
+            value = (value >> 1) ^ (0xedb88320 & quint32(-qint32(value & 1)));
+        table[i] = value;
     }
+    return table;
+}();
+quint32 crc32(QByteArrayView type, QByteArrayView data) {
+    quint32 crc = 0xffffffff;
+    for (const auto bytes : {type, data})
+        for (auto byte : bytes)
+            crc = (crc >> 8) ^ crcTable[(crc ^ quint8(byte)) & 255];
     return ~crc;
 }
 QByteArray chunk(QByteArray type, const QByteArray &data) {
@@ -39,7 +49,7 @@ QByteArray chunk(QByteArray type, const QByteArray &data) {
     put32(out, quint32(data.size()));
     out += type;
     out += data;
-    put32(out, crc32(type + data));
+    put32(out, crc32(type, data));
     return out;
 }
 struct Frame {
@@ -82,7 +92,7 @@ struct Session {
             if (length > quint32(bytes.size() - pos - 12))
                 return fail(QStringLiteral("Abgeschnittener Chunk."));
             auto type = bytes.mid(pos + 4, 4), data = bytes.mid(pos + 8, length);
-            if (crc32(type + data) != u32(bytes, pos + 8 + length))
+            if (crc32(type, data) != u32(bytes, pos + 8 + length))
                 return fail(QStringLiteral("CRC-Prüfung fehlgeschlagen."));
             pos += length + 12;
             if (type == "IHDR") {

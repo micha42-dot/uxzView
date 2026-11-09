@@ -7,7 +7,7 @@ C++20 und Qt 6; inspiriert von IrfanView und nomacs. Zielplattformen sind Window
 ## Aktueller Funktionsumfang
 
 - Bild-/Ordnernavigation, Auswahlzoom, Vollbild, Diashow, Animationen und mehrseitige Bilder; optionale Nachbarvorschauen und rechts angeordnete Befehlssuche.
-- Größenänderung einschließlich exakter Pixelverdopplung, Freistellen mit eigenen Seitenverhältnissen, Drehen, Farbkorrektur und Bild-Undo.
+- Größenänderung einschließlich exakter Pixelverdopplung, nachjustierbare Freistellrahmen mit eigenen Seitenverhältnissen, Drehen, Farbkorrektur und Bild-Undo.
 - Text einfügen mit gemeinsamer Vorschau und Farbpipette für einzelne Originalpixel.
 - Visuelle Stapelverarbeitung mit Profilen, Wasserzeichen, direktem Start, automatischer Zielprüfung, Such-/Formatfiltern und optionalem CSV-Protokoll; klassische Batch-Konvertierung und Umbenennung.
 - Bildverwaltung mit Bewertungen, Farbmarkierungen, Metadatensuche, identischen Dateien und Ähnlichkeitskandidaten; Systempapierkorb.
@@ -19,6 +19,7 @@ Funktionen: [README](README.md). Bedienung und Einstellungen: [Tastatur](docs/KE
 
 ## Letzte Änderungen
 
+- Unreleased: Freistellrahmen lassen sich an Kanten und Ecken nachjustieren; feste Seitenverhältnisse bleiben erhalten. Fehlgeschlagene Papierkorboperationen stellen die Auswahl wieder her. Katalogjobs vermeiden einen reproduzierten Fortschrittsdialog-Hänger. OCR-/QR-Eingaben nutzen begrenzte RGB-Streifen, temporäre Daten werden früher freigegeben. Im lokalen APNG-Komponentenvergleich sank die Lesezeit von 405 auf 161 ms. Neue Profile verwerfen Bearbeitungen wieder ohne Nachfrage; gespeicherte Einstellungen bleiben erhalten. [Umsetzung, Messung und Grenzen](docs/ROUND_REVIEW_2026-11-09.md).
 - Unreleased: Fehler beim spekulativen Vorladen werden abgefangen; zu große oder nicht im freien Cache unterbringbare Ziele werden vor dem Dekodieren ausgelassen. JPEG-Kommentare bleiben beim Öffnen und Export erhalten. Die Navigation nach dem Löschen respektiert wieder Überspringen und Ordnerumlauf; die Textvorschau verwendet originale Schriftmetriken und einen begrenzten Ausschnitt. [Umsetzung und Prüfnachweise](docs/REVIEW_FIXES_2026-11-09.md).
 - Unreleased: Windows-Befehlszustände fragen nur angebotene Zwischenablageformate ab, statt beim Fensteraufbau und Bildwechsel auf einen fremden OLE-Anbieter zu warten. Bei kontrolliert 1,5 Sekunden belegter Zwischenablage sank der vollständige Start mit dem bereitgestellten 24-MP-JPEG im Median von 1782 auf 437 ms. Tatsächliches Einfügen bleibt bei Qt; optionale Zeitmarken erfassen jetzt auch den Fensteraufbau. 718 Qt-Fälle bestehen lokal und im SDK-freien portablen Paket, dazu 47 Python-Tests. Der ursprüngliche einmalige 4,9-Sekunden-Ausreißer ist damit noch nicht vollständig erklärt. [Messung und Grenzen](docs/STARTUP_CLIPBOARD_2026-11-03.md).
 

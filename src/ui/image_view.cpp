@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "image_view.h"
+#include "crop_geometry.h"
 #include <QKeyEvent>
 #include <QContextMenuEvent>
 #include <QMouseEvent>
@@ -35,6 +36,7 @@ void ImageView::setImage(QImage image) {
     selection_ = {};
     selectionRatio_ = {};
     selecting_ = panning_ = moving_ = false;
+    resizingEdges_ = {};
     fullscreenClick_ = false;
     if (property("hidePointer").toBool())
         viewport()->setCursor(Qt::BlankCursor);
@@ -52,6 +54,11 @@ void ImageView::setUnavailable(bool value) {
 void ImageView::setColorPicking(bool value) {
     if (colorPicking_ == value) return;
     colorPicking_ = value;
+    if (value) {
+        selecting_ = panning_ = moving_ = false;
+        resizingEdges_ = {};
+        fullscreenClick_ = false;
+    }
     if (!value)
         setInformationOverlay({}, Qt::TopLeftCorner);
     updateCursor(viewport()->mapFromGlobal(QCursor::pos()));
@@ -89,6 +96,7 @@ void ImageView::setDisplayCacheEnabled(bool enabled) {
 }
 void ImageView::setSelection(QRect r) {
     auto clipped = r.intersected(image_.rect());
+    if (clipped.isEmpty()) resizingEdges_ = {};
     if (clipped == selection_)
         return;
     // Selection changes only affect the outlines, not the image between them.
@@ -99,8 +107,8 @@ void ImageView::setSelection(QRect r) {
         const QRectF rect(origin() + QPointF(selection.topLeft()) * zoom_,
                           QSizeF(selection.size()) * zoom_);
         const auto aligned = rect.toAlignedRect();
-        return (QRegion(aligned.adjusted(-2, -2, 2, 2)) -
-                QRegion(aligned.adjusted(3, 3, -3, -3))) & viewport()->rect();
+        return (QRegion(aligned.adjusted(-5, -5, 5, 5)) -
+                QRegion(aligned.adjusted(5, 5, -5, -5))) & viewport()->rect();
     };
     const auto damaged = outline(selection_) | outline(clipped);
     if (clipped.size() != selection_.size())
@@ -301,6 +309,16 @@ void ImageView::paintEvent(QPaintEvent *event) {
         p.drawRect(r);
         p.setPen(QPen(Qt::white, 1, Qt::DashLine));
         p.drawRect(r);
+        p.setPen(QPen(Qt::black, 1));
+        p.setBrush(Qt::white);
+        const auto handle = [&](QPointF centre) { p.drawRect(QRectF(centre - QPointF(2, 2), QSizeF(4, 4))); };
+        for (const auto point : {r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()}) handle(point);
+        if (r.width() >= 24 && r.height() >= 8) {
+            handle({r.center().x(), r.top()}); handle({r.center().x(), r.bottom()});
+        }
+        if (r.height() >= 24 && r.width() >= 8) {
+            handle({r.left(), r.center().y()}); handle({r.right(), r.center().y()});
+        }
     }
     const auto info = informationOverlayRect();
     if (!info.isEmpty()) {
@@ -323,6 +341,23 @@ QPoint ImageView::imagePoint(QPoint p) const {
 bool ImageView::insideImage(QPointF point) const {
     return !image_.isNull() && QRectF(origin(), QSizeF(image_.size()) * zoom_).contains(point);
 }
+Qt::Edges ImageView::selectionEdgesAt(QPointF point) const {
+    if (selection_.isEmpty()) return {};
+    const QRectF rect(origin() + QPointF(selection_.topLeft()) * zoom_, QSizeF(selection_.size()) * zoom_);
+    constexpr double tolerance = 6; // Logical screen pixels, independent of image zoom and DPI.
+    if (!rect.adjusted(-tolerance, -tolerance, tolerance, tolerance).contains(point)) return {};
+    Qt::Edges edges;
+    const auto dx0 = std::abs(point.x() - rect.left()), dx1 = std::abs(point.x() - rect.right());
+    const auto dy0 = std::abs(point.y() - rect.top()), dy1 = std::abs(point.y() - rect.bottom());
+    // Keep an interior for the magnifier even when a small crop's hit margins
+    // would otherwise overlap. Outside the frame, retain the full hit target.
+    const bool inside = rect.contains(point);
+    const auto tx = inside ? std::min(tolerance, rect.width() / 4) : tolerance;
+    const auto ty = inside ? std::min(tolerance, rect.height() / 4) : tolerance;
+    if (std::min(dx0, dx1) <= tx) edges |= dx0 < dx1 ? Qt::LeftEdge : Qt::RightEdge;
+    if (std::min(dy0, dy1) <= ty) edges |= dy0 < dy1 ? Qt::TopEdge : Qt::BottomEdge;
+    return edges;
+}
 void ImageView::updateCursor(QPoint point) {
     if (property("hidePointer").toBool()) {
         viewport()->setCursor(Qt::BlankCursor);
@@ -330,6 +365,15 @@ void ImageView::updateCursor(QPoint point) {
     }
     if (colorPicking_) {
         viewport()->setCursor(Qt::CrossCursor);
+        return;
+    }
+    const auto edges = resizingEdges_ ? resizingEdges_ : selectionEdgesAt(point);
+    if (edges && !selecting_ && !panning_ && !moving_) {
+        const bool horizontal = edges.testFlag(Qt::LeftEdge) || edges.testFlag(Qt::RightEdge);
+        const bool vertical = edges.testFlag(Qt::TopEdge) || edges.testFlag(Qt::BottomEdge);
+        const auto shape = !vertical ? Qt::SizeHorCursor : !horizontal ? Qt::SizeVerCursor
+            : edges.testFlag(Qt::LeftEdge) == edges.testFlag(Qt::TopEdge) ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor;
+        viewport()->setCursor(shape);
         return;
     }
     if (selecting_) {
@@ -409,6 +453,7 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
         // cursor, right (or Esc, handled by the owner) cancels without picking.
         // No selection, pan or navigation may start from this press.
         selecting_ = panning_ = moving_ = false;
+        resizingEdges_ = {};
         fullscreenClick_ = false;
         updateCursor(point);
         e->accept();
@@ -416,6 +461,17 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
     }
     if (image_.isNull()) { e->accept(); return; }
     if (e->button() == Qt::LeftButton) {
+        const auto edges = e->modifiers().testFlag(Qt::ControlModifier) ? Qt::Edges() : selectionEdgesAt(point);
+        if (edges) {
+            resizingEdges_ = edges;
+            movingSelection_ = selection_;
+            resizeAnchor_ = (e->position() - origin()) / zoom_;
+            selecting_ = panning_ = moving_ = false;
+            fullscreenClick_ = false;
+            updateCursor(point);
+            e->accept();
+            return;
+        }
         if (insideImage(point) && !fullscreenClick_ && (!aspectRatio_.isValid() || e->modifiers().testFlag(Qt::ControlModifier)) &&
             !selection_.isEmpty() && selection_.contains(imagePoint(point))) {
             if (e->modifiers().testFlag(Qt::ControlModifier))
@@ -447,6 +503,10 @@ void ImageView::mouseMoveEvent(QMouseEvent *e) {
     const auto point = e->position().toPoint();
     if ((point - panStart_).manhattanLength() >= 3)
         clickDragged_ = true;
+    if (resizingEdges_) {
+        const auto delta = (e->position() - origin()) / zoom_ - resizeAnchor_;
+        setSelection(resizeCropSelection(movingSelection_, resizingEdges_, delta, image_.size(), aspectRatio_));
+    }
     if (selecting_ && clickDragged_) {
         const auto end = imagePoint(point);
         const auto between = [](QPoint a, QPoint b) {
@@ -516,6 +576,7 @@ void ImageView::mouseReleaseEvent(QMouseEvent *e) {
     fullscreenClick_ = false;
     clickButton_ = Qt::NoButton;
     selecting_ = panning_ = moving_ = false;
+    resizingEdges_ = {};
     updateCursor(e->position().toPoint());
     if (navigateClick)
         emit navigate(e->button() == Qt::LeftButton ? -1 : 1);
@@ -541,6 +602,7 @@ void ImageView::mouseDoubleClickEvent(QMouseEvent *event) {
     else if (event->button() == Qt::LeftButton) {
         fullscreenClick_ = false;
         selecting_ = panning_ = moving_ = false;
+        resizingEdges_ = {};
         emit toggleFullscreen();
     }
 }

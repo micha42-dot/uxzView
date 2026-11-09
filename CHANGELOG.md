@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Resize crop selections by dragging corners or edges, with fixed-ratio constraints,
+  zoom-independent hit targets and protected fullscreen navigation. Preserve the
+  selected region and ratio when a trash transaction fails.
+- Join catalog jobs through the future instead of a progress-dialog event loop,
+  preventing a hang when completion occurs during native window creation.
+- Stream OCR/QR input through bounded RGB strips and release temporary image/model
+  copies immediately after completion or cancellation.
+- Use a constant lookup table for APNG CRC checks without concatenating payloads;
+  retain corruption detection and the existing composition path.
+- Restore silent discard for profiles without a saved preference; explicitly
+  enabled save confirmation keeps its Save/Discard/Cancel behavior.
 - Contain neighbour-prefetch failures and reject oversized/uncacheable targets
   before decoding. Keep header/revision I/O on the worker; preserve cached
   originals and bound queued speculation to the latest request.

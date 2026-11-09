@@ -244,16 +244,22 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
         if (!catalogReady || catalogBusy) return;
         catalogBusy = true;
         const auto release = qScopeGuard([&] { catalogBusy = false; });
+        std::atomic_bool cancel = false;
+        bool cancelledByUser = false;
+        bool acceptProgress = true; // Outlives the progress context and its queued calls.
         QProgressDialog progress(IX_TEXT("Bilder werden untersucht …"), IX_TEXT("Abbrechen"), 0, files.size(),
                                  &dialog);
         progress.setWindowModality(Qt::WindowModal);
         progress.setAutoClose(false);
         progress.setAutoReset(false);
-        std::atomic_bool cancel = false;
-        bool cancelledByUser = false;
         QObject::connect(&progress, &QProgressDialog::canceled, &progress, [&] {
             cancelledByUser = true;
             cancel = true;
+        });
+        QObject::connect(&dialog, &QDialog::finished, &progress, [&] {
+            cancelledByUser = true;
+            cancel = true;
+            progress.cancel();
         });
         struct Result {
             QString error;
@@ -261,12 +267,13 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
             QJsonObject records;
         };
         QFutureWatcher<Result> watcher;
-        QObject::connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
         watcher.setFuture(QtConcurrent::run([&] {
             Result result;
             auto report = [&](int value, int) {
                 QMetaObject::invokeMethod(
-                    &progress, [&progress, value] { progress.setValue(value); }, Qt::QueuedConnection);
+                    &progress, [&progress, &acceptProgress, value] {
+                        if (acceptProgress) progress.setValue(value);
+                    }, Qt::QueuedConnection);
             };
             if (kind == 0) {
                 result.error = catalog.index(files, cancel, report);
@@ -275,11 +282,12 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
                 result.duplicates = ImageCatalog::duplicates(files, kind == 2, 6, cancel, report);
             return result;
         }));
-        progress.exec();
+        waitForGuiWorker(watcher, progress, true);
+        acceptProgress = false;
         const bool completed = watcher.isFinished() && !cancelledByUser && !progress.wasCanceled();
         cancel.store(true);
-        waitForGuiWorker(watcher);
         auto result = watcher.future().takeResult();
+        if (!dialog.isVisible()) return;
         if (!result.error.isEmpty())
             QMessageBox::warning(&dialog, IX_TEXT("Bildkatalog"), result.error);
         if (kind == 0) {

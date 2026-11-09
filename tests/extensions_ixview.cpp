@@ -520,6 +520,7 @@ class ExtensionTests : public QObject {
             auto *output = dialog->findChild<QPlainTextEdit *>(QStringLiteral("toolResult"));
             if (output && !output->toPlainText().isEmpty()) {
                 result = output->toPlainText(); completed = true;
+                QVERIFY(QDir(path(QStringLiteral("cache/tool-jobs"))).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
                 QVERIFY(dialog->findChild<QPushButton *>(QStringLiteral("copyToolResult"))->isEnabled());
                 QVERIFY(dialog->findChild<QPushButton *>(QStringLiteral("saveToolResult"))->isEnabled());
                 dialog->grab().save(QStringLiteral(IX_EXTENSION_OUTPUT "/qr-tool.png")); dialog->reject();
@@ -566,6 +567,7 @@ class ExtensionTests : public QObject {
             auto *output = dialog->findChild<QPlainTextEdit *>(QStringLiteral("toolResult"));
             if (output && !output->toPlainText().isEmpty()) {
                 result = output->toPlainText(); completed = true;
+                QVERIFY(QDir(path(QStringLiteral("cache/tool-jobs"))).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
                 QVERIFY(dialog->findChild<QPushButton *>(QStringLiteral("copyToolResult"))->isEnabled());
                 QVERIFY(dialog->findChild<QPushButton *>(QStringLiteral("saveToolResult"))->isEnabled());
                 dialog->grab().save(QStringLiteral(IX_EXTENSION_OUTPUT "/ocr-tool.png")); dialog->reject();
@@ -609,6 +611,66 @@ class ExtensionTests : public QObject {
         QVERIFY(!ix::prepareRecognitionInput(image, image.rect(), empty,
             {{QStringLiteral("../eng"), model}}, cancel).isEmpty());
         QVERIFY(QDir(empty).entryList(QDir::Files).isEmpty());
+    }
+    void recognitionStripesMatchWholeImageComposition_data() {
+        QTest::addColumn<int>("format");
+        for (const auto format : {QImage::Format_RGB32, QImage::Format_ARGB32,
+             QImage::Format_ARGB32_Premultiplied, QImage::Format_RGB888,
+             QImage::Format_RGBA8888, QImage::Format_RGBA8888_Premultiplied,
+             QImage::Format_RGBA64, QImage::Format_RGBA64_Premultiplied,
+             QImage::Format_Grayscale8, QImage::Format_Grayscale16,
+             QImage::Format_Indexed8, QImage::Format_RGBA32FPx4})
+            QTest::newRow(qPrintable(QString::number(int(format)))) << int(format);
+    }
+    void recognitionStripesMatchWholeImageComposition() {
+        QFETCH(int, format);
+        QImage original(257, 259, QImage::Format_ARGB32);
+        for (int y = 0; y < original.height(); ++y)
+            for (int x = 0; x < original.width(); ++x)
+                original.setPixel(x, y, qRgba((x * 37 + y) % 256, (y * 17 + x) % 256,
+                                            (x + y * 29) % 256, (x * 13 + y * 11) % 256));
+        const auto image = original.convertToFormat(QImage::Format(format));
+        QVERIFY(!image.isNull());
+        const auto unchanged = image.copy();
+        const QRect area(3, 4, 251, 251); // Odd stride, multiple strips and a partial final strip.
+        QImage expected(area.size(), QImage::Format_RGB888);
+        expected.fill(Qt::white);
+        { QPainter painter(&expected); painter.drawImage(QPoint(), image, area); }
+        const auto directory = path(QStringLiteral("stripe-%1").arg(format));
+        QVERIFY(QDir().mkpath(directory));
+        const std::atomic_bool cancel{false};
+        QVERIFY(ix::prepareRecognitionInput(image, area, directory, {}, cancel).isEmpty());
+        const auto ppm = get(directory + QStringLiteral("/input.ppm"));
+        const auto header = QByteArray("P6\n251 251\n255\n");
+        QVERIFY(ppm.startsWith(header)); QCOMPARE(ppm.size(), header.size() + 251 * 251 * 3);
+        for (int y = 0; y < area.height(); ++y)
+            QCOMPARE(ppm.mid(header.size() + y * 251 * 3, 251 * 3),
+                     QByteArray(reinterpret_cast<const char *>(expected.constScanLine(y)), 251 * 3));
+        QCOMPARE(image, unchanged);
+    }
+    void recognitionWideStripesPreserveTheLastRow_data() {
+        QTest::addColumn<int>("width");
+        QTest::newRow("packed") << 8000;
+        QTest::newRow("padded") << 8001;
+    }
+    void recognitionWideStripesPreserveTheLastRow() {
+        QFETCH(int, width);
+        QImage image(width, 137, QImage::Format_ARGB32);
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x)
+                image.setPixel(x, y, qRgba((x + y) % 256, (x * 7 + y) % 256, (x + y * 13) % 256, (x + y) % 256));
+        QImage expected(image.size(), QImage::Format_RGB888); expected.fill(Qt::white);
+        { QPainter painter(&expected); painter.drawImage(QPoint(), image); }
+        const auto directory = path(QStringLiteral("wide-stripes-%1").arg(width)); QVERIFY(QDir().mkpath(directory));
+        const std::atomic_bool cancel{false};
+        QVERIFY(ix::prepareRecognitionInput(image, image.rect(), directory, {}, cancel).isEmpty());
+        const auto bytes = get(directory + QStringLiteral("/input.ppm"));
+        const auto header = QByteArray("P6\n") + QByteArray::number(width) + " 137\n255\n";
+        QVERIFY(bytes.startsWith(header));
+        QCOMPARE(bytes.size(), header.size() + width * 137 * 3);
+        for (int y = 0; y < image.height(); ++y)
+            QCOMPARE(bytes.mid(header.size() + y * width * 3, width * 3),
+                     QByteArray(reinterpret_cast<const char *>(expected.constScanLine(y)), width * 3));
     }
     void realToolRestartTracksOnlyToolsFolder() {
         installReal({QStringLiteral("zxing-cpp")});

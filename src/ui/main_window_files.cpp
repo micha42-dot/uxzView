@@ -29,7 +29,7 @@ void applySource(ImageDocument &document, const SourceFileState &source) {
 } // namespace
 bool MainWindow::confirmDiscard() {
     if (!document_.modified ||
-        !QSettings().value(QStringLiteral("navigation/askToSave"), true).toBool())
+        !QSettings().value(QStringLiteral("navigation/askToSave"), false).toBool())
         return true;
     slideshow_.stop();
     stopAnimation();
@@ -209,6 +209,8 @@ void MainWindow::fileOperation(const QString &op) {
         // confirmation; a failed move restores exactly what was on screen. The
         // "open next image" variant keeps the current picture until the move is done.
         const QImage shownImage = view_->image();
+        const QRect shownSelection = view_->selection();
+        const QSize shownAspect = view_->selectionAspectRatio();
         const double shownZoom = view_->zoom();
         const auto shownFit = view_->fit();
         if (stayEmpty) {
@@ -254,6 +256,8 @@ void MainWindow::fileOperation(const QString &op) {
                 view_->setZoom(shownZoom);
             else
                 view_->setFit(shownFit);
+            view_->setSelectionAspectRatio(shownAspect);
+            view_->setSelection(shownSelection);
         }
         if (!result.error.isEmpty()) showError(result.error);
         return;
