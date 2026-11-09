@@ -52,6 +52,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLibrary>
+#include <QMouseEvent>
 #include <QScopeGuard>
 #include <QSysInfo>
 #ifdef Q_OS_WIN
@@ -72,6 +73,13 @@
 #include <exiv2/exiv2.hpp>
 #endif
 namespace {
+void hoverAt(QWidget *surface, QPoint point) {
+    // Dispatch through the widget: native QTest::mouseMove relies on desktop
+    // pointer delivery, which is unavailable in unattended Windows sessions.
+    QMouseEvent event(QEvent::MouseMove, QPointF(point), QPointF(surface->mapToGlobal(point)),
+                      Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(surface, &event);
+}
 #ifdef Q_OS_WIN
 HWND transitionCoverHandle(const QObject *cover) {
     return cover ? reinterpret_cast<HWND>(cover->property("nativeHandle").value<quintptr>()) : nullptr;
@@ -4567,8 +4575,8 @@ class IxTests : public QObject {
         ix::ImageView view; view.resize(800, 600); view.setCentered(false);
         view.setImage(pattern(600, 400)); view.setZoom(1); view.show();
         QVERIFY(QTest::qWaitForWindowExposed(&view)); view.setSelection({80, 60, 10, 8});
-        QTest::mouseMove(view.viewport(), {85, 64});
-        QTRY_VERIFY_WITH_TIMEOUT(!view.viewport()->cursor().pixmap().isNull(), 1000);
+        hoverAt(view.viewport(), {85, 64});
+        QVERIFY(!view.viewport()->cursor().pixmap().isNull());
         QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, {85, 64});
         QVERIFY(view.zoom() > 1); QVERIFY(view.selection().isEmpty());
     }
@@ -4929,8 +4937,8 @@ class IxTests : public QObject {
         QTest::mouseMove(surface, {200, 160});
         QTest::mouseRelease(surface, Qt::LeftButton, Qt::NoModifier, {200, 160});
         QCOMPARE(view.selection(), QRect(80, 60, 121, 101));
-        QTest::mouseMove(surface, {130, 100});
-        QTRY_VERIFY_WITH_TIMEOUT(!surface->cursor().pixmap().isNull(), 1000);
+        hoverAt(surface, {130, 100});
+        QVERIFY(!surface->cursor().pixmap().isNull());
         auto marked = view.selection();
         QTest::mouseClick(surface, Qt::LeftButton, Qt::NoModifier, {130, 100});
         QVERIFY(view.zoom() > 4);

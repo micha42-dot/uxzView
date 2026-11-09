@@ -86,12 +86,30 @@ working-tree diagnostics, excluded from source/runtime archives.
 
 ## Verification and limits
 
-The final build, complete required-asset suites and SDK-free portable checks are
-recorded in the project status after validation. Crop tests cover all eight grips
+The final build passes 870 Qt cases across nine suites, both in development and
+against the deployed SDK-free runtime, plus 47 Python tests. No failures or
+skipped cases; RAW and recognition assets are required. Native Windows 11 runs
+pass 80 cases each at scale factors 1, 1.5 and 2, with no failures or skips.
+Crop tests cover all eight grips
 with free, landscape and portrait ratios at three zoom levels, bounded geometry,
 small selections, fullscreen isolation, crop application and Undo. Reference
 bytes check streamed recognition exports; real OCR/QR tests verify early
 temporary cleanup before closing the result dialog.
+
+The unattended Windows desktop does not reliably deliver a physical pointer move
+from `QTest::mouseMove`. The two hover-only cursor checks therefore dispatch a
+Qt mouse event to the viewport, retaining their cursor and subsequent click/zoom
+assertions. A separate native probe showed an unchanged arrow after the desktop
+move and the correct magnifier after widget dispatch. Native-scale checks exercise
+shown Windows widgets; they do not replace manual physical-pointer testing.
+
+Installed modules, both recognition engines, all five OCR models and relocated
+portable profiles pass without SDK paths. Existing personal profile/tool files
+retain their hashes across deployment and verification. Development and deployed
+executables match; temporary runtime-test binaries and Qt Test are removed.
+Combined evidence: `build/round2-verification.json`, with runtime steps in
+`build/round2-runtime-summary.json` and validation in
+`build/review-round2-final-validation-summary.json`.
 
 Native Windows 10, Linux and macOS execution remain unverified locally. The new
 code uses Qt/C++20 without platform-specific crop or checksum paths; local
