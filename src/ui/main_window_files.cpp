@@ -229,29 +229,21 @@ void MainWindow::fileOperation(const QString &op) {
         const auto result = watcher.future().takeResult();
         if (result.applied) {
             ImageLoadCache::invalidate({source});
-            if (stayEmpty) {
-                // Show the deliberate black state instead of the following image.
-                // The document keeps its path, so the folder listing (and the
-                // status bar, which now names the removed file) survive; the first
-                // navigation resumes from the slot this file held.
-                ImageDocument removed;
-                removed.path = source;
-                installDocument(std::move(removed));
-                // installDocument() ends any previous black state, so the resume
-                // slot for this removal is recorded afterwards.
-                removedDocumentPath_ = source;
-                resumeNextPath_ = nextInOrder;
-                resumePreviousPath_ = previous;
-                removedFileIndex_ = removedIndex;
-                // The install above ran before the slot was known, so the status
-                // bar still says "unreadable file"; refresh it for "deleted".
-                updateStatus();
-            } else {
-                installDocument({});
-                if (!next.isEmpty() && !deferredOpen_) {
-                    auto traversal = FolderTraversal::start(files_, files_.indexOf(next) - 1, 1, wrap, source);
-                    if (traversal) openRequested({traversal->path(), 0, false, std::move(traversal)});
-                }
+            // Keep the folder and removed slot for both policies. Installing a
+            // pathless document would clear files_ before automatic traversal,
+            // and would strand manual navigation at a no-wrap edge.
+            ImageDocument removed;
+            removed.path = source;
+            installDocument(std::move(removed));
+            // installDocument clears the previous removal state.
+            removedDocumentPath_ = source;
+            resumeNextPath_ = nextInOrder;
+            resumePreviousPath_ = previous;
+            removedFileIndex_ = removedIndex;
+            updateStatus();
+            if (!stayEmpty && !next.isEmpty() && !deferredOpen_) {
+                auto traversal = FolderTraversal::start(files_, files_.indexOf(next) - 1, 1, wrap, source);
+                if (traversal) openRequested({traversal->path(), 0, false, std::move(traversal)});
             }
         } else if (stayEmpty) {
             // The move failed, so the file is still there: put the picture back

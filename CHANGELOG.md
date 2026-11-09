@@ -10,6 +10,8 @@
   the direct TurboJPEG path.
 - Resume navigation after deletion through the standard bounded traversal,
   preserving unreadable-file skipping and the wrap preference in both directions.
+  Keep the folder and removed slot when opening the next image automatically,
+  including backward navigation from a no-wrap edge.
 - Lay out preview text in original image coordinates and DPI, then scale the
   presentation. Cache only the bounded selected-region background; resize the
   preview with its viewport instead of rounding a reduced font or copying tall

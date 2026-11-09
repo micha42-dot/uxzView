@@ -50,6 +50,11 @@ and returns the same `FolderTraversal` used for normal arrows. Requests carry
 that traversal through unreadable-file failures, so Skip can advance without a
 popup. The wrap preference controls both ends and both directions; a no-wrap
 edge stays black. Auto-open-next deletion also carries traversal context.
+Both deletion policies install the same path-bearing placeholder before any
+automatic request. A pathless document cleared the folder listing too early;
+retaining the deleted slot lets automatic opening find its neighbour and manual
+backward navigation leave a no-wrap edge. Four Windows reproductions cover
+automatic opening, unreadable skipping, wrapping and backward edge recovery.
 Bounded retry/direction/wrap/changed-list cases are covered independently of the
 OS trash service. Windows end-to-end probes use only generated temporary images.
 
@@ -69,6 +74,31 @@ actual full-image edit. Small/large fonts, 6000/16000-pixel source widths and
 color; the dialog test checks that resizing keeps the pixmap inside its viewport.
 
 ## Validation scope
+
+The complete development build passes 769 Qt cases in nine suites and 47 Python
+tests, without failures or skipped cases. RAW fixtures and native recognition
+packs are mandatory in this run (`scripts/validate.py --suite core
+--require-assets`). The summary is
+`build/review-nov9-fixes-final-validation-summary.json`.
+
+The deployed portable build passes the same 769 Qt cases, without failures or
+skips, using only bundled libraries and system directories in `PATH`. Installed
+modules load independently, and QR/OCR engines with all five language models
+work after relocating the portable folder. Test executables and Qt Test are
+removed afterwards. Build/deployed executable hashes match. The combined
+evidence is `build/nov9-fixes-verification.json`; runtime steps are recorded in
+`build/nov9-fixes-runtime-summary.json`.
+
+The focused regression run passes 55 Qt cases with no failures or skips. The
+original Windows reproductions now retain the JPEG description after PNG export,
+exit normally after the speculative presentation failure, and omit the
+108,160,000-byte neighbour decode. Two additional end-to-end checks move only
+generated temporary images to the real Windows trash: unreadable neighbours are
+skipped without a popup, and the no-wrap directory edge stays empty. Their
+diagnostics are under `build/nov9-fixes-*`; the baseline diagnostics are retained.
+The four automatic-opening checks also pass after the final correction, with
+successful trash moves, no error popups and the expected next/previous image.
+Before/after results are recorded in `build/nov9-fixes-nav-{before,after}-deletion.json`.
 
 The local build uses Windows 11, GCC 16.2 and Qt 6.11.2. Native Windows 10,
 Linux/macOS execution and broad visual/compositor checks remain separate work.
