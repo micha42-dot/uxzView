@@ -24,7 +24,7 @@ Im Vollbild blättert ein **Linksklick zurück**, ein **Rechtsklick weiter**, au
 Der Bereich **Einstellungen → Steuerung** fasst Maus- und Tastaturverhalten zusammen:
 
 - **Maus → Doppelklick-Aktion:** Standard **Vollbild umschalten** (bisheriges Verhalten). Mit **Vergrößern/Verkleinern** zoomt ein Doppelklick auf dem Bild um den Faktor 2 um die Mausposition (max. 6400 %); ein weiterer Doppelklick stellt Zoom und Scrollposition des vorherigen Zustands wieder her. Das gilt im Fenster und im Vollbild; Klicks außerhalb des Bildes, mit gedrückten Zusatztasten oder bei aktiver Farbpipette behalten ihr bisheriges Verhalten. Besteht eine Auswahl, löst der erste Klick wie bisher die Lupe aus, bevor der Doppelklick umschaltet.
-- **Tastatur → Bildnavigation mit Pfeiltasten:** Standard **Links/Rechts** (bisheriges Verhalten), wahlweise **Hoch/Runter** oder **Links/Rechts und Hoch/Runter**. Scrollen bei Zoom, Markierungsbearbeitung mit Shift/Strg/Alt und die Weitergabe an Eingabefelder/Listen bleiben erhalten: Eine deaktivierte Achse wird nicht verbraucht, sodass etwa Hoch/Runter in Listen weiterhin die Liste steuert.
+- **Tastatur → Bildnavigation mit Pfeiltasten:** Standard **Links/Rechts** (bisheriges Verhalten), wahlweise **Hoch/Runter** oder **Links/Rechts und Hoch/Runter**. Die Option steuert ausschließlich die Bildnavigation der Bildansicht; fokussierte Drehfelder/Spinboxen, Listen und andere Steuerelemente behalten ihr eigenes Pfeiltastenverhalten. Scrollen bei Zoom, Markierungsbearbeitung mit Shift/Strg/Alt und die Weitergabe an Eingabefelder/Listen bleiben erhalten: Eine deaktivierte Achse wird nicht verbraucht, sodass etwa Hoch/Runter in Listen weiterhin die Liste steuert.
 
 ## Tasten nach Kontext
 

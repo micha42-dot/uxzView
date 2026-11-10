@@ -1176,6 +1176,19 @@ class IxTests : public QObject {
             QVERIFY(upHandled);
             QCOMPARE(upSteps, 1);
         }
+        // Spin boxes, lists and other focused controls keep their own arrow-key
+        // behaviour: a spin box still steps when it has focus, even in a mode
+        // where the same key would otherwise navigate images.
+        {
+            QSpinBox spin;
+            spin.setRange(0, 10);
+            spin.setValue(5);
+            spin.show();
+            spin.setFocus();
+            QKeyEvent event(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier, QString());
+            QApplication::sendEvent(&spin, &event);
+            QCOMPARE(spin.value(), 6);
+        }
         // Panning keeps priority while zoomed: even with horizontal-only
         // navigation, Up scrolls instead of navigating or leaking focus.
         arrowSettings.setValue(QStringLiteral("controls/arrowKeys"), 0);
