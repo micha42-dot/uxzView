@@ -953,7 +953,7 @@ class IxTests : public QObject {
             dialog.show();
             auto *tabs = dialog.findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
             auto *categories = dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
-            QCOMPARE(tabs->count(), 10);
+            QCOMPARE(tabs->count(), 11);
             dialog.findChild<QComboBox *>(QStringLiteral("preview/background"))->setCurrentIndex(1);
             dialog.findChild<QCheckBox *>(QStringLiteral("view/previewStrip"))->setChecked(true);
             dialog.findChild<QCheckBox *>(QStringLiteral("navigation/askToSave"))->setChecked(true);
@@ -1043,6 +1043,222 @@ class IxTests : public QObject {
         QCOMPARE(int(ix::afterDeleteMode(1)), int(ix::AfterDelete::StayEmpty));
         QCOMPARE(int(ix::afterDeleteMode(99)), int(ix::AfterDelete::StayEmpty));
         QCOMPARE(int(ix::afterDeleteMode(-99)), int(ix::AfterDelete::StayEmpty));
+    }
+    void controlPreferencesAreStoredAndReloaded() {
+        QSettings settings;
+        const auto savedDouble = settings.value(QStringLiteral("controls/doubleClick"));
+        const auto savedArrows = settings.value(QStringLiteral("controls/arrowKeys"));
+        auto restore = qScopeGuard([savedDouble, savedArrows] {
+            QSettings s;
+            if (savedDouble.isValid())
+                s.setValue(QStringLiteral("controls/doubleClick"), savedDouble);
+            else
+                s.remove(QStringLiteral("controls/doubleClick"));
+            if (savedArrows.isValid())
+                s.setValue(QStringLiteral("controls/arrowKeys"), savedArrows);
+            else
+                s.remove(QStringLiteral("controls/arrowKeys"));
+            s.sync();
+        });
+        // Missing keys keep the legacy behaviour: fullscreen toggle and
+        // horizontal-only navigation.
+        settings.remove(QStringLiteral("controls/doubleClick"));
+        settings.remove(QStringLiteral("controls/arrowKeys"));
+        settings.sync();
+        {
+            ix::SettingsDialog dialog;
+            auto *doubleClick = dialog.findChild<QComboBox *>(QStringLiteral("controls/doubleClick"));
+            auto *arrows = dialog.findChild<QComboBox *>(QStringLiteral("controls/arrowKeys"));
+            QVERIFY(doubleClick && arrows);
+            QCOMPARE(doubleClick->currentData().toInt(), 0);
+            QCOMPARE(arrows->currentData().toInt(), 0);
+            QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("controlsSettingsPage")) != nullptr);
+            doubleClick->setCurrentIndex(doubleClick->findData(1));
+            arrows->setCurrentIndex(arrows->findData(2));
+            dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+            QCOMPARE(dialog.result(), int(QDialog::Accepted));
+        }
+        settings.sync();
+        QCOMPARE(settings.value(QStringLiteral("controls/doubleClick")).toInt(), 1);
+        QCOMPARE(settings.value(QStringLiteral("controls/arrowKeys")).toInt(), 2);
+        {
+            // Reopening shows the stored choices rather than the defaults.
+            ix::SettingsDialog dialog;
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("controls/doubleClick"))
+                         ->currentData()
+                         .toInt(),
+                     1);
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("controls/arrowKeys"))
+                         ->currentData()
+                         .toInt(),
+                     2);
+        }
+        settings.setValue(QStringLiteral("controls/doubleClick"), 99);
+        settings.setValue(QStringLiteral("controls/arrowKeys"), -7);
+        settings.sync();
+        {
+            ix::SettingsDialog dialog;
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("controls/doubleClick"))
+                         ->currentData()
+                         .toInt(),
+                     0);
+            QCOMPARE(dialog.findChild<QComboBox *>(QStringLiteral("controls/arrowKeys"))
+                         ->currentData()
+                         .toInt(),
+                     0);
+        }
+        QCOMPARE(int(ix::doubleClickMode(0)), int(ix::DoubleClickAction::Fullscreen));
+        QCOMPARE(int(ix::doubleClickMode(1)), int(ix::DoubleClickAction::Zoom));
+        QVERIFY(ix::arrowNavigatesHorizontally(0));
+        QVERIFY(!ix::arrowNavigatesVertically(0));
+        QVERIFY(ix::arrowNavigatesHorizontally(2));
+        QVERIFY(ix::arrowNavigatesVertically(2));
+        QCOMPARE(int(ix::arrowNavigationMode(1)), int(ix::ArrowNavigation::UpDown));
+        QCOMPARE(int(ix::arrowNavigationMode(99)), int(ix::ArrowNavigation::LeftRight));
+    }
+    void controlArrowKeysRespectConfiguration() {
+        QSettings arrowSettings;
+        const auto savedArrows = arrowSettings.value(QStringLiteral("controls/arrowKeys"));
+        auto restoreArrows = qScopeGuard([savedArrows] {
+            QSettings s;
+            if (savedArrows.isValid())
+                s.setValue(QStringLiteral("controls/arrowKeys"), savedArrows);
+            else
+                s.remove(QStringLiteral("controls/arrowKeys"));
+            s.sync();
+        });
+        const auto navigates = [](int key) {
+            ix::ImageView view;
+            QImage image(64, 64, QImage::Format_RGB32);
+            image.fill(Qt::red);
+            view.resize(320, 240);
+            view.setImage(image);
+            view.show();
+            int steps = 0;
+            QObject::connect(&view, &ix::ImageView::navigate, &view, [&](int) { ++steps; });
+            QKeyEvent event(QEvent::KeyPress, key, Qt::NoModifier, QString());
+            const bool handled = view.handleKey(&event);
+            return std::make_pair(handled, steps);
+        };
+        arrowSettings.setValue(QStringLiteral("controls/arrowKeys"), 0);
+        arrowSettings.sync();
+        {
+            const auto [leftHandled, leftSteps] = navigates(Qt::Key_Left);
+            QVERIFY(leftHandled);
+            QCOMPARE(leftSteps, 1);
+        }
+        {
+            const auto [upHandled, upSteps] = navigates(Qt::Key_Up);
+            QVERIFY(!upHandled);
+            QCOMPARE(upSteps, 0);
+        }
+        arrowSettings.setValue(QStringLiteral("controls/arrowKeys"), 1);
+        arrowSettings.sync();
+        {
+            const auto [leftHandled, leftSteps] = navigates(Qt::Key_Left);
+            QVERIFY(!leftHandled);
+            QCOMPARE(leftSteps, 0);
+        }
+        {
+            const auto [downHandled, downSteps] = navigates(Qt::Key_Down);
+            QVERIFY(downHandled);
+            QCOMPARE(downSteps, 1);
+        }
+        arrowSettings.setValue(QStringLiteral("controls/arrowKeys"), 2);
+        arrowSettings.sync();
+        {
+            const auto [rightHandled, rightSteps] = navigates(Qt::Key_Right);
+            QVERIFY(rightHandled);
+            QCOMPARE(rightSteps, 1);
+        }
+        {
+            const auto [upHandled, upSteps] = navigates(Qt::Key_Up);
+            QVERIFY(upHandled);
+            QCOMPARE(upSteps, 1);
+        }
+        // Panning keeps priority while zoomed: even with horizontal-only
+        // navigation, Up scrolls instead of navigating or leaking focus.
+        arrowSettings.setValue(QStringLiteral("controls/arrowKeys"), 0);
+        arrowSettings.sync();
+        {
+            ix::ImageView view;
+            QImage image(64, 64, QImage::Format_RGB32);
+            image.fill(Qt::red);
+            view.resize(320, 240);
+            view.setImage(image);
+            view.setZoom(8.0);
+            view.show();
+            QVERIFY(view.verticalScrollBar()->maximum() > 0);
+            view.verticalScrollBar()->setValue(view.verticalScrollBar()->maximum());
+            const int before = view.verticalScrollBar()->value();
+            QVERIFY(before > 0);
+            int steps = 0;
+            QObject::connect(&view, &ix::ImageView::navigate, &view, [&](int) { ++steps; });
+            QKeyEvent event(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier, QString());
+            QVERIFY(view.handleKey(&event));
+            QCOMPARE(steps, 0);
+            QVERIFY(view.verticalScrollBar()->value() != before);
+        }
+    }
+    void controlDoubleClickZoomTogglesBack() {
+        QSettings zoomSettings;
+        const auto savedZoom = zoomSettings.value(QStringLiteral("controls/doubleClick"));
+        auto restoreZoom = qScopeGuard([savedZoom] {
+            QSettings s;
+            if (savedZoom.isValid())
+                s.setValue(QStringLiteral("controls/doubleClick"), savedZoom);
+            else
+                s.remove(QStringLiteral("controls/doubleClick"));
+            s.sync();
+        });
+        zoomSettings.setValue(QStringLiteral("controls/doubleClick"), 1);
+        zoomSettings.sync();
+        const QString folder = dir(QStringLiteral("controls-zoom"));
+        QVERIFY(QDir().mkpath(folder));
+        const QString path = folder + QStringLiteral("/zoom-toggle.png");
+        QImage source(1600, 1200, QImage::Format_RGB32);
+        source.fill(Qt::darkGreen);
+        QVERIFY(source.save(path));
+        ix::MainWindow window;
+        window.show();
+        window.openPath(path);
+        QTRY_VERIFY(!window.document().empty());
+        auto *view = window.findChild<ix::ImageView *>();
+        QVERIFY(view);
+        const auto beforeFit = view->fit();
+        const double beforeZoom = view->zoom();
+        // A plain double click on the image toggles zoom mode; a second one
+        // restores the previous fit/zoom. Also verify the default still
+        // toggles fullscreen instead.
+        const auto center = view->viewport()->rect().center();
+        QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_COMPARE(view->fit(), ix::ImageView::Fit::Original);
+        QVERIFY(view->zoom() > beforeZoom);
+        QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_COMPARE(view->fit(), beforeFit);
+        QVERIFY(qAbs(view->zoom() - beforeZoom) < 1e-6);
+        zoomSettings.setValue(QStringLiteral("controls/doubleClick"), 0);
+        zoomSettings.sync();
+        const bool wasFull = window.isFullScreen();
+        QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_COMPARE(window.isFullScreen(), !wasFull);
+        if (window.isFullScreen())
+            window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(!window.isFullScreen());
+        // Zoom mode also applies in fullscreen without triggering click
+        // navigation: enter fullscreen, double-click to zoom in, then back.
+        zoomSettings.setValue(QStringLiteral("controls/doubleClick"), 1);
+        zoomSettings.sync();
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(window.isFullScreen());
+        QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_COMPARE(view->fit(), ix::ImageView::Fit::Original);
+        QVERIFY(view->zoom() > beforeZoom);
+        QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_COMPARE(view->fit(), beforeFit);
+        window.dispatch(QStringLiteral("fullscreen"));
+        QTRY_VERIFY(!window.isFullScreen());
+        window.close();
     }
     void settingsApplyImmediatelyToMainWindow() {
         QSettings settings;
@@ -1187,7 +1403,7 @@ class IxTests : public QObject {
         auto *path = dialog.findChild<QLineEdit *>(QStringLiteral("storage/dataRoot"));
         QVERIFY(path && path->isReadOnly());
         QCOMPARE(QDir::fromNativeSeparators(path->text()), ix::AppStorage::dataRoot());
-        QCOMPARE(categories->count(), 10);
+        QCOMPARE(categories->count(), 11);
         QVERIFY(dialog.findChildren<QTabWidget *>().isEmpty());
         QTest::qWait(30);
         QCOMPARE(categories->horizontalScrollBar()->maximum(), 0);
@@ -1201,7 +1417,7 @@ class IxTests : public QObject {
         categories->setCurrentRow(0);
         categories->setFocus();
         QTest::keyClick(categories, Qt::Key_End);
-        QCOMPARE(pages->currentIndex(), 9);
+        QCOMPARE(pages->currentIndex(), 10);
         dialog.selectPage(QStringLiteral("cropSettingsPage"));
         QVERIFY(dialog.findChild<QWidget *>(QStringLiteral("cropSettingsPage"))->isVisible());
         QVERIFY(dialog.grab().save(QStringLiteral(IX_TEST_OUTPUT "/settings-sidebar.png")));

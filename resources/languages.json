@@ -867,5 +867,15 @@
 ["JPEG-Datei zu groß.", "JPEG file is too large.", "JPEG 파일이 너무 큽니다.", "JPEGファイルが大きすぎます。", "Fichier JPEG trop grand."],
 ["TurboJPEG nicht verfügbar.", "TurboJPEG is unavailable.", "TurboJPEG를 사용할 수 없습니다.", "TurboJPEGを利用できません。", "TurboJPEG indisponible."],
 ["Nach dem Löschen:", "After deleting:", "삭제 후:", "削除後の表示:", "Après suppression :"],
-["Datei gelöscht", "Deleted file", "삭제된 파일", "削除したファイル", "Fichier supprimé"]
+["Datei gelöscht", "Deleted file", "삭제된 파일", "削除したファイル", "Fichier supprimé"],
+["Steuerung", "Controls", "제어", "制御", "Contrôles"],
+["Maus", "Mouse", "마우스", "マウス", "Souris"],
+["Tastatur", "Keyboard", "키보드", "キーボード", "Clavier"],
+["Doppelklick-Aktion:", "Double-click action:", "더블클릭 동작:", "ダブルクリック操作:", "Action du double-clic :"],
+["Vollbild umschalten", "Toggle fullscreen", "전체 화면 전환", "フルスクリーン切り替え", "Basculer en plein écran"],
+["Vergrößern/Verkleinern", "Zoom in/out", "확대/축소", "拡大/縮小", "Zoom avant/arrière"],
+["Bildnavigation mit Pfeiltasten:", "Image navigation using arrow keys:", "화살표 키로 이미지 이동:", "矢印キーによる画像移動:", "Navigation des images avec les flèches :"],
+["Links/Rechts", "Left/Right", "왼쪽/오른쪽", "左/右", "Gauche/Droite"],
+["Hoch/Runter", "Up/Down", "위/아래", "上/下", "Haut/Bas"],
+["Links/Rechts und Hoch/Runter", "Left/Right and Up/Down", "왼쪽/오른쪽 및 위/아래", "左/右と上/下", "Gauche/Droite et Haut/Bas"]
 ]

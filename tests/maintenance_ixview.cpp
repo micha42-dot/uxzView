@@ -24,6 +24,7 @@
 #include <thread>
 #include <limits>
 #include <future>
+#include <functional>
 #include <vector>
 #include <stdexcept>
 #include <cstdio>
@@ -42,9 +43,15 @@ namespace {
 class CatalogShowProbe final : public QObject {
   public:
     bool injected = false;
+    std::function<void()> progressShown;
+    std::function<void(QDialog *)> resultShown;
     bool eventFilter(QObject *object, QEvent *event) override {
+        if (event->type() == QEvent::Show && object->objectName() == QStringLiteral("duplicateDialog"))
+            if (auto *dialog = qobject_cast<QDialog *>(object); dialog && resultShown)
+                resultShown(dialog);
         if (!injected && event->type() == QEvent::Show && qobject_cast<QProgressDialog *>(object)) {
             injected = true;
+            if (progressShown) progressShown();
             QElapsedTimer timer; timer.start();
             while (timer.elapsed() < 80) {
                 QCoreApplication::processEvents();
@@ -54,14 +61,35 @@ class CatalogShowProbe final : public QObject {
         return false;
     }
 };
-QJsonObject checkCatalogProgress(const QString &action) {
+QJsonObject checkCatalogProgress(const QString &action, bool closeResultDuringShow = false) {
     QTemporaryDir folder;
     if (!folder.isValid()) return {{QStringLiteral("error"), QStringLiteral("Temporary folder failed")}};
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, folder.path());
     qApp->setProperty("ixStorageData", folder.filePath(QStringLiteral("profile")));
     bool started = false, completed = false;
+    int resultModality = -1, resultType = -1;
+    QString resultTitle;
+    // Empty catalog work normally finishes before the delayed progress window
+    // appears. Hold its worker until Show so this actually exercises that race.
+    auto *pool = QThreadPool::globalInstance();
+    const int oldThreadCount = pool->maxThreadCount();
+    pool->setMaxThreadCount(1);
+    QSemaphore releaseWorker;
+    QFuture<void> blocker;
+    const auto restorePool = qScopeGuard([&] {
+        releaseWorker.release();
+        if (blocker.isStarted()) blocker.waitForFinished();
+        pool->setMaxThreadCount(oldThreadCount);
+    });
     CatalogShowProbe probe; qApp->installEventFilter(&probe);
+    probe.progressShown = [&] { releaseWorker.release(); };
+    probe.resultShown = [&](QDialog *matches) {
+        resultModality = int(matches->windowModality());
+        resultType = int(matches->windowType());
+        resultTitle = matches->windowTitle();
+        if (closeResultDuringShow) { completed = true; matches->reject(); }
+    };
     const auto remove = qScopeGuard([&] { qApp->removeEventFilter(&probe); });
     QTimer watchdog; watchdog.setSingleShot(true);
     QObject::connect(&watchdog, &QTimer::timeout, qApp, [&] {
@@ -81,6 +109,9 @@ QJsonObject checkCatalogProgress(const QString &action) {
     };
     QObject::connect(&driver, &QTimer::timeout, qApp, [&] {
         if (auto *matches = findDuplicateDialog()) {
+            resultModality = int(matches->windowModality());
+            resultType = int(matches->windowType());
+            resultTitle = matches->windowTitle();
             completed = true;
             matches->reject();
             return;
@@ -97,6 +128,7 @@ QJsonObject checkCatalogProgress(const QString &action) {
             for (auto *button : dialog->findChildren<QAbstractButton *>())
                 if (button->text() == ix::localized(action)) {
                     started = true;
+                    blocker = QtConcurrent::run(pool, [&] { releaseWorker.acquire(); });
                     QTimer::singleShot(0, button, [button] { button->click(); });
                     break;
                 }
@@ -104,7 +136,11 @@ QJsonObject checkCatalogProgress(const QString &action) {
     driver.start(5); watchdog.start(5000);
     ix::libraryDialog(nullptr, {}, {});
     driver.stop(); watchdog.stop();
-    return {{QStringLiteral("started"), started}, {QStringLiteral("completed"), completed},
+    return {{QStringLiteral("action"), action},
+            {QStringLiteral("result_modality"), resultModality},
+            {QStringLiteral("result_type"), resultType},
+            {QStringLiteral("result_title"), resultTitle},
+            {QStringLiteral("started"), started}, {QStringLiteral("completed"), completed},
             {QStringLiteral("show_injected"), probe.injected}};
 }
 QJsonObject checkSmallCacheBudget() {
@@ -209,12 +245,16 @@ class MaintenanceTests : public QObject {
         // umlaut ("Ähnliche Bilder") and shell/runner quoting has corrupted
         // non-ASCII arguments before. The child maps the id back to the label.
         QTest::addColumn<QString>("actionId");
-        QTest::newRow("index") << QStringLiteral("index");
-        QTest::newRow("exact") << QStringLiteral("exact");
-        QTest::newRow("similar") << QStringLiteral("similar");
+        QTest::addColumn<bool>("closeResultDuringShow");
+        QTest::newRow("index") << QStringLiteral("index") << false;
+        QTest::newRow("exact") << QStringLiteral("exact") << false;
+        QTest::newRow("similar") << QStringLiteral("similar") << false;
+        QTest::newRow("exact-close-on-show") << QStringLiteral("exact") << true;
+        QTest::newRow("similar-close-on-show") << QStringLiteral("similar") << true;
     }
     void catalogCompletionDuringShowCannotStrandDialog() {
         QFETCH(QString, actionId);
+        QFETCH(bool, closeResultDuringShow);
         const QString action = actionId == QStringLiteral("index")
                                    ? QStringLiteral("Metadaten indexieren")
                                : actionId == QStringLiteral("exact")
@@ -223,9 +263,10 @@ class MaintenanceTests : public QObject {
         QProcess child;
         QElapsedTimer clock;
         clock.start();
-        child.start(QCoreApplication::applicationFilePath(),
-                    {QStringLiteral("--catalog-progress-probe"), action,
-                     QStringLiteral("-platform"), QStringLiteral("offscreen")});
+        QStringList arguments{QStringLiteral("--catalog-progress-probe"), actionId,
+                              QStringLiteral("-platform"), QGuiApplication::platformName()};
+        if (closeResultDuringShow) arguments.append(QStringLiteral("--close-result-on-show"));
+        child.start(QCoreApplication::applicationFilePath(), arguments);
         const bool finished = child.waitForFinished(15000);
         const auto elapsedMs = clock.elapsed();
         if (!finished) { child.kill(); child.waitForFinished(3000); }
@@ -246,8 +287,18 @@ class MaintenanceTests : public QObject {
         QCOMPARE(child.exitStatus(), QProcess::NormalExit);
         QVERIFY2(child.exitCode() == 0, qPrintable(diagnosis));
         const auto report = QJsonDocument::fromJson(childStdout).object();
+        QCOMPARE(report.value(QStringLiteral("action")).toString(), action);
         QVERIFY2(report.value(QStringLiteral("started")).toBool(), qPrintable(diagnosis));
         QVERIFY2(report.value(QStringLiteral("completed")).toBool(), qPrintable(diagnosis));
+        QVERIFY2(report.value(QStringLiteral("show_injected")).toBool(), qPrintable(diagnosis));
+        if (actionId != QStringLiteral("index")) {
+            QCOMPARE(report.value(QStringLiteral("result_modality")).toInt(), int(Qt::ApplicationModal));
+            QCOMPARE(report.value(QStringLiteral("result_type")).toInt(), int(Qt::Dialog));
+            const auto title = actionId == QStringLiteral("exact")
+                ? ix::localized(QStringLiteral("Identische Dateien (SHA-256)"))
+                : ix::localized(QStringLiteral("Ähnliche Bilder – Prüfkandidaten"));
+            QCOMPARE(report.value(QStringLiteral("result_title")).toString(), title);
+        }
     }
     void cancelledLoadSkipsQueuedReadAndPreDecodeWork() {
         ix::ImageLoadCache::clear(); ix::CodecRegistry registry;
@@ -1174,10 +1225,12 @@ int main(int argc, char **argv) {
     if (catalogProbe >= 0) {
         // ASCII ids keep umlauts off the command line; map back to the label.
         const auto id = app.arguments().value(catalogProbe + 1);
+        if (id != QStringLiteral("index") && id != QStringLiteral("exact") && id != QStringLiteral("similar"))
+            return 3;
         const auto action = id == QStringLiteral("index")   ? QStringLiteral("Metadaten indexieren")
                             : id == QStringLiteral("exact") ? QStringLiteral("Identische Bilder")
                                                             : QStringLiteral("Ähnliche Bilder");
-        const auto report = checkCatalogProgress(action);
+        const auto report = checkCatalogProgress(action, app.arguments().contains(QStringLiteral("--close-result-on-show")));
         const auto bytes = QJsonDocument(report).toJson(QJsonDocument::Compact);
         QFile output;
         if (!output.open(stdout, QIODevice::WriteOnly) || output.write(bytes) != bytes.size()) return 2;

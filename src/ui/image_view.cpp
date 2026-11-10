@@ -2,6 +2,7 @@
 // Copyright (C) 2026 IxView contributors
 #include "image_view.h"
 #include "crop_geometry.h"
+#include "file_navigation.h"
 #include <QKeyEvent>
 #include <QContextMenuEvent>
 #include <QMouseEvent>
@@ -443,7 +444,13 @@ void ImageView::mousePressEvent(QMouseEvent *e) {
         return;
     setFocus(Qt::MouseFocusReason);
     const auto point = e->position().toPoint();
-    fullscreenClick_ = window()->isFullScreen() && e->modifiers() == Qt::NoModifier &&
+    // In double-click zoom mode a plain click never navigates: the second
+    // press of the gesture would otherwise turn the page before the zoom
+    // toggle sees the event.
+    const bool zoomClicks =
+        doubleClickMode(QSettings().value(QStringLiteral("controls/doubleClick"), 0).toInt()) ==
+        DoubleClickAction::Zoom;
+    fullscreenClick_ = window()->isFullScreen() && !zoomClicks && e->modifiers() == Qt::NoModifier &&
                        (e->button() == Qt::LeftButton || e->button() == Qt::RightButton);
     clickButton_ = e->button();
     clickDragged_ = false;
@@ -597,6 +604,27 @@ void ImageView::contextMenuEvent(QContextMenuEvent *event) {
     event->accept();
 }
 void ImageView::mouseDoubleClickEvent(QMouseEvent *event) {
+    if (colorPicking_) {
+        // A double click never picks: the single-click release already handled
+        // the gesture, so swallow the second press without side effects.
+        event->accept();
+        return;
+    }
+    const bool plainLeft = event->button() == Qt::LeftButton &&
+                           event->modifiers() == Qt::NoModifier && !image_.isNull() &&
+                           insideImage(event->position());
+    if (plainLeft) {
+        // Direct zoom/fullscreen decision in the owner: a plain left double
+        // click on the image never starts selection, pan or click navigation,
+        // in the window and in fullscreen alike.
+        fullscreenClick_ = false;
+        selecting_ = panning_ = moving_ = false;
+        resizingEdges_ = {};
+        clickButton_ = Qt::NoButton;
+        emit zoomToggleRequested(event->position());
+        event->accept();
+        return;
+    }
     if (window()->isFullScreen())
         mousePressEvent(event);
     else if (event->button() == Qt::LeftButton) {
@@ -743,9 +771,21 @@ bool ImageView::handleKey(QKeyEvent *e) {
     if (shift || alt)
         return false;
     auto *bar = horizontal ? horizontalScrollBar() : verticalScrollBar();
-    if (bar->maximum() > 0)
+    if (bar->maximum() > 0) {
+        // Panning keeps priority while zoomed: scrolling consumes the key on
+        // both axes regardless of the navigation setting.
         bar->setValue(bar->value() + direction * 25);
-    else if (horizontal && selection_.isEmpty())
+        return true;
+    }
+    const QSettings viewSettings;
+    const int arrowMode = viewSettings.value(QStringLiteral("controls/arrowKeys"), 0).toInt();
+    const bool arrowNavigates =
+        horizontal ? arrowNavigatesHorizontally(arrowMode) : arrowNavigatesVertically(arrowMode);
+    if (!arrowNavigates)
+        // Leave the key to the focused widget: this keeps the previous focus
+        // behaviour for an axis the user disabled (e.g. Up/Down in lists).
+        return false;
+    if (selection_.isEmpty())
         emit navigate(direction * (ctrl ? 5 : 1));
     return true;
 }

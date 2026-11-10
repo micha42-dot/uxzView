@@ -11,6 +11,7 @@ class QKeySequenceEdit;
 class QListWidget;
 class QStackedWidget;
 namespace ix {
+class MainWindow;
 class FullscreenInfoEditor;
 class CropRatioEditor;
 class SettingsDialog : public QDialog {
@@ -29,6 +30,7 @@ class SettingsDialog : public QDialog {
     QComboBox *fit_, *sort_, *iconSize_, *language_, *previewBackground_, *theme_, *fullscreenFit_, *fullscreenScreen_;
     QComboBox *unreadableFiles_;
     QComboBox *afterDelete_;
+    QComboBox *doubleClick_, *arrowKeys_;
     QComboBox *savePreference_, *saveFormat_;
     bool saveFormatsLoaded_ = false;
     QListWidget *categories_;

@@ -50,6 +50,7 @@ class MainWindow : public QMainWindow {
     }
     QStringList implementedCommands() const;
     void dispatch(const QString &command);
+    void applyControlSettings();
 
   protected:
     bool event(QEvent *) override;
@@ -127,6 +128,11 @@ class MainWindow : public QMainWindow {
 
     void configureCaptureShortcut();
     void advanceSlideshow();
+    void toggleZoomAt(QPointF viewportPosition);
+    bool zoomToggled_ = false;
+    ImageView::Fit fitBeforeToggle_ = ImageView::Fit::LargeOnly;
+    double zoomBeforeToggle_ = 1.0;
+    int scrollBeforeToggleX_ = 0, scrollBeforeToggleY_ = 0;
     SlideshowController slideshow_;
     QTimer animationTimer_, deferredOpenTimer_;
     struct DeferredOpen {

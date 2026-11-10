@@ -10,6 +10,7 @@
 #include "core/save_formats.h"
 #include "worker_wait.h"
 #include "image_view.h"
+#include "main_window.h"
 #include "fullscreen_info.h"
 #include "file_navigation.h"
 #include "folder_traversal.h"
@@ -231,6 +232,40 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
           false);
     check(navigation, QStringLiteral("view/lockScroll"),
           IX_TEXT("Scrollposition beim Bildwechsel beibehalten"), false);
+    auto *controls = page(IX_TEXT("Steuerung"));
+    controls->parentWidget()->setObjectName(QStringLiteral("controlsSettingsPage"));
+    auto *mouseLabel = new QLabel(IX_TEXT("Maus"));
+    mouseLabel->setObjectName(QStringLiteral("controlsMouseLabel"));
+    QFont mouseFont = mouseLabel->font();
+    mouseFont.setBold(true);
+    mouseLabel->setFont(mouseFont);
+    controls->addRow(mouseLabel);
+    doubleClick_ = new QComboBox;
+    doubleClick_->setObjectName(QStringLiteral("controls/doubleClick"));
+    doubleClick_->addItem(IX_TEXT("Vollbild umschalten"), int(DoubleClickAction::Fullscreen));
+    doubleClick_->addItem(IX_TEXT("Vergrößern/Verkleinern"), int(DoubleClickAction::Zoom));
+    doubleClick_->setCurrentIndex(
+        qMax(0, doubleClick_->findData(int(doubleClickMode(
+                     settings.value(QStringLiteral("controls/doubleClick"),
+                                    int(DoubleClickAction::Fullscreen))
+                         .toInt())))));
+    controls->addRow(IX_TEXT("Doppelklick-Aktion:"), doubleClick_);
+    auto *keyboardLabel = new QLabel(IX_TEXT("Tastatur"));
+    keyboardLabel->setObjectName(QStringLiteral("controlsKeyboardLabel"));
+    QFont keyboardFont = keyboardLabel->font();
+    keyboardFont.setBold(true);
+    keyboardLabel->setFont(keyboardFont);
+    controls->addRow(keyboardLabel);
+    arrowKeys_ = new QComboBox;
+    arrowKeys_->setObjectName(QStringLiteral("controls/arrowKeys"));
+    arrowKeys_->addItem(IX_TEXT("Links/Rechts"), int(ArrowNavigation::LeftRight));
+    arrowKeys_->addItem(IX_TEXT("Hoch/Runter"), int(ArrowNavigation::UpDown));
+    arrowKeys_->addItem(IX_TEXT("Links/Rechts und Hoch/Runter"), int(ArrowNavigation::Both));
+    arrowKeys_->setCurrentIndex(qMax(0, arrowKeys_->findData(int(arrowNavigationMode(
+                                          settings.value(QStringLiteral("controls/arrowKeys"),
+                                                         int(ArrowNavigation::LeftRight))
+                                              .toInt())))));
+    controls->addRow(IX_TEXT("Bildnavigation mit Pfeiltasten:"), arrowKeys_);
     auto *fullscreen = page(IX_TEXT("Vollbild"));
     fullscreenFit_ = new QComboBox;
     fullscreenFit_->setObjectName(QStringLiteral("fullscreen/fit"));
@@ -489,6 +524,8 @@ void SettingsDialog::accept() {
     values.insert(QStringLiteral("navigation/sort"), sort_->currentIndex());
     values.insert(QStringLiteral("navigation/unreadableFiles"), unreadableFiles_->currentData());
     values.insert(QStringLiteral("navigation/afterDelete"), afterDelete_->currentData());
+    values.insert(QStringLiteral("controls/doubleClick"), doubleClick_->currentData());
+    values.insert(QStringLiteral("controls/arrowKeys"), arrowKeys_->currentData());
     values.insert(QStringLiteral("toolbar/iconSize"), iconSize_->currentData());
     values.insert(QStringLiteral("preview/background"), previewBackground_->currentData());
     values.insert(QStringLiteral("slideshow/seconds"), seconds_->value());
@@ -537,5 +574,7 @@ void SettingsDialog::accept() {
     if (switchMode)
         QMessageBox::information(this, IX_TEXT("Speichern"), IX_TEXT("Der Speichermodus wird nach einem Neustart wirksam."));
     QDialog::accept();
+    if (auto *owner = qobject_cast<MainWindow *>(parentWidget()))
+        owner->applyControlSettings();
 }
 } // namespace ix

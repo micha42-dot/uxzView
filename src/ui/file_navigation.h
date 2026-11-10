@@ -73,4 +73,25 @@ inline AfterDelete afterDeleteMode(int value) {
     return value == int(AfterDelete::OpenNext) ? AfterDelete::OpenNext : AfterDelete::StayEmpty;
 }
 inline bool afterDeleteStaysEmpty(int value) { return afterDeleteMode(value) == AfterDelete::StayEmpty; }
+// Double-click on the image: enter/exit fullscreen (default) or zoom in steps
+// around the cursor, toggling back to the pre-zoom state on the next click.
+enum class DoubleClickAction { Fullscreen = 0, Zoom = 1 };
+inline DoubleClickAction doubleClickMode(int value) {
+    return value == int(DoubleClickAction::Zoom) ? DoubleClickAction::Zoom
+                                                 : DoubleClickAction::Fullscreen;
+}
+// Arrow-key navigation: horizontal arrows (default), vertical arrows, or both.
+// Up/Down only navigates when no scrollbar can consume the key.
+enum class ArrowNavigation { LeftRight = 0, UpDown = 1, Both = 2 };
+inline ArrowNavigation arrowNavigationMode(int value) {
+    return value < 0 || value > 2 ? ArrowNavigation::LeftRight : ArrowNavigation(value);
+}
+inline bool arrowNavigatesHorizontally(int value) {
+    const auto mode = arrowNavigationMode(value);
+    return mode == ArrowNavigation::LeftRight || mode == ArrowNavigation::Both;
+}
+inline bool arrowNavigatesVertically(int value) {
+    const auto mode = arrowNavigationMode(value);
+    return mode == ArrowNavigation::UpDown || mode == ArrowNavigation::Both;
+}
 } // namespace ix

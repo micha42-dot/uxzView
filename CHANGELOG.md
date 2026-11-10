@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add Settings → Controls: double-click chooses fullscreen toggle (default) or
+  cursor-centered zoom in/out with restore, and arrow keys navigate with
+  Left/Right (default), Up/Down or both, pan/selection/focus-aware.
+
+- Keep duplicate-result dialogs application-modal without converting them into
+  macOS sheets. Correct subprocess action IDs and force progress/result Show
+  transitions in regression tests, including closure during display.
+
 - Reject oversized JPEG comments without truncating UTF-8 text or replacing the
   existing target. Empty EXIF/IPTC/XMP containers no longer force a full-file
   export buffer and metadata rewrite; ICC, image text and density remain intact.

@@ -46,8 +46,9 @@ working-set accounting was also removed without changing the accepted bounds.
 
 ## Verification and limits
 
-Final measurements and development/portable totals are recorded below after
-the candidate has completed validation. Existing README photos, personal portable
+The corrections above are included in commit `d749123`. The fresh aggregate
+review and current verification status are in [REVIEW_2026-11-10.md](REVIEW_2026-11-10.md).
+No completed benchmark is claimed by this earlier report. Existing README photos, personal portable
 profiles and installed recognition tools are preserved. No commit, push or virus
 scan is part of this review.
 

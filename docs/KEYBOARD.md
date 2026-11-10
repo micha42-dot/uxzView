@@ -17,13 +17,21 @@ Sobald er ins Bild reicht, liegt sein Anfang am Bildrand; außerhalb liegende
 Anteile gehören nicht zur Auswahl. Das gilt auch für feste Seitenverhältnisse.
 Ein Ziehen vollständig im Hintergrund erzeugt keinen Rahmen.
 
-Im Vollbild blättert ein **Linksklick zurück**, ein **Rechtsklick weiter**, auch auf dem Hintergrund. Ziehbewegungen markieren oder verschieben weiterhin und blättern nicht. Enter oder Escape verlässt das Vollbild; ein Doppelklick im Fenster öffnet es. Bei einem festen Freistellverhältnis zeichnet Linksziehen einen neuen Rahmen statt die Lupe auszulösen.
+Im Vollbild blättert ein **Linksklick zurück**, ein **Rechtsklick weiter**, auch auf dem Hintergrund. Ziehbewegungen markieren oder verschieben weiterhin und blättern nicht. Enter oder Escape verlässt das Vollbild; ein Doppelklick im Fenster öffnet es (Standard unter **Einstellungen → Steuerung**). Bei einem festen Freistellverhältnis zeichnet Linksziehen einen neuen Rahmen statt die Lupe auszulösen.
+
+## Steuerung (Einstellungen)
+
+Der Bereich **Einstellungen → Steuerung** fasst Maus- und Tastaturverhalten zusammen:
+
+- **Maus → Doppelklick-Aktion:** Standard **Vollbild umschalten** (bisheriges Verhalten). Mit **Vergrößern/Verkleinern** zoomt ein Doppelklick auf dem Bild um den Faktor 2 um die Mausposition (max. 6400 %); ein weiterer Doppelklick stellt Zoom und Scrollposition des vorherigen Zustands wieder her. Das gilt im Fenster und im Vollbild; Klicks außerhalb des Bildes, mit gedrückten Zusatztasten oder bei aktiver Farbpipette behalten ihr bisheriges Verhalten. Besteht eine Auswahl, löst der erste Klick wie bisher die Lupe aus, bevor der Doppelklick umschaltet.
+- **Tastatur → Bildnavigation mit Pfeiltasten:** Standard **Links/Rechts** (bisheriges Verhalten), wahlweise **Hoch/Runter** oder **Links/Rechts und Hoch/Runter**. Scrollen bei Zoom, Markierungsbearbeitung mit Shift/Strg/Alt und die Weitergabe an Eingabefelder/Listen bleiben erhalten: Eine deaktivierte Achse wird nicht verbraucht, sodass etwa Hoch/Runter in Listen weiterhin die Liste steuert.
 
 ## Tasten nach Kontext
 
 | Kontext | Taste | Verhalten |
 | --- | --- | --- |
-| Keine Markierung, kein horizontaler Scrollbereich | Links / Rechts | Vorheriges / nächstes Bild |
+| Keine Markierung, kein horizontaler Scrollbereich | Links / Rechts | Vorheriges / nächstes Bild (Standard; **Steuerung → Bildnavigation mit Pfeiltasten**) |
+| Keine Markierung, kein vertikaler Scrollbereich | Hoch / Runter | Vorheriges / nächstes Bild, wenn unter **Steuerung** aktiviert |
 | Vergrößertes Bild | Pfeiltasten | In der jeweiligen Achse scrollen |
 | Markierung, keine Scrollleisten | Pfeiltasten | Markierung verschieben |
 | Markierung | Shift+Pfeiltasten | Markierung auch bei sichtbaren Scrollleisten verschieben |

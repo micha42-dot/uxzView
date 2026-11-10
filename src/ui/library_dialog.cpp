@@ -346,17 +346,18 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
                          [&] { openImage(table->currentRow(), table->currentColumn()); });
         box->addWidget(close);
         QObject::connect(close, &QDialogButtonBox::rejected, &matches, &QDialog::reject);
-        // Join the dialog through its finished signal, not a bare exec(): if the
-        // driver (or the user) rejects the dialog before exec() starts its nested
-        // loop, a bare exec() would strand despite the earlier rejection. The
-        // result check covers a rejection that arrived before the loop started.
-        // ApplicationModal (not a sheet): the dialog blocks the whole window on
-        // every backend, exactly like the exec() it replaces.
+        // open() forces WindowModal and, on macOS, converts the dialog into a
+        // sheet. show() preserves ApplicationModal. Remember completion before
+        // showing: a native show handler may close it before the loop starts.
         matches.setWindowModality(Qt::ApplicationModal);
+        bool matchesFinished = false;
         QEventLoop matchesLoop;
-        QObject::connect(&matches, &QDialog::finished, &matchesLoop, &QEventLoop::quit);
-        matches.open();
-        if (matches.result() == 0 && matches.isVisible())
+        QObject::connect(&matches, &QDialog::finished, &matchesLoop, [&] {
+            matchesFinished = true;
+            matchesLoop.quit();
+        });
+        matches.show();
+        if (!matchesFinished && matches.isVisible())
             matchesLoop.exec();
     };
     QObject::connect(index, &QPushButton::clicked, &dialog, [&] { run(0); });

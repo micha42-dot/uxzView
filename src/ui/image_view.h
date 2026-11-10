@@ -56,6 +56,7 @@ class ImageView : public QAbstractScrollArea {
     void selectionChanged(QRect);
     void navigate(int);
     void toggleFullscreen();
+    void zoomToggleRequested(QPointF viewportPosition);
     void colorPicked(QPoint imagePosition);
     void commandRequested(const QString &command);
     void pageRequested(int direction);

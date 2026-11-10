@@ -1,6 +1,6 @@
 # Einstellungen und Symbole in üxzView
 
-**Optionen → Einstellungen** enthält zehn Bereiche in einer vertikalen Kategorienliste. Die Vorschauleiste hat den eigenen Bereich **Vorschauen**. Das Fenster behält beim Kategorienwechsel seine Größe; auf kleinen Bildschirmen kann der jeweilige Inhalt vertikal scrollen. Bedienelemente und Auswahllisten haben größere Klickflächen, die Dropdown-Pfeile bleiben klein. Zahlenfelder verwenden ihre benötigte Breite. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
+**Optionen → Einstellungen** enthält elf Bereiche in einer vertikalen Kategorienliste. Die Vorschauleiste hat den eigenen Bereich **Vorschauen**. Das Fenster behält beim Kategorienwechsel seine Größe; auf kleinen Bildschirmen kann der jeweilige Inhalt vertikal scrollen. Bedienelemente und Auswahllisten haben größere Klickflächen, die Dropdown-Pfeile bleiben klein. Zahlenfelder verwenden ihre benötigte Breite. „OK“ speichert und übernimmt die Werte im aktuellen Hauptfenster. „Abbrechen“ verwirft die Dialogänderungen. Der ausdrücklich beschriftete Knopf „Caches jetzt leeren“ wirkt sofort; er verändert keine Bilddateien und entfernt das angezeigte Bild nicht.
 
 | Bereich | Verfügbare Einstellungen |
 | --- | --- |
@@ -8,6 +8,7 @@
 | Oberfläche | Farbschema (Systemdesign/Hell/Dunkel) und Sprache (Deutsch/English/한국어/日本語/Français), beide sofort nach OK; Symbol-/Status-/Menüleiste, Aktionssuche, Symbolgröße 20–32 px, optionale Symbolbeschriftungen, Fenstergröße/-position merken |
 | Vorschauen | Nachbarleiste ein/aus, unabhängig 1–5 vorherige und kommende Bilder, Hintergrund der Vorschaubilder |
 | Navigation | Natürliche/alphabetische/Datums-/Größensortierung, Reihenfolge umkehren, Wiederholung am Ordnerende, Zoom und Scrollposition beim Bildwechsel behalten, optionale Speicherabfrage für ungespeicherte Änderungen |
+| Steuerung | Doppelklick-Aktion (Vollbild umschalten oder Vergrößern/Verkleinern um den Mauszeiger), Bildnavigation mit Pfeiltasten (Links/Rechts, Hoch/Runter oder beides); beides sofort wirksam, Standard bleibt bisheriges Verhalten |
 | Vollbild | Eigene Bildanpassung (100 %, ganzes Bild, nur große Bilder, Breite, Höhe, kurze Seite), Zielbildschirm bei mehreren Monitoren, Mauszeiger ausblenden, eigene Hintergrundfarbe (Standard Schwarz), optionale Informationsanzeige mit vier Ecken und auswählbaren Datei-/Bild-/EXIF-Daten; keine Bildflächenumrandung |
 | Diashow | Anzeigedauer, Start im Vollbild, Wiederholung, Zufallsreihenfolge; sonst Sortierung unter Navigation |
 | Screenshots | Einstellbare Tastenkombination, Verzögerung, Bildschirm unter Mauszeiger oder Hauptbildschirm; unter Windows optional systemweites Kürzel während üxzView läuft |

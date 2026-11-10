@@ -177,6 +177,20 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
             navigate(direction);
     });
     connect(view_, &ImageView::toggleFullscreen, this, &MainWindow::fullscreen);
+    connect(view_, &ImageView::zoomToggleRequested, this, [this](QPointF viewportPosition) {
+        // Interactive elements never reach this signal: the view only emits it
+        // for a plain left double click inside the image.
+        if (document_.empty())
+            return;
+        if (doubleClickMode(QSettings().value(QStringLiteral("controls/doubleClick"), 0).toInt()) !=
+            DoubleClickAction::Zoom) {
+            fullscreen();
+            return;
+        }
+        if (activity_.busy())
+            return;
+        toggleZoomAt(viewportPosition);
+    });
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, &MainWindow::refreshState);
     connect(&worker_, &QFutureWatcherBase::finished, this, [this] {
         activity_.finish();
@@ -1015,6 +1029,9 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
     resumePreviousPath_.clear();
     removedFileIndex_ = -1;
     view_->setColorPicking(false);
+    // A new document ends any pending zoom toggle: the stored pre-toggle zoom
+    // and scroll position belong to the previous image.
+    zoomToggled_ = false;
     const bool profileLoad = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
     QElapsedTimer loadTimer;
     if (profileLoad) loadTimer.start();
@@ -1605,6 +1622,10 @@ void MainWindow::fullscreen() {
     // Commit a pending zoom edit before switching display modes.
     if (zoom_->lineEdit()->hasFocus())
         view_->setFocus();
+    // Entering or leaving fullscreen discards manual zoom/pan, so a pending
+    // double-click zoom toggle (with its pre-toggle fit/scroll memory) ends
+    // here as well.
+    zoomToggled_ = false;
     WindowTransition transition(this);
     if (isFullScreen()) {
         view_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -2636,5 +2657,47 @@ void MainWindow::keyPressEvent(QKeyEvent *e) {
         return;
     }
     QMainWindow::keyPressEvent(e);
+}
+void MainWindow::applyControlSettings() {
+    // Both settings are read live (view keys, double-click handler), so no
+    // cached state to refresh. Reset the zoom toggle: a fit/zoom change made
+    // through the dialog may otherwise restore a stale pre-toggle fit.
+    zoomToggled_ = false;
+    if (!document_.empty()) {
+        refreshState();
+        updateStatus();
+    }
+}
+void MainWindow::toggleZoomAt(QPointF viewportPosition) {
+    // Toggled in: restore the exact pre-toggle fit, zoom and scroll position.
+    // Otherwise (or fit/zoom/scroll changed meanwhile): remember the current
+    // state and zoom in by a noticeable step (x2, clamped to the 6400 %
+    // ceiling) around the cursor.
+    const bool zoomedIn = zoomToggled_ && view_->fit() == ImageView::Fit::Original;
+    if (zoomedIn) {
+        // setFit(Original) resets to 100 % without scroll memory, so restore
+        // the stored zoom/scroll explicitly after re-entering Original mode.
+        view_->setFit(fitBeforeToggle_);
+        if (fitBeforeToggle_ == ImageView::Fit::Original) {
+            view_->setZoom(zoomBeforeToggle_);
+            view_->horizontalScrollBar()->setValue(scrollBeforeToggleX_);
+            view_->verticalScrollBar()->setValue(scrollBeforeToggleY_);
+        }
+        zoomToggled_ = false;
+        refreshState();
+        updateStatus();
+        syncFitActions();
+        return;
+    }
+    fitBeforeToggle_ =
+        view_->fit() == ImageView::Fit::Original ? view_->browsingFit() : view_->fit();
+    zoomBeforeToggle_ = view_->zoom();
+    scrollBeforeToggleX_ = view_->horizontalScrollBar()->value();
+    scrollBeforeToggleY_ = view_->verticalScrollBar()->value();
+    view_->zoomAt(std::min(view_->zoom() * 2.0, 64.0), viewportPosition);
+    zoomToggled_ = true;
+    refreshState();
+    updateStatus();
+    syncFitActions();
 }
 } // namespace ix

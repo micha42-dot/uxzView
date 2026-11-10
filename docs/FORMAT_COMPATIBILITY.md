@@ -1,6 +1,6 @@
 # Formatkompatibilität
 
-Stand: 09.11.2026, Windows-x64-Paket. Linux/macOS besitzen je nach installierten Qt-/KImageFormats-Plugins andere Fähigkeiten. Die Erkennung basiert auf den tatsächlich geladenen Plugins des getesteten Builds. „Rundlauf“ bedeutet: ein synthetisches RGB-Bild speichern, wieder öffnen und die Größe prüfen. Das ist keine vollständige Konformitätsprüfung aller Formatvarianten. Zusätzlich wurden 5 reale Kamera-RAW-Formate geprüft. Weitere Qualitätsnachweise und Grenzen stehen in [QUALITY.md](QUALITY.md). Die folgenden Rundlaufmarkierungen beziehen sich auf die synthetische Funktionssuite.
+Stand: 10.11.2026, Windows-x64-Paket. Linux/macOS besitzen je nach installierten Qt-/KImageFormats-Plugins andere Fähigkeiten. Die Erkennung basiert auf den tatsächlich geladenen Plugins des getesteten Builds. „Rundlauf“ bedeutet: ein synthetisches RGB-Bild speichern, wieder öffnen und die Größe prüfen. Das ist keine vollständige Konformitätsprüfung aller Formatvarianten. Zusätzlich wurden 5 reale Kamera-RAW-Formate geprüft. Weitere Qualitätsnachweise und Grenzen stehen in [QUALITY.md](QUALITY.md). Die folgenden Rundlaufmarkierungen beziehen sich auf die synthetische Funktionssuite.
 
 | Dateiformat | Lesen | Schreiben | Mehrseitigkeit | Animation | Metadaten | Verwendete Bibliothek | Implementierungsstatus |
 | --- | --- | --- | --- | --- | --- | --- | --- |
