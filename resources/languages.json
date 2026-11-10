@@ -908,5 +908,9 @@
 ["Entfernt: %1.", "Removed: %1.", "제거됨: %1.", "削除: %1。", "Supprimé : %1."],
 ["Kompressionsoptionen", "Compression options", "압축 옵션", "圧縮オプション", "Options de compression"],
 ["-Optionen speichern", "Save options", "-옵션 저장", "-オプションを保存", " — options d’enregistrement"],
-["JPEG Save Options", "JPEG save options", "JPEG 저장 옵션", "JPEG保存オプション", "Options d’enregistrement JPEG"]
+["JPEG Save Options", "JPEG save options", "JPEG 저장 옵션", "JPEG保存オプション", "Options d’enregistrement JPEG"],
+["Qualität (0–100):", "Quality (0–100):", "품질 (0–100):", "品質 (0–100):", "Qualité (0–100) :"],
+["Zieldateigröße (KB, 0 = aus):", "Target file size (KB, 0 = off):", "목표 파일 크기 (KB, 0 = 끔):", "目標ファイルサイズ (KB, 0 = オフ):", "Taille cible (Ko, 0 = désactivé) :"],
+["Zieldateigröße", "Target file size", "목표 파일 크기", "目標ファイルサイズ", "Taille cible"],
+["Profil löschen", "Delete profile", "프로필 삭제", "プロファイルを削除", "Supprimer le profil"]
 ]
