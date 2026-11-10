@@ -3,6 +3,7 @@
 #include "batch_processor.h"
 #include "file_operations.h"
 #include "file_revision.h"
+#include "save_options.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -113,13 +114,35 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
                             }
                         }
                         if (e.error.isEmpty() && !cancel.load()) {
-                            e.error = registry->save(image.document, e.output, o.format, o.quality, o.allowLoss,
-                                QString(), [&] {
-                                    if (cancel.load()) return QStringLiteral("Abgebrochen.");
-                                    if (sourceRevision != imageFileKey(e.input))
-                                        return QStringLiteral("Quelle wurde während der Verarbeitung verändert.");
-                                    return QString();
-                                });
+                            // Per-image target-size optimization: never reuse a
+                            // quality value across different images.
+                            int quality = std::clamp(o.quality, 0, 100);
+                            if (o.targetBytes > 0 && (o.format == "jpeg" || o.format == "webp" ||
+                                                      o.format == "avif" || o.format == "heif" ||
+                                                      o.format == "heic")) {
+                                SaveOptions probe;
+                                probe.format = o.format;
+                                probe.quality = quality;
+                                probe.targetSizeEnabled = true;
+                                probe.targetBytes = o.targetBytes;
+                                auto optimized = optimizeForTargetSize(
+                                    image.document, probe, *registry, {}, cancel);
+                                if (!optimized.quality) {
+                                    e.error = optimized.error;
+                                } else {
+                                    quality = *optimized.quality;
+                                }
+                            }
+                            if (e.error.isEmpty())
+                                e.error = registry->save(image.document, e.output, o.format, quality,
+                                                         o.allowLoss, QString(), [&] {
+                                                             if (cancel.load())
+                                                                 return QStringLiteral("Abgebrochen.");
+                                                             if (sourceRevision != imageFileKey(e.input))
+                                                                 return QStringLiteral(
+                                                                     "Quelle wurde während der Verarbeitung verändert.");
+                                                             return QString();
+                                                         });
                         } else if (cancel.load())
                             e.error = QStringLiteral("Abgebrochen.");
                     }

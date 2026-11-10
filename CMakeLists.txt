@@ -21,7 +21,7 @@ include(cmake/Jpegli.cmake)
 option(IX_REQUIRE_FULL_FEATURES "Fail if metadata, RAW previews, PDF or the extension manager are unavailable" OFF)
 add_library(ixcore STATIC
     src/core/image_document.cpp src/core/memory_policy.cpp src/core/image_storage.cpp src/core/image_memory.cpp src/core/document_history.cpp
-    src/core/codec_registry.cpp src/core/save_formats.cpp src/core/jpegli_encoder.cpp src/core/processing.cpp src/core/resampling.cpp src/core/localization.cpp
+    src/core/codec_registry.cpp src/core/save_formats.cpp src/core/save_options.cpp src/core/jpegli_encoder.cpp src/core/processing.cpp src/core/resampling.cpp src/core/localization.cpp
     src/core/resize_model.cpp src/core/batch_processor.cpp src/core/metadata.cpp src/core/file_revision.cpp
     src/core/jpeg_transform.cpp src/core/apng_codec.cpp src/core/turbojpeg_codec.cpp src/core/rotation.cpp src/core/selection.cpp src/core/directory_index.cpp src/core/preview_service.cpp
     src/core/file_operations.cpp src/core/image_catalog.cpp src/core/batch_pipeline.cpp src/core/batch_memory.cpp src/core/batch_plan.cpp src/core/batch_report.cpp src/core/plugin_store.cpp
@@ -34,7 +34,7 @@ if(TARGET IxView::Exiv2)
     target_compile_definitions(ixcore PRIVATE IX_HAVE_EXIV2)
 endif()
 add_library(ixui STATIC src/ui/appearance.cpp src/ui/interface_language.cpp src/ui/image_view.cpp src/ui/fullscreen_info.cpp src/ui/resize_dialog.cpp src/ui/dialogs.cpp
-    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/image_file_dialog.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/pipeline_step_editor.cpp src/ui/pipeline_result_model.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
+    src/ui/main_window.cpp src/ui/main_window_files.cpp src/ui/save_options_dialog.cpp src/ui/image_file_dialog.cpp src/ui/slideshow_controller.cpp src/ui/rotation_dialog.cpp src/ui/application.cpp src/ui/platform_support.cpp src/ui/preview_strip.cpp src/ui/action_search.cpp src/ui/pipeline_dialog.cpp src/ui/pipeline_step_editor.cpp src/ui/pipeline_result_model.cpp src/ui/library_dialog.cpp src/ui/icons.cpp src/ui/settings_dialog.cpp src/ui/tool_dialog.cpp src/ui/crop_ratio_editor.cpp src/ui/extension_dialog.cpp)
 target_link_libraries(ixui PUBLIC ixcore Qt6::Widgets Qt6::PrintSupport Qt6::Svg)
 target_compile_definitions(ixui PUBLIC QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII)
 qt_add_executable(IxView WIN32 MACOSX_BUNDLE src/main.cpp resources/app.qrc)

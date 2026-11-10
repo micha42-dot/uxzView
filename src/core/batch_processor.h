@@ -15,6 +15,7 @@ struct BatchOptions {
     QByteArray format = "png";
     QString namePattern = QStringLiteral("{name}_####");
     int start = 1, quality = 95;
+    qint64 targetBytes = 0; // 0 = manual quality; >0 = per-image target-size optimization.
     bool renameOnly = false;
     QSize resizeTo;
     bool allowLoss = false;

@@ -333,23 +333,27 @@ bool CodecRegistry::canWrite(const QByteArray &f) {
             return true;
     return false;
 }
-QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray &f) {
+QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray &f,
+                                       const EncodeOptions *encode) {
     QStringList losses;
     auto format = normalized(f);
     if (d.pageCount > 1)
         losses.append(IX_TEXT("Es wird nur die aktuelle Seite / der aktuelle Frame gespeichert."));
-    if (d.sourceHasExif && (!d.metadata || !metadataWritable(format) || exportNeedsStreaming(d.pixels)))
+    const bool warnExif = !encode || encode->keepExif, warnIptc = !encode || encode->keepIptc,
+               warnXmp = !encode || encode->keepXmp, warnIcc = !encode || encode->keepIcc;
+    if (d.sourceHasExif && (!d.metadata || !metadataWritable(format) || exportNeedsStreaming(d.pixels)) &&
+        (warnExif || warnIptc || warnXmp))
         losses.append(
             IX_TEXT("EXIF-, IPTC- und XMP-Daten werden beim Export nicht vollständig übernommen. "
                     "Die EXIF-Ausrichtung ist bereits auf die Pixel angewendet."));
-    if (d.pixels.hasAlphaChannel() && !alphaWritable(format))
+    if (imageHasRealTransparency(d.pixels) && !alphaWritable(format))
         losses.append(IX_TEXT("Dieses Ausgabeformat erhält den Alphakanal nicht zuverlässig. "
                               "Transparenz wird auf Weiß reduziert."));
     if (d.pixels.pixelFormat().typeInterpretation() == QPixelFormat::FloatingPoint && format != "exr")
         losses.append(IX_TEXT("HDR-Gleitkommawerte können auf den Bereich 0–1 begrenzt werden."));
     if (imageChannelBits(d.pixels) > 8 && format != "png" && format != "tiff" && format != "exr")
         losses.append(IX_TEXT("Die Farbtiefe wird auf 8 Bit pro Kanal reduziert."));
-    if (d.pixels.colorSpace().isValid() && format != "png" && format != "jpeg" && format != "tiff" &&
+    if (warnIcc && d.pixels.colorSpace().isValid() && format != "png" && format != "jpeg" && format != "tiff" &&
         format != "webp")
         losses.append(IX_TEXT("Das ICC-Farbprofil wird in diesem Format nicht zuverlässig gespeichert."));
     return losses;
@@ -357,6 +361,42 @@ QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray
 QString CodecRegistry::save(const ImageDocument &d, const QString &path, const QByteArray &requested,
                             int quality, bool allowLoss, const std::optional<QString> &expectedTarget,
                             const std::function<QString()> &beforeCommit) const {
+    EncodeOptions encode;
+    encode.quality = quality;
+    return saveWithOptions(d, path, requested, encode, allowLoss, expectedTarget, beforeCommit);
+}
+QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QString &path,
+                                       const QByteArray &requested, const EncodeOptions &encode,
+                                       bool allowLoss, const std::optional<QString> &expectedTarget,
+                                       const std::function<QString()> &beforeCommit) const {
+    const int quality = std::clamp(encode.quality, 0, 100);
+    // Per-type metadata masking: only the retained kinds reach the muxer.
+    ImageDocument d = document;
+    QStringList dropped;
+    if (d.metadata && d.metadata->data) {
+        auto kept = std::make_shared<Metadata>(*d.metadata);
+        if (!encode.keepExif && kept->hasExif) {
+            kept->hasExif = false;
+            dropped.append(QStringLiteral("EXIF"));
+        }
+        if (!encode.keepIptc && kept->hasIptc) {
+            kept->hasIptc = false;
+            dropped.append(QStringLiteral("IPTC"));
+        }
+        if (!encode.keepXmp && kept->hasXmp) {
+            kept->hasXmp = false;
+            dropped.append(QStringLiteral("XMP"));
+        }
+        if (!encode.keepIcc)
+            d.pixels.setColorSpace(QColorSpace());
+        if (!kept->hasExif && !kept->hasIptc && !kept->hasXmp)
+            kept->data.reset();
+        d.metadata = kept;
+        if (!dropped.isEmpty())
+            d.metadataWarning =
+                IX_TEXT("Entfernt: %1.").arg(dropped.join(QStringLiteral(", ")));
+    }
+    Q_UNUSED(document);
     QByteArray format = normalized(requested.isEmpty() ? QFileInfo(path).suffix().toLatin1() : requested);
     if (d.empty())
         return IX_TEXT("Kein Bild geladen.");
@@ -407,7 +447,10 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
     // Only metadata rewriting requires a complete encoded memory buffer.
     // Other exports can stream into the same atomic QSaveFile transaction.
     QImageWriter writer(destination, format);
-    writer.setQuality(quality);
+    if (format == "png" && encode.compressionLevel >= 0)
+        writer.setQuality(std::clamp(encode.compressionLevel, 0, 9) * 10 - 1);
+    else
+        writer.setQuality(quality);
     QImage output = d.pixels;
     if (format != "jpeg" && output.hasAlphaChannel() && !alphaWritable(format)) {
         QImage flat;

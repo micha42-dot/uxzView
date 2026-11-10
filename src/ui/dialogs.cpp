@@ -805,6 +805,10 @@ BatchFileChanges batchDialog(QWidget *p, const QStringList &initial) {
             format->addItem(c.name, c.extensions.first());
     format->setCurrentIndex(std::max(0, format->findData(QStringLiteral("png"))));
     f->addRow(IX_TEXT("Zielformat:"), format);
+    auto *quality = integer(f, IX_TEXT("Qualität (0–100):"), 95, 0, 100);
+    quality->setObjectName(QStringLiteral("batchQuality"));
+    auto *targetKb = integer(f, IX_TEXT("Zieldateigröße (KB, 0 = aus):"), 0, 0, 2048000);
+    targetKb->setObjectName(QStringLiteral("batchTargetKb"));
     auto *pattern = new QLineEdit(QStringLiteral("{name}_####"));
     f->addRow(IX_TEXT("Name ({name}, ####):"), pattern);
     auto *output = new QLineEdit;
@@ -822,7 +826,8 @@ BatchFileChanges batchDialog(QWidget *p, const QStringList &initial) {
     v->addWidget(loss);
     const auto updateMode = [=] {
         const bool converting = mode->currentIndex() == 0;
-        for (auto *control : QList<QWidget *>{format, width, height, loss}) control->setEnabled(converting);
+        for (auto *control : QList<QWidget *>{format, quality, targetKb, width, height, loss})
+            control->setEnabled(converting);
     };
     QObject::connect(mode, &QComboBox::currentIndexChanged, &d, [updateMode](int) { updateMode(); });
     updateMode();
@@ -860,6 +865,8 @@ BatchFileChanges batchDialog(QWidget *p, const QStringList &initial) {
         o.namePattern = pattern->text();
         o.renameOnly = mode->currentIndex() == 1;
         o.allowLoss = loss->isChecked();
+        o.quality = quality->value();
+        o.targetBytes = targetKb->value() > 0 ? qint64(targetKb->value()) * 1024 : 0;
         if (width->value() && height->value())
             o.resizeTo = {width->value(), height->value()};
         cancellation->store(false);

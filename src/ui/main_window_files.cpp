@@ -4,7 +4,9 @@
 #include "core/localization.h"
 #include "core/preview_service.h"
 #include "core/save_formats.h"
+#include "core/save_options.h"
 #include "main_window.h"
+#include "save_options_dialog.h"
 #include "worker_wait.h"
 #include "file_navigation.h"
 #include <QScopeGuard>
@@ -64,18 +66,43 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     if (target.format.id.isEmpty()) { showError(IX_TEXT("Kein schreibbares Bildformat verfügbar.")); return false; }
     QString selected = target.format.filter();
     bool dialog = forceDialog || target.needsDialog;
+    SaveOptions saveOptions = loadSaveOptions(target.format.id);
     if (dialog) {
         QString suggested = target.suggestedPath;
         if (suggested.isEmpty()) suggested = QDir(settings.value(QStringLiteral("files/directory"), QDir::homePath()).toString())
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
-        // A single app-side question below covers Save, Save As and externally
-        // changed files; the native chooser must not confirm overwrites itself.
+        // A companion dialog needs a Qt (non-native) file dialog it can track:
+        // native dialogs are OS windows the app cannot position next to.
+        // Standard behavior (filters, navigation, overwrite handling) stays intact.
         QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, registry_.saveFilter());
+        chooser.setOption(QFileDialog::DontUseNativeDialog);
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
         chooser.setOption(QFileDialog::DontConfirmOverwrite);
         chooser.selectNameFilter(selected);
         chooser.setDefaultSuffix(target.format.suffix());
+        auto *showCompanion = new QCheckBox(IX_TEXT("Kompressionsoptionen anzeigen"), &chooser);
+        showCompanion->setObjectName(QStringLiteral("save/showCompression"));
+        showCompanion->setChecked(saveCompanionEnabled());
+        chooser.layout()->addWidget(showCompanion);
+        SaveOptionsDialog companion(output, &chooser);
+        companion.setRegistry(&registry_);
+        companion.setProfiles(loadSaveProfiles());
+        companion.setFormat(target.format.id);
+        saveOptions = companion.options();
+        auto placeCompanion = [&] {
+            if (!companion.isVisible())
+                return;
+            const auto frame = chooser.frameGeometry();
+            const auto screen = chooser.screen()->availableGeometry();
+            companion.adjustSize();
+            QPoint pos = frame.topRight() + QPoint(8, 0);
+            if (pos.x() + companion.width() > screen.right()) // Fall back to the left side.
+                pos = {frame.left() - companion.width() - 8, frame.top()};
+            pos.setY(std::clamp(pos.y(), screen.top(), std::max(screen.top(), screen.bottom() - companion.height())));
+            pos.setX(std::clamp(pos.x(), screen.left(), std::max(screen.left(), screen.right() - companion.width())));
+            companion.move(pos);
+        };
         auto previous = target.format;
         connect(&chooser, &QFileDialog::filterSelected, &chooser, [&](const QString &filter) {
             const auto next = std::find_if(formats.cbegin(), formats.cend(), [&](const auto &f) { return f.filter() == filter; });
@@ -86,10 +113,64 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             chooser.setDefaultSuffix(next->suffix());
             previous = *next;
         });
+        connect(&chooser, &QFileDialog::filterSelected, &companion, [&](const QString &filter) {
+            const auto next = std::find_if(formats.cbegin(), formats.cend(),
+                                           [&](const auto &f) { return f.filter() == filter; });
+            if (next == formats.cend())
+                return;
+            if (next->id != companion.options().format)
+                companion.setFormat(next->id);
+            saveOptions = companion.options();
+        });
+        connect(&companion, &SaveOptionsDialog::optionsChanged, &chooser,
+                [&](const SaveOptions &updated) {
+                    saveOptions = updated;
+                    // A loaded profile may target another format: mirror it in
+                    // the file dialog filter (guarded: filterSelected only fires
+                    // on actual change, so no recursion).
+                    if (updated.format != target.format.id) {
+                        const auto match = std::find_if(formats.cbegin(), formats.cend(),
+                                                        [&](const auto &f) { return f.id == updated.format; });
+                        if (match != formats.cend())
+                            chooser.selectNameFilter(match->filter());
+                    }
+                });
+        connect(showCompanion, &QCheckBox::toggled, &chooser, [&](bool checked) {
+            setSaveCompanionEnabled(checked);
+            companion.setVisible(checked);
+            placeCompanion();
+        });
+        struct CompanionPlacer final : QObject {
+            QFileDialog *chooser = nullptr;
+            std::function<void()> place;
+            bool eventFilter(QObject *watched, QEvent *event) override {
+                if (watched == chooser &&
+                    (event->type() == QEvent::Move || event->type() == QEvent::Resize ||
+                     event->type() == QEvent::Show || event->type() == QEvent::WindowActivate))
+                    place();
+                return QObject::eventFilter(watched, event);
+            }
+        };
+        auto *placer = new CompanionPlacer;
+        placer->chooser = &chooser;
+        placer->place = placeCompanion;
+        chooser.installEventFilter(placer);
+        auto placerGuard = qScopeGuard([&] {
+            chooser.removeEventFilter(placer);
+            placer->deleteLater();
+        });
+        if (showCompanion->isChecked()) {
+            companion.show();
+            placeCompanion();
+        }
         if (chooser.exec() != QDialog::Accepted) return false;
+        saveOptions = companion.options();
+        storeSaveOptions(saveOptions);
         target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
         path = target.suggestedPath;
         if (path.isEmpty()) return false;
+        saveOptions.format = target.format.id;
+        storeSaveOptions(saveOptions);
         chooser.selectNameFilter(target.format.filter());
     }
     const auto targetRevision = QFileInfo::exists(path) ? imageFileKey(path) : QString();
@@ -123,7 +204,30 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         output.modified = true;
     }
     const auto format = target.format.id;
-    auto losses = CodecRegistry::exportLosses(output, format);
+    auto registry = registry_;
+    CodecRegistry::EncodeOptions encode;
+    if (!dialog) {
+        // No companion shown: reuse the stored/last settings for this format.
+        saveOptions = loadSaveOptions(format);
+        saveOptions.format = format;
+    }
+    encode.quality = saveOptions.targetSizeEnabled && saveOptions.autoQuality >= 0
+                         ? saveOptions.autoQuality
+                         : saveOptions.quality;
+    encode.progressive = saveOptions.progressive;
+    encode.noSubsampling = saveOptions.noSubsampling;
+    encode.interlaced = saveOptions.interlaced;
+    encode.compressionLevel = format == "png" ? saveOptions.pngLevel : -1;
+    encode.keepExif = saveOptions.keepExif;
+    encode.keepIptc = saveOptions.keepIptc;
+    encode.keepXmp = saveOptions.keepXmp;
+    encode.keepIcc = saveOptions.keepIcc;
+    // Losses the user explicitly opted out of (deselected metadata) are not
+    // warned about; the global switch still suppresses everything.
+    auto losses = CodecRegistry::exportLosses(output, format, &encode);
+    const QSettings lossSettings;
+    if (!lossSettings.value(QStringLiteral("save/warnLosses"), true).toBool())
+        losses.clear();
     if (!losses.isEmpty() &&
         QMessageBox::warning(this, IX_TEXT("Hinweise zum Ausgabeformat"),
                              losses.join(QStringLiteral("\n\n")) + IX_TEXT("\n\nTrotzdem speichern?"),
@@ -140,12 +244,32 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     struct SaveResult { QString error; SourceFileState source; };
     QFutureWatcher<SaveResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QProgressDialog::accept);
-    auto registry = registry_;
     watcher.setFuture(QtConcurrent::run([=] {
-        SaveResult result{registry.save(output, path, format, 95, true, targetRevision,
-                                        [cancelSave, abortText] {
-                                            return cancelSave->load() ? abortText : QString();
-                                        }),
+        // Target-size optimization runs first (memory buffers only, never the
+        // destination). The final save below validates the actual file size.
+        // Cancellation flows through cancelSave, shared with the progress
+        // dialog, so aborting the save also aborts the optimization.
+        // A fresh companion result is reused only for full-image saves; a
+        // selection crops different pixels, so it is always re-optimized.
+        int effectiveQuality = encode.quality;
+        if (saveOptions.targetSizeEnabled &&
+            (selection || saveOptions.autoQuality < 0)) {
+            auto optimized = optimizeForTargetSize(
+                output, saveOptions, registry, {},
+                *static_cast<const std::atomic_bool *>(cancelSave.get()));
+            if (!optimized.quality) {
+                SaveResult failed{optimized.error, {}};
+                return failed;
+            }
+            effectiveQuality = *optimized.quality;
+        }
+        auto effective = encode;
+        effective.quality = effectiveQuality;
+        SaveResult result{registry.saveWithOptions(output, path, format, effective, true,
+                                                   targetRevision,
+                                                   [cancelSave, abortText] {
+                                                       return cancelSave->load() ? abortText : QString();
+                                                   }),
                           {}};
         if (result.error.isEmpty() && !selection)
             result.source = observeSource(path);

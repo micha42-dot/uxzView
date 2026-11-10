@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add a compression companion next to Save As: per-format quality (jpegli JPEG,
+  WebP, AVIF/HEIF), PNG level, JPEG/WebP/AVIF options, per-type metadata flags,
+  bounded target file size optimization and named profiles with persistence.
+  Batch conversion exposes quality and per-image target size.
+
+- Warn about export losses only for real transparency instead of format-only
+  alpha, with a save/warnLosses opt-out; fixed and verified in the prior prompt.
+
 - Add Settings → Controls: double-click chooses fullscreen toggle (default) or
   cursor-centered zoom in/out with restore, and arrow keys navigate with
   Left/Right (default), Up/Down or both, pan/selection/focus-aware.

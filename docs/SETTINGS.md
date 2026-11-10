@@ -162,6 +162,35 @@ performance/swapEnabled defaults to true; performance/swapLimitMiB defaults to
 allocations immediately; existing images remain usable. See the storage and
 format limits in [large images](LARGE_IMAGES.md).
 
+## Kompressionsoptionen beim Speichern
+
+**Datei → Speichern unter** öffnet neben dem Dateidialog ein kompaktes Begleitfenster
+mit den Kompressionseinstellungen des gewählten Formats (z. B. „JPEG-Optionen
+speichern"). Beide Fenster bleiben vor dem Speichern bedienbar; das Begleitfenster
+folgt dem Dateidialog und weicht bei Platzmangel auf die linke Seite aus. Der
+Schalter **Kompressionsoptionen anzeigen** im Dateidialog blendet es ein oder aus
+und bleibt gespeichert.
+
+- **Qualität (0–100, Slider + Zahl):** JPEG (jpegli-Encoder), WebP und AVIF/HEIF;
+  PNG nutzt stattdessen eine verlustfreie Stufe 0–9.
+- **Zieldateigröße (KB/MB):** ermittelt per begrenzter Suche über den echten
+  Encoder die höchste passende Qualität; bei aktivierter Option ist der manuelle
+  Regler gesperrt und zeigt das Ergebnis. Unerreichbare Ziele melden einen
+  Fehler; die Auflösung wird nie verändert.
+- **Formatoptionen:** JPEG progressiv und Chroma-Subsampling; WebP/AVIF verlustfrei
+  und Aufwand; GIF interlaced. Nur unterstützte Schalter werden angezeigt.
+- **Metadaten:** EXIF/IPTC/XMP und ICC-Profil einzeln abwählbar; die
+  EXIF-Ausrichtung wird auf die Pixel angewendet.
+- **Profile:** Kombinationen aus Format und Einstellungen lassen sich benennen,
+  laden, überschreiben (mit Nachfrage) und löschen; die letzten Einstellungen
+  werden beim nächsten Speichern wiederhergestellt.
+- **Stapelverarbeitung:** Qualität und Zieldateigröße stehen im
+  Batch-Dialog; die Zielgröße wird pro Bild einzeln optimiert.
+
+Die Warnung vor Formatverlusten lässt sich zusätzlich über `save/warnLosses`
+abschalten; sie erscheint ohnehin nur noch bei tatsächlich vorhandener
+Transparenz statt bei bloßem Alphakanal.
+
 ## Standardformat beim Speichern
 
 Unter **Speichern** bleibt **Ursprüngliches Dateiformat bevorzugen** der Standard.

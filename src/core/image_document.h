@@ -41,6 +41,7 @@ struct ImageResult {
 };
 bool safeSize(QSize size, int bytesPerPixel = 8);
 int imageChannelBits(const QImage &image);
+bool imageHasRealTransparency(const QImage &image);
 QImage::Format imageWorkingFormat(const QImage &image, bool alpha = true);
 void inheritImageProperties(const QImage &source, QImage &target);
 } // namespace ix

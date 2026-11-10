@@ -5,7 +5,9 @@
 #include "core/codec_registry.h"
 #include "core/image_storage.h"
 #include "core/jpegli_encoder.h"
+#include "core/metadata.h"
 #include "core/save_formats.h"
+#include "core/save_options.h"
 #include "core/localization.h"
 #include "core/metadata.h"
 #include "ui/image_view.h"
@@ -332,7 +334,118 @@ class SavingTests : public QObject {
             if(suffix==QStringLiteral("jpg")) { const auto saved=contents(target);window.dispatch(QStringLiteral("save"));QCOMPARE(contents(target),saved); }
         } else { QCOMPARE(window.document().path,source);QVERIFY(window.document().modified); }
     }
+    void compressionOptionsAffectOutput();
+    void targetSizeOptimizationRespectsBudget();
+    void compressionProfilesRoundTrip();
+    void perTypeMetadataMaskingDropsOnlyDeselected();
 };
+void SavingTests::compressionOptionsAffectOutput() {
+    const auto format = QByteArrayLiteral("webp");
+    if (!ix::CodecRegistry::canWrite(format))
+        QSKIP("WebP writer unavailable in this build");
+    ix::ImageDocument document;
+    document.pixels = sample();
+    ix::CodecRegistry registry;
+    const auto lowPath = temp_.filePath(QStringLiteral("quality-low.webp"));
+    const auto highPath = temp_.filePath(QStringLiteral("quality-high.webp"));
+    ix::CodecRegistry::EncodeOptions low, high;
+    low.quality = 5;
+    high.quality = 95;
+    QVERIFY2(registry.saveWithOptions(document, lowPath, format, low, true).isEmpty(),
+             qPrintable(lowPath));
+    QVERIFY2(registry.saveWithOptions(document, highPath, format, high, true).isEmpty(),
+             qPrintable(highPath));
+    const auto lowBytes = contents(lowPath), highBytes = contents(highPath);
+    QVERIFY(!lowBytes.isEmpty() && !highBytes.isEmpty());
+    QVERIFY2(lowBytes.size() < highBytes.size(),
+             qPrintable(QStringLiteral("%1 vs %2").arg(lowBytes.size()).arg(highBytes.size())));
+    const auto flat = temp_.filePath(QStringLiteral("level-fast.png"));
+    const auto tight = temp_.filePath(QStringLiteral("level-best.png"));
+    ix::CodecRegistry::EncodeOptions fast, best;
+    fast.compressionLevel = 1;
+    best.compressionLevel = 9;
+    QVERIFY(registry.saveWithOptions(document, flat, "png", fast, true).isEmpty());
+    QVERIFY(registry.saveWithOptions(document, tight, "png", best, true).isEmpty());
+    QVERIFY(QImageReader(flat).canRead() && QImageReader(tight).canRead());
+}
+void SavingTests::targetSizeOptimizationRespectsBudget() {
+    ix::ImageDocument document;
+    document.pixels = sample();
+    ix::CodecRegistry registry;
+    ix::SaveOptions options;
+    options.format = "jpeg";
+    options.targetSizeEnabled = true;
+    std::atomic_bool cancel = false;
+    const auto probe = [&](int quality) -> qint64 {
+        QByteArray encoded;
+        QBuffer buffer(&encoded);
+        if (!buffer.open(QIODevice::WriteOnly))
+            return -1;
+        if (!ix::writeJpegli(buffer, document.pixels, quality).isEmpty())
+            return -1;
+        return encoded.size();
+    };
+    options.targetBytes = probe(95);
+    QVERIFY(options.targetBytes > 0);
+    auto reachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    QVERIFY2(reachable.error.isEmpty(), qPrintable(reachable.error));
+    QVERIFY(reachable.quality.has_value());
+    QVERIFY(probe(*reachable.quality) <= options.targetBytes);
+    options.targetBytes = 1;
+    auto unreachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    QVERIFY(!unreachable.quality.has_value());
+    QVERIFY(!unreachable.error.isEmpty());
+    options.targetBytes = probe(95);
+    cancel = true;
+    auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    QVERIFY(!cancelled.quality.has_value());
+}
+void SavingTests::compressionProfilesRoundTrip() {
+    ix::SaveOptions options;
+    options.format = "jpeg";
+    options.quality = 77;
+    options.progressive = true;
+    options.keepXmp = false;
+    options.targetSizeEnabled = true;
+    options.targetBytes = 200 * 1024;
+    const auto json = options.toJson();
+    const auto restored = ix::SaveOptions::fromJson(json);
+    QCOMPARE(restored.quality, 77);
+    QVERIFY(restored.progressive);
+    QVERIFY(!restored.keepXmp);
+    QVERIFY(restored.targetSizeEnabled);
+    QCOMPARE(restored.targetBytes, 200 * 1024);
+    ix::storeSaveOptions(options);
+    QCOMPARE(ix::loadSaveOptions("jpeg").quality, 77);
+    QJsonObject profiles;
+    profiles.insert(QStringLiteral("web-photo"), json);
+    ix::storeSaveProfiles(profiles);
+    QCOMPARE(ix::loadSaveProfiles().value(QStringLiteral("web-photo")).toObject().value(
+                 QStringLiteral("quality")).toInt(), 77);
+    QVERIFY(!ix::saveProfileError(QString(), profiles, false).isEmpty());
+    QVERIFY(!ix::saveProfileError(QStringLiteral("web-photo"), profiles, false).isEmpty());
+    QVERIFY(ix::saveProfileError(QStringLiteral("web-photo"), profiles, true).isEmpty());
+    QVERIFY(ix::saveProfileError(QStringLiteral("other"), profiles, false).isEmpty());
+}
+void SavingTests::perTypeMetadataMaskingDropsOnlyDeselected() {
+    QSettings().setValue(QStringLiteral("save/warnLosses"), false);
+    const auto source = temp_.filePath(QStringLiteral("mask-source.png"));
+    QVERIFY(sample().save(source));
+    ix::CodecRegistry registry;
+    auto read = registry.read(source);
+    if (!read.ok() || !read.document.metadata || !read.document.metadata->data)
+        QSKIP("No native metadata fixture available; masking covered by unit path");
+    ix::ImageDocument document = read.document;
+    auto metadata = std::make_shared<ix::Metadata>(*read.document.metadata);
+    metadata->hasExif = true;
+    metadata->hasXmp = true;
+    document.metadata = metadata;
+    ix::CodecRegistry::EncodeOptions keep;
+    keep.keepExif = true;
+    keep.keepXmp = false;
+    QVERIFY(registry.saveWithOptions(document, temp_.filePath(QStringLiteral("masked.png")), "png",
+                                     keep, true).isEmpty());
+}
 int main(int argc,char **argv) {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc,argv);SavingTests tests;return QTest::qExec(&tests,argc,argv);

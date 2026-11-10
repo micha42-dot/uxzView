@@ -19,6 +19,39 @@ int imageChannelBits(const QImage &image) {
     const auto format = image.pixelFormat();
     return std::max({format.redSize(), format.greenSize(), format.blueSize(), format.alphaSize()});
 }
+bool imageHasRealTransparency(const QImage &image) {
+    if (image.isNull() || !image.hasAlphaChannel())
+        return false;
+    // Format-only alpha (e.g. a fully opaque ARGB32 PNG) loses nothing on
+    // export. Scan for a pixel that is actually non-opaque; sample huge
+    // images on a coarse grid so gigapixel originals stay interactive.
+    const int width = image.width(), height = image.height();
+    const qint64 pixels = qint64(width) * height;
+    const int step = pixels > 16 * 1024 * 1024 ? 7 : 1;
+    if (image.format() == QImage::Format_Indexed8 && !image.isGrayscale()) {
+        for (int y = 0; y < height; y += step)
+            for (int x = 0; x < width; x += step)
+                if (qAlpha(image.color(image.pixelIndex(x, y))) < 255)
+                    return true;
+        return false;
+    }
+    const QImage flat = (image.format() == QImage::Format_ARGB32_Premultiplied ||
+                         image.format() == QImage::Format_RGBA8888_Premultiplied)
+                            ? image.convertToFormat(QImage::Format_ARGB32)
+                            : image;
+    const QImage view = flat.format() == QImage::Format_ARGB32 || flat.format() == QImage::Format_RGBA8888
+                            ? flat
+                            : flat.convertToFormat(QImage::Format_ARGB32);
+    if (view.isNull())
+        return true; // Unconvertible: keep the warning rather than risking silent loss.
+    for (int y = 0; y < height; y += step) {
+        const auto *row = reinterpret_cast<const QRgb *>(view.constScanLine(y));
+        for (int x = 0; x < width; x += step)
+            if (qAlpha(row[x]) < 255)
+                return true;
+    }
+    return false;
+}
 QImage::Format imageWorkingFormat(const QImage &image, bool alpha) {
     if (image.pixelFormat().typeInterpretation() == QPixelFormat::FloatingPoint) {
         if (imageChannelBits(image) > 16)

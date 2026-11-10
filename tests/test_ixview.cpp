@@ -3273,6 +3273,24 @@ class IxTests : public QObject {
         d.pixels.setPixelColor(0, 0, Qt::transparent);
         QVERIFY(!ix::CodecRegistry::exportLosses(d, "bmp").isEmpty());
     }
+    void exportWarnsOnlyForRealTransparency() {
+        // Format-only alpha (fully opaque ARGB32, as decoded from many PNGs)
+        // warns no longer: nothing is lost when flattening it.
+        ix::ImageDocument opaque;
+        opaque.pixels = pattern();
+        QVERIFY(!ix::imageHasRealTransparency(opaque.pixels));
+        QVERIFY(ix::CodecRegistry::exportLosses(opaque, "jpeg").isEmpty());
+        opaque.pixels.setPixelColor(1, 1, QColor(10, 20, 30, 254));
+        QVERIFY(ix::imageHasRealTransparency(opaque.pixels));
+        const auto losses = ix::CodecRegistry::exportLosses(opaque, "jpeg").join(QLatin1Char('\n'));
+        QVERIFY(losses.contains(QStringLiteral("Alphakanal")));
+        // Fully transparent pixels count as real transparency as well.
+        opaque.pixels.fill(Qt::transparent);
+        QVERIFY(ix::imageHasRealTransparency(opaque.pixels));
+        // RGB32 has no alpha channel at all: never warns.
+        opaque.pixels = opaque.pixels.convertToFormat(QImage::Format_RGB32);
+        QVERIFY(!ix::imageHasRealTransparency(opaque.pixels));
+    }
     void grayscale16RetainsEverySampleAcrossEditing() {
         QImage ramp(256, 256, QImage::Format_Grayscale16);
         for (int y = 0; y < 256; ++y) {
