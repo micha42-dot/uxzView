@@ -63,7 +63,11 @@ void MainWindow::scheduleSaveUiWarmup() {
             return;
         if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
             return;
-        saveCompanion().ensurePolished();
+        auto &companion = saveCompanion();
+        companion.ensurePolished();
+        // Radical determinism: create the native surface now, while hidden.
+        // At save time only show() runs, so the window appears in one frame.
+        companion.preCreateSurface();
     });
 }
 

@@ -44,6 +44,9 @@ class SaveOptionsDialog final : public QDialog {
     // give the window back to its owner so the next save can reuse it.
     void endSession();
     void preparePlacement(QWidget *nativeDialog, const QPoint &remembered);
+    // Forces the native window to exist while the companion is still hidden.
+    // The save-time show() then only flips visibility — one frame, complete.
+    void preCreateSurface();
   signals:
     void optionsChanged(const SaveOptions &options);
     // Emitted when the user drags the companion (not on programmatic move).

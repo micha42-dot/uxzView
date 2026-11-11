@@ -382,6 +382,21 @@ void SaveOptionsDialog::freezeSizeToLayout() {
     setFixedSize(size());
 }
 
+void SaveOptionsDialog::preCreateSurface() {
+    // Radical but deterministic: make the native window exist now, while the
+    // companion is still hidden. QWidget::create() allocates the platform
+    // window and runs the full polish/layout path without mapping it on screen.
+    // The save-time show() then only has to flip visibility — one paint, no
+    // lazy surface creation, no second layout pass, no staged appearance.
+    // Safe to call repeatedly (create() is a no-op once the surface exists) and
+    // safe on a hidden widget; it never steals focus because the window stays
+    // hidden until show().
+    ensurePolished();
+    if (layout())
+        layout()->activate();
+    (void)winId(); // Forces create() via the WId accessor.
+}
+
 void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions options,
                                 const QJsonObject &profiles, QDialog &chooser) {
     // Single-shot, fully-populated session start: everything (values, profile
@@ -406,6 +421,12 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     // One fixed size from the fully populated layout; no further adjustSize()
     // passes while the dialog is visible (each one repaints empty first).
     freezeSizeToLayout();
+    // Radical determinism: create the native surface NOW — after the reparent
+    // above (which destroys any earlier surface) but BEFORE show(). The surface
+    // is built hidden, so the polish + layout + resize happen without a single
+    // on-screen frame; the subsequent show() only maps it and paints once,
+    // complete. This is what removes the "empty frame, then controls" staging.
+    preCreateSurface();
 }
 
 void SaveOptionsDialog::endSession() {
