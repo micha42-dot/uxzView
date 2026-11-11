@@ -7,7 +7,6 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QFormLayout>
 #include <QFutureWatcher>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -26,6 +25,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTimer>
+#include <QVBoxLayout>
 #include <QtConcurrent>
 #include <atomic>
 #include <memory>
@@ -34,30 +34,36 @@ namespace ix {
 SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *parent)
     : QDialog(parent), document_(document) {
     setAttribute(Qt::WA_DeleteOnClose, false);
-    // Side-by-side companion: a small tool window with title text only —
-    // no close/min/max buttons (IrfanView's JPEG dialog also has no red-X
-    // affordance). Never modal, never a child that the native dialog covers.
-    setWindowFlags(Qt::Tool | Qt::WindowTitleHint | Qt::WindowStaysOnTopHint);
+    // Side-by-side companion WITHOUT any system buttons: Qt::CustomizeWindowHint
+    // strips the native title-bar buttons, so the ugly hover-red X is gone for
+    // good. An in-dialog bold header replaces the title bar text. Never modal.
+    // NOTE: no WindowStaysOnTopHint anymore — it pulled the companion above
+    // every unrelated window (file picker of other apps, taskbar popups).
+    // Top-most relative to the native save dialog comes from parenting.
+    setWindowFlags(Qt::Tool | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
     setWindowModality(Qt::NonModal);
     auto *layout = new QVBoxLayout(this);
     // Compact: ~25% narrower than before.
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(4);
+    layout->setContentsMargins(8, 6, 8, 6);
+    layout->setSpacing(3);
     setMinimumWidth(210);
     setMaximumWidth(260);
+    // Explicit header inside the dialog (there is no functional system title
+    // bar anymore): format name placeholder, replaced by rebuild().
     title_ = new QLabel(this);
     QFont titleFont = title_->font();
     titleFont.setBold(true);
     title_->setFont(titleFont);
     title_->setObjectName(QStringLiteral("compressionTitle"));
     layout->addWidget(title_);
-    auto *form = new QFormLayout;
-    form->setContentsMargins(0, 0, 0, 0);
-    form->setHorizontalSpacing(6);
-    form->setVerticalSpacing(2);
-    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-    form->setRowWrapPolicy(QFormLayout::DontWrapRows);
-    layout->addLayout(form);
+    // Single column only — no QFormLayout label column. Every row is a full
+    // width widget with its own inline caption. Two-column forms caused the
+    // label/control overlap when rows were hidden per format.
+    auto *rows = new QWidget(this);
+    auto *rowsLayout = new QVBoxLayout(rows);
+    rowsLayout->setContentsMargins(0, 0, 0, 0);
+    rowsLayout->setSpacing(4);
+    layout->addWidget(rows);
     qualityRow_ = new QWidget(this);
     auto *qualityLayout = new QHBoxLayout(qualityRow_);
     qualityLayout->setContentsMargins(0, 0, 0, 0);
@@ -74,8 +80,10 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     qualityLayout->addWidget(low);
     qualityLayout->addWidget(qualitySlider_, 1);
     qualityLayout->addWidget(qualitySpin_);
-    // No "Komprimierung:" row: the title bar already names the dialog.
-    form->addRow(IX_TEXT("Qualität:"), qualityRow_);
+    // Stacked captions instead of a two-column label column (no overlap).
+    auto *qualityCaption = new QLabel(IX_TEXT("Qualität:"), this);
+    rowsLayout->addWidget(qualityCaption);
+    rowsLayout->addWidget(qualityRow_);
     connect(qualitySlider_, &QSlider::valueChanged, this, [this](int value) {
         if (qualitySpin_->value() != value)
             qualitySpin_->setValue(value);
@@ -97,18 +105,18 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     subsampling_->setObjectName(QStringLiteral("compressionNoSubsampling"));
     jpegLayout->addWidget(progressive_);
     jpegLayout->addWidget(subsampling_);
-    form->addRow(jpegRow_);
+    auto *jpegCaption = new QLabel(IX_TEXT("JPEG:"), this);
+    rowsLayout->addWidget(jpegCaption);
+    rowsLayout->addWidget(jpegRow_);
     connect(progressive_, &QCheckBox::toggled, this, [this] { collect(); });
     connect(subsampling_, &QCheckBox::toggled, this, [this] { collect(); });
     lossless_ = new QCheckBox(IX_TEXT("Verlustfrei speichern"), this);
     lossless_->setObjectName(QStringLiteral("compressionLossless"));
-    form->addRow(lossless_);
+    rowsLayout->addWidget(lossless_);
     connect(lossless_, &QCheckBox::toggled, this, [this] { collect(); });
     effortRow_ = new QWidget(this);
     auto *effortLayout = new QHBoxLayout(effortRow_);
     effortLayout->setContentsMargins(0, 0, 0, 0);
-    effortLabel_ = new QLabel(effortRow_);
-    effortLabel_->setMaximumWidth(90);
     effortSlider_ = new QSlider(Qt::Horizontal, effortRow_);
     effortSlider_->setFixedWidth(90);
     effortSlider_->setObjectName(QStringLiteral("compressionEffort"));
@@ -116,10 +124,12 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     effortSpin_->setObjectName(QStringLiteral("compressionEffortValue"));
     effortSpin_->setMinimumWidth(48);
     effortSpin_->setMaximumWidth(56);
-    effortLayout->addWidget(effortLabel_);
     effortLayout->addWidget(effortSlider_, 1);
     effortLayout->addWidget(effortSpin_);
-    form->addRow(effortRow_);
+    // Stacked caption above the row (single column, never overlapping).
+    effortCaption_ = new QLabel(this);
+    rowsLayout->addWidget(effortCaption_);
+    rowsLayout->addWidget(effortRow_);
     connect(effortSlider_, &QSlider::valueChanged, this, [this](int value) {
         if (effortSpin_->value() != value)
             effortSpin_->setValue(value);
@@ -139,7 +149,9 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     pngLevel_->setObjectName(QStringLiteral("compressionPngLevel"));
     pngLayout->addWidget(new QLabel(IX_TEXT("Stufe (0–9, verlustfrei):"), pngRow_));
     pngLayout->addWidget(pngLevel_, 1);
-    form->addRow(pngRow_);
+    auto *pngCaption = new QLabel(IX_TEXT("PNG (verlustfrei):"), this);
+    rowsLayout->addWidget(pngCaption);
+    rowsLayout->addWidget(pngRow_);
     connect(pngLevel_, &QSpinBox::valueChanged, this, [this] { collect(); });
     gifRow_ = new QWidget(this);
     auto *gifLayout = new QVBoxLayout(gifRow_);
@@ -147,7 +159,9 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     interlaced_ = new QCheckBox(IX_TEXT("Interlaced speichern"), gifRow_);
     interlaced_->setObjectName(QStringLiteral("compressionInterlaced"));
     gifLayout->addWidget(interlaced_);
-    form->addRow(gifRow_);
+    auto *gifCaption = new QLabel(IX_TEXT("GIF:"), this);
+    rowsLayout->addWidget(gifCaption);
+    rowsLayout->addWidget(gifRow_);
     connect(interlaced_, &QCheckBox::toggled, this, [this] { collect(); });
     // Transparency handling for formats without alpha (screenshot: Farbe des
     // Hauptfensters / Transparenter Farbwert / Vorschau): White flattens
@@ -165,7 +179,9 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     alphaLayout->addWidget(alphaWhite_);
     alphaLayout->addWidget(alphaKeep_);
     alphaLayout->addWidget(alphaAsk_);
-    form->addRow(IX_TEXT("Transparenz:"), alphaBox_);
+    auto *alphaCaption = new QLabel(IX_TEXT("Transparenz:"), this);
+    rowsLayout->addWidget(alphaCaption);
+    rowsLayout->addWidget(alphaBox_);
     for (auto *button : {alphaWhite_, alphaKeep_, alphaAsk_})
         connect(button, &QRadioButton::toggled, this, [this](bool checked) {
             if (checked)
@@ -195,7 +211,9 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     metaLayout->addWidget(keepXmp_);
     metaLayout->addWidget(keepIcc_);
     metaLayout->addWidget(fixOrientation_);
-    form->addRow(IX_TEXT("Metadaten:"), metaBox_);
+    auto *metaCaption = new QLabel(IX_TEXT("Metadaten:"), this);
+    rowsLayout->addWidget(metaCaption);
+    rowsLayout->addWidget(metaBox_);
     for (auto *box : {keepExif_, keepIptc_, keepXmp_, keepIcc_, fixOrientation_})
         connect(box, &QCheckBox::toggled, this, [this] { collect(); });
     targetRow_ = new QWidget(this);
@@ -242,7 +260,9 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     targetBarLayout->addWidget(targetProgress_, 1);
     targetBarLayout->addWidget(targetCancel_);
     targetLayout->addWidget(targetBar);
-    form->addRow(IX_TEXT("Ziel:"), targetRow_);
+    auto *targetCaption = new QLabel(IX_TEXT("Ziel:"), this);
+    rowsLayout->addWidget(targetCaption);
+    rowsLayout->addWidget(targetRow_);
     optimizeTimer_ = new QTimer(this);
     optimizeTimer_->setSingleShot(true);
     optimizeTimer_->setInterval(600);
@@ -292,7 +312,17 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     profileLayout->addWidget(deleteButton);
     profileLayout->addWidget(saveButton);
     profileBoxLayout->addWidget(profileRow);
-    form->addRow(profileBox);
+    rowsLayout->addWidget(profileBox);
+    // captions_ holds (caption, row) pairs so rebuild() can hide both when the
+    // format does not provide the feature — stacked rows can never overlap.
+    captions_.append({qualityCaption, qualityRow_});
+    captions_.append({jpegCaption, jpegRow_});
+    captions_.append({pngCaption, pngRow_});
+    captions_.append({gifCaption, gifRow_});
+    captions_.append({alphaCaption, alphaBox_});
+    captions_.append({metaCaption, metaBox_});
+    captions_.append({effortCaption_, effortRow_});
+    captions_.append({targetCaption, targetRow_});
     connect(loadButton, &QPushButton::clicked, this, [this] { loadProfile(profileCombo_->currentIndex()); });
     connect(deleteButton, &QPushButton::clicked, this, [this] { deleteProfile(); });
     connect(saveButton, &QPushButton::clicked, this, [this] { saveProfile(); });
@@ -311,6 +341,24 @@ void SaveOptionsDialog::setFormat(const QByteArray &format) {
     // Defer the IrfanView-style auto-optimization until the dialog is
     // actually visible: starting full-res encodes here blocked first paint.
     pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
+}
+
+void SaveOptionsDialog::prepare(const QByteArray &format, const QJsonObject &profiles,
+                                const QPointer<QDialog> & /*nativeDialog*/) {
+    // Single-shot, fully-populated construction: everything (values, profile
+    // list, visibility, fixed size) is done while updates are frozen, before
+    // anyone shows the window. The old path (setFormat/setProfiles/show +
+    // showEvent-driven rebuild + placeBeside timer) painted empty/half-built
+    // frames first — that staged loading is what felt slow.
+    setUpdatesEnabled(false);
+    const auto unfreeze = qScopeGuard([this] { setUpdatesEnabled(true); });
+    setProfiles(profiles);
+    setFormat(format);
+    updateGeometry();
+    // One fixed size from the fully populated layout; no further adjustSize()
+    // passes while the dialog is visible (each one repaints empty first).
+    adjustSize();
+    setFixedSize(size());
 }
 
 void SaveOptionsDialog::showEvent(QShowEvent *event) {
@@ -375,7 +423,6 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
         selfGuard->autoPlaced_ = true;
         selfGuard->move(pos);
         selfGuard->autoPlaced_ = false;
-        selfGuard->raise();
     });
     poller->start();
 }
@@ -415,9 +462,14 @@ void SaveOptionsDialog::rebuild() {
     lossless_->setChecked(options_.lossless);
     effortSlider_->setRange(caps_.minEffort, caps_.maxEffort);
     effortSpin_->setRange(caps_.minEffort, caps_.maxEffort);
-    effortLabel_->setText(caps_.effortLabel.isEmpty() ? IX_TEXT("Aufwand:") : caps_.effortLabel + QStringLiteral(":"));
     effortSlider_->setValue(options_.effort);
     effortSpin_->setValue(options_.effort);
+    // Caption lives stacked above the row (single column, no overlap).
+    if (effortCaption_) {
+        effortCaption_->setText(caps_.effortLabel.isEmpty() ? IX_TEXT("Aufwand:")
+                                                            : caps_.effortLabel + QStringLiteral(":"));
+        effortCaption_->setVisible(caps_.effort);
+    }
     pngLevel_->setValue(options_.pngLevel);
     interlaced_->setChecked(options_.interlaced);
     keepExif_->setChecked(options_.keepExif);
@@ -455,9 +507,15 @@ void SaveOptionsDialog::rebuild() {
     keepIcc_->setVisible(caps_.metadataIcc);
     fixOrientation_->setVisible(caps_.orientation);
     targetRow_->setVisible(caps_.targetSize);
+    // Captions follow their rows: a caption without its row (or vice versa)
+    // left the stale overlaps. The profile box is always visible.
+    for (const auto &pair : std::as_const(captions_))
+        pair.first->setVisible(pair.second->isVisible());
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
-    adjustSize();
+    // No adjustSize() here: the single-shot prepare() path sizes once from the
+    // fully populated layout. Re-sizing per rebuild caused visible empty-frame
+    // flicker and row overlap on HiDPI.
     emit optionsChanged(options_);
 }
 void SaveOptionsDialog::collect() {

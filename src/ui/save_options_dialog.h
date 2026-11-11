@@ -31,6 +31,12 @@ class SaveOptionsDialog final : public QDialog {
     void setFormat(const QByteArray &format);
     void setRegistry(const CodecRegistry *registry);
     void setProfiles(const QJsonObject &profiles);
+    // Prepares everything before first show: format + profiles + one rebuild
+    // and one fixed size, with updates frozen. The dialog must never paint
+    // an empty/half-built intermediate state (IrfanView shows its dialog
+    // fully populated at once).
+    void prepare(const QByteArray &format, const QJsonObject &profiles,
+                 const QPointer<QDialog> &nativeDialog);
     // Places the companion beside the given native save dialog once it is
     // visible (IrfanView shows both windows side-by-side, not stacked).
     void placeBeside(QWidget *nativeDialog);
@@ -64,7 +70,6 @@ class SaveOptionsDialog final : public QDialog {
     QCheckBox *lossless_ = nullptr;
     QSlider *effortSlider_ = nullptr;
     QSpinBox *effortSpin_ = nullptr;
-    QLabel *effortLabel_ = nullptr;
     QCheckBox *targetEnabled_ = nullptr;
     QDoubleSpinBox *targetValue_ = nullptr;
     QComboBox *targetUnit_ = nullptr;
@@ -85,6 +90,9 @@ class SaveOptionsDialog final : public QDialog {
     std::shared_ptr<std::atomic_bool> activeCancel_; // Set by targetCancel_.
     QSpinBox *pngLevel_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
+    QLabel *effortCaption_ = nullptr;
+    // Stacked (caption, row) pairs: rebuild() hides both together.
+    QList<QPair<QLabel *, QWidget *>> captions_;
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,
             *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;
     bool rebuilding_ = false;

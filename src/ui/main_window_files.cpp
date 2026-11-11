@@ -91,8 +91,9 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         chooser.setDefaultSuffix(target.format.suffix());
         SaveOptionsDialog companion(output, &chooser);
         companion.setRegistry(&registry_);
-        companion.setProfiles(loadSaveProfiles());
-        companion.setFormat(target.format.id);
+        // Fully populated BEFORE first show: one frozen prepare (values +
+        // profiles + fixed size), so no empty/half-built frame ever paints.
+        companion.prepare(target.format.id, loadSaveProfiles(), QPointer<QDialog>(&chooser));
         saveOptions = companion.options();
         auto previous = target.format;
         const auto formatForFilter = [&](const QString &filter) -> QList<SaveFormat>::const_iterator {
@@ -163,19 +164,29 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // The companion is shown alongside the chooser when enabled; closing
         // it only hides it for this save, the file dialog keeps running.
         // When the companion is disabled, the stored options apply silently.
-        // IrfanView shows both windows together: show + dock side-by-side
-        // (placeBeside polls for the native frame), never stacked on top.
+        // IrfanView shows both windows together: fully prepared first, then
+        // show + dock side-by-side, never stacked on top, never empty first.
         // The remembered position wins: placeBeside must not override the
         // users own placement on warm start.
         if (companionEnabled) {
-            companion.show();
-            // Raise above the native chooser (Qt::Tool child of a native
-            // modal dialog otherwise stays buried behind it).
-            companion.raise();
-            if (rememberedCompanionPos.isNull())
-                companion.placeBeside(&chooser);
-            else
+            if (!rememberedCompanionPos.isNull()) {
                 companion.move(rememberedCompanionPos);
+                companion.show();
+            } else {
+                // Cold start: show first at the final dock position computed
+                // synchronously... but the native frame is not mapped yet, so
+                // fall back to the main window edge until placeBeside fires.
+                const QRect screen = QApplication::primaryScreen()
+                                         ? QApplication::primaryScreen()->availableGeometry()
+                                         : QRect(0, 0, 1024, 768);
+                const QPoint mainPos = pos();
+                companion.move(qBound(screen.left(), mainPos.x() + width() + 8,
+                                      qMax(screen.left(), screen.right() - companion.width())),
+                               qBound(screen.top(), mainPos.y(),
+                                      qMax(screen.top(), screen.bottom() - companion.height())));
+                companion.show();
+                companion.placeBeside(&chooser);
+            }
         } else {
             companion.hide();
         }
