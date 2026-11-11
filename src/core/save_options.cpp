@@ -6,13 +6,18 @@
 #include "localization.h"
 #include "memory_policy.h"
 #include <QBuffer>
+#include <QHash>
 #include <QImage>
 #include <QImageWriter>
+#include <QJsonObject>
 #include <QSettings>
 #include <algorithm>
 #include <cmath>
 namespace ix {
 namespace {
+QHash<QByteArray, SaveOptions> gOptionsCache;
+QJsonObject gProfilesCache;
+bool gProfilesCached = false;
 qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int quality,
                   const CodecRegistry &registry, QString &error) {
     Q_UNUSED(registry);
@@ -199,13 +204,20 @@ SaveOptions defaultSaveOptions(const QByteArray &format) {
     return options;
 }
 SaveOptions loadSaveOptions(const QByteArray &format) {
+    // Dialog-open fast path: options are read once per format and refreshed
+    // on every store, so repeated saves skip QSettings + JSON parsing.
+    if (const auto it = gOptionsCache.constFind(format); it != gOptionsCache.cend())
+        return *it;
     const QSettings settings;
     const auto key = QStringLiteral("save/options/") + QString::fromLatin1(format);
-    if (settings.contains(key))
-        return SaveOptions::fromJson(settings.value(key).toJsonObject());
-    return defaultSaveOptions(format);
+    SaveOptions options = settings.contains(key)
+        ? SaveOptions::fromJson(settings.value(key).toJsonObject())
+        : defaultSaveOptions(format);
+    gOptionsCache.insert(format, options);
+    return options;
 }
 void storeSaveOptions(const SaveOptions &options) {
+    gOptionsCache.insert(options.format, options);
     QSettings settings;
     settings.setValue(QStringLiteral("save/options/") + QString::fromLatin1(options.format),
                       options.toJson());
@@ -213,12 +225,18 @@ void storeSaveOptions(const SaveOptions &options) {
     settings.sync();
 }
 void storeSaveProfiles(const QJsonObject &profiles) {
+    gProfilesCache = profiles;
+    gProfilesCached = true;
     QSettings settings;
     settings.setValue(QStringLiteral("save/profiles"), profiles);
     settings.sync();
 }
 QJsonObject loadSaveProfiles() {
-    return QSettings().value(QStringLiteral("save/profiles")).toJsonObject();
+    if (!gProfilesCached) {
+        gProfilesCache = QSettings().value(QStringLiteral("save/profiles")).toJsonObject();
+        gProfilesCached = true;
+    }
+    return gProfilesCache;
 }
 QString saveProfileError(const QString &name, const QJsonObject &profiles, bool exists) {
     if (name.trimmed().isEmpty())

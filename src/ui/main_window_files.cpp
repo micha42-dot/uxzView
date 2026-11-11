@@ -73,7 +73,14 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
         // Native file dialog (unchanged standard behavior). The compression
         // companion is a separate tool window tracked next to it.
-        QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, registry_.saveFilter());
+        // Fast path: reuse the already computed format list for the filter
+        // string instead of scanning all codec capabilities a second time
+        // inside saveFilter().
+        QStringList allFilters;
+        allFilters.reserve(formats.size());
+        for (const auto &f : formats)
+            allFilters.append(f.filter());
+        QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, allFilters.join(QStringLiteral(";;")));
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
         chooser.setOption(QFileDialog::DontConfirmOverwrite);
@@ -184,11 +191,12 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         const bool accepted = chooser.exec() == QDialog::Accepted;
         if (!accepted) return false;
         saveOptions = companion.options();
-        storeSaveOptions(saveOptions);
         target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
         path = target.suggestedPath;
         if (path.isEmpty()) return false;
         saveOptions.format = target.format.id;
+        // Single persist (one fsync): the intermediate store before target
+        // resolution wrote the same payload twice.
         storeSaveOptions(saveOptions);
         chooser.selectNameFilter(target.format.filter());
     }
@@ -244,6 +252,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     // Ask mode: resolve transparency handling with the user before encoding.
     // White flattens (legacy default), Keep preserves pixels for formats
     // that store alpha; either choice is then applied silently.
+    // The scan short-circuits on format first, so the (sampled, cheap) pixel
+    // check only runs when it can matter.
     if (saveOptions.alphaMode == SaveOptions::AlphaMode::Ask &&
         format != "jpeg" && !alphaWritable(format) && imageHasRealTransparency(output.pixels)) {
         QMessageBox ask(this);

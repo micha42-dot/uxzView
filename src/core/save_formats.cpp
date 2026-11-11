@@ -3,6 +3,7 @@
 #include "codec_registry.h"
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <algorithm>
 namespace ix {
 QByteArray canonicalSaveFormat(QByteArray format) {
@@ -20,6 +21,14 @@ QString SaveFormat::filter() const {
     return label + QStringLiteral(" (") + patterns.join(QLatin1Char(' ')) + QLatin1Char(')');
 }
 QList<SaveFormat> writableSaveFormats(const CodecRegistry &registry) {
+    // Dialog-open fast path: the registry's codec set is fixed at startup,
+    // so capabilities are scanned once per registry instead of on every save.
+    // A caller-side cache would go stale when plugins toggle formats; the
+    // registry address is the stable key here (MainWindow owns one).
+    // GUI-thread only (save/batch dialogs, settings): no locking needed.
+    static QHash<const CodecRegistry *, QList<SaveFormat>> cache;
+    if (const auto it = cache.constFind(&registry); it != cache.cend())
+        return *it;
     QList<SaveFormat> result;
     for (const auto &cap : registry.capabilities()) {
         if (!cap.write || cap.extensions.isEmpty()) continue;
@@ -28,6 +37,7 @@ QList<SaveFormat> writableSaveFormats(const CodecRegistry &registry) {
         if (std::any_of(result.cbegin(), result.cend(), [&](const auto &entry) { return entry.id == id; })) continue;
         result.append({id, cap.name, cap.extensions});
     }
+    cache.insert(&registry, result);
     return result;
 }
 SaveTarget preferredSaveTarget(const QString &sourcePath, QByteArray sourceFormat,
