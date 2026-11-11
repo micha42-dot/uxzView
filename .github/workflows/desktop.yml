@@ -128,25 +128,20 @@ jobs:
             sleep 15
             sudo apt-get -o Acquire::Retries=5 update || true
           done
-          # Fail early and clearly if a required development header is still
-          # missing after the retries, instead of a confusing CMake error much
-          # later. Header paths mirror CMakeLists.txt (find_path), not pkg-config
-          # module names — those differ per distribution (e.g. lcms2, exiv2 and
-          # fontconfig have no "lib" prefix there) and would report false failures.
+          # Fail early and clearly if a package is still missing after the
+          # retries, instead of a confusing CMake error much later. Check dpkg
+          # state for the packages we actually requested — deliberately not
+          # hard-coded /usr/include paths (wrong on Debian/Ubuntu multiarch,
+          # where headers live under /usr/include/<triplet>/) and not pkg-config
+          # module names (they vary, e.g. exiv2 vs libexiv2).
           missing=()
-          for header in \
-            /usr/include/turbojpeg.h \
-            /usr/include/exiv2/exiv2.hpp \
-            /usr/include/tiffio.h \
-            /usr/include/libraw/libraw.h \
-            /usr/include/lcms2.h \
-            /usr/include/fontconfig/fontconfig.h; do
-            if [[ ! -f "$header" ]]; then
-              missing+=("$header")
+          for package in "${packages[@]}"; do
+            if ! dpkg -s "$package" >/dev/null 2>&1; then
+              missing+=("$package")
             fi
           done
           if [[ ${#missing[@]} -gt 0 ]]; then
-            echo "Required development headers missing: ${missing[*]}" >&2
+            echo "Required packages missing: ${missing[*]}" >&2
             exit 1
           fi
       - name: Linux optional-module deployment regression
