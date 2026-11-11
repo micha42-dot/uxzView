@@ -204,14 +204,25 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // The companion is shown alongside the chooser when enabled; closing
         // it only hides it for this save, the file dialog keeps running.
         // When the companion is disabled, the stored options apply silently.
-        // IrfanView shows both windows in the same frame: no polling, no
-        // post-show dock move, no staged appearance. The position is computed
-        // once up front (chooser centre + half its width + gap) and the window
-        // is moved before it is shown, so it appears once, fully formed.
+        // Ordering matters: the native dialog is created lazily by exec(). If we
+        // show the companion first, it becomes a child of a widget that has no
+        // native window yet, so Windows creates the chooser afterwards and Qt
+        // re-parents/re-creates the companion surface — that second creation is
+        // the visible "empty frame, then controls" staging. Deferring the show
+        // by one event-loop turn (queued, not timed) puts it after the native
+        // dialog exists, so the companion is created once, in final form.
         if (companionEnabled) {
             companion.preparePlacement(&chooser, rememberedCompanionPos);
-            companion.show();
-            companion.raise();
+            QPointer<SaveOptionsDialog> guard(&companion);
+            QPointer<QDialog> chooserGuard(&chooser);
+            QTimer::singleShot(0, &chooser, [guard, chooserGuard] {
+                if (!guard || !chooserGuard)
+                    return;
+                if (!guard->isVisible()) {
+                    guard->show();
+                    guard->raise();
+                }
+            });
         } else {
             companion.hide();
         }

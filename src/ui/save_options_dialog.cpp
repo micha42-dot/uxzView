@@ -371,6 +371,13 @@ void SaveOptionsDialog::freezeSizeToLayout() {
     // One size from the fully populated layout, then frozen. Called exactly
     // once per session (prepare) and once per format/profile switch — never
     // per rebuild(), so no visible re-layout pass happens after show().
+    // ensurePolished()+layout()->activate() matter: adjustSize() on a widget
+    // whose layout was never activated returns a stale sizeHint, and the
+    // correction then happens after the first on-screen paint — the visible
+    // "frame first, controls later" staging.
+    ensurePolished();
+    if (layout())
+        layout()->activate();
     adjustSize();
     setFixedSize(size());
 }
