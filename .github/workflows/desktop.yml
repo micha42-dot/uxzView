@@ -99,8 +99,56 @@ jobs:
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libturbojpeg0-dev libexiv2-dev libtiff-dev libraw-dev liblcms2-dev libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libfontconfig1-dev desktop-file-utils xvfb xauth
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          # The Ubuntu mirrors are intermittently unreachable from GitHub-hosted
+          # runners ("Temporary failure resolving 'azure.archive.ubuntu.com'").
+          # A single attempt therefore fails the whole job even though the
+          # packages are fine. Retry with apt's own acquire retries, and repeat
+          # the install up to three times before giving up.
+          sudo apt-get -o Acquire::Retries=5 update
+          packages=(
+            cmake ninja-build pkg-config
+            libturbojpeg0-dev libexiv2-dev libtiff-dev libraw-dev liblcms2-dev
+            libgl1-mesa-dev libfontconfig1-dev
+            libxkbcommon-dev libxkbcommon-x11-0
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1
+            libxcb-render-util0
+            desktop-file-utils xvfb xauth
+          )
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=5 install -y --fix-missing "${packages[@]}"; then
+              break
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              echo "apt-get install failed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "apt-get install attempt $attempt failed, retrying in 15s ..." >&2
+            sleep 15
+            sudo apt-get -o Acquire::Retries=5 update || true
+          done
+          # Fail early and clearly if a required development header is still
+          # missing after the retries, instead of a confusing CMake error much
+          # later. Header paths mirror CMakeLists.txt (find_path), not pkg-config
+          # module names — those differ per distribution (e.g. lcms2, exiv2 and
+          # fontconfig have no "lib" prefix there) and would report false failures.
+          missing=()
+          for header in \
+            /usr/include/turbojpeg.h \
+            /usr/include/exiv2/exiv2.hpp \
+            /usr/include/tiffio.h \
+            /usr/include/libraw/libraw.h \
+            /usr/include/lcms2.h \
+            /usr/include/fontconfig/fontconfig.h; do
+            if [[ ! -f "$header" ]]; then
+              missing+=("$header")
+            fi
+          done
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "Required development headers missing: ${missing[*]}" >&2
+            exit 1
+          fi
       - name: Linux optional-module deployment regression
         if: runner.os == 'Linux'
         run: python3 tests/check_linux_module_deployment.py
