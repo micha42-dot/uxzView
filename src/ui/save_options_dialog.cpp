@@ -56,6 +56,10 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     // button row (combo + three buttons), everything else adapts.
     layout->setContentsMargins(8, 6, 8, 6);
     layout->setSpacing(3);
+    // Font is never shrunk here. Compact means "no wasted space", not
+    // "smaller letters": the width follows the natural text metrics of the
+    // active theme, so the profile row (combo + three buttons) fits at the
+    // default UI font without squeezing anything.
     setMinimumWidth(kCompanionMinWidth);
     setMaximumWidth(kCompanionMaxWidth);
     // Explicit header inside the dialog (there is no functional system title
@@ -383,7 +387,16 @@ void SaveOptionsDialog::freezeSizeToLayout() {
     if (layout())
         layout()->activate();
     adjustSize();
-    setFixedSize(size());
+    // Never freeze below the layout's own minimum: at large UI fonts or with
+    // long translations (e.g. "Als progressives JPEG speichern") the natural
+    // width exceeds kCompanionMaxWidth. Capping it there squeezed the text into
+    // a too small box — the "tiny, cramped text" report. The band is a
+    // compactness preference for the default font, not a hard clip.
+    const QSize wanted = size();
+    const QSize floor = minimumSizeHint();
+    const QSize finalSize(qMax(wanted.width(), floor.width()),
+                          qMax(wanted.height(), floor.height()));
+    setFixedSize(finalSize);
 }
 
 void SaveOptionsDialog::preCreateSurface() {
@@ -422,15 +435,13 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     // the flag has to be armed here too — otherwise the auto-optimization
     // never starts on the first open.
     pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
-    // One fixed size from the fully populated layout; no further adjustSize()
-    // passes while the dialog is visible (each one repaints empty first).
-    freezeSizeToLayout();
-    // Radical determinism: create the native surface NOW — after the reparent
-    // above (which destroys any earlier surface) but BEFORE show(). The surface
-    // is built hidden, so the polish + layout + resize happen without a single
-    // on-screen frame; the subsequent show() only maps it and paints once,
-    // complete. This is what removes the "empty frame, then controls" staging.
+    // Order matters: create the native surface FIRST, then measure. Creating
+    // the surface applies the platform theme/font; measuring before that uses
+    // the pre-theme font metrics, so the frozen size was too small and the real
+    // (larger) text got squeezed into it — exactly the "tiny, cramped text"
+    // report. Surface first, measurement second, one fixed size.
     preCreateSurface();
+    freezeSizeToLayout();
 }
 
 void SaveOptionsDialog::endSession() {
