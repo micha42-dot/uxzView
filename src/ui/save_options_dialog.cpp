@@ -37,8 +37,8 @@ namespace {
 // restore exactly this band (QWIDGETSIZE_MAX is NOT a valid "release" value for
 // a minimum size — it would set a 16777215 px floor and silently widen the
 // dialog on every format change).
-constexpr int kCompanionMinWidth = 210;
-constexpr int kCompanionMaxWidth = 260;
+constexpr int kCompanionMinWidth = 250;
+constexpr int kCompanionMaxWidth = 320;
 } // namespace
 SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *owner)
     : QDialog(owner), owner_(owner), registry_(registry) {
@@ -52,11 +52,12 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     setWindowFlags(Qt::Tool | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
     setWindowModality(Qt::NonModal);
     auto *layout = new QVBoxLayout(this);
-    // Compact: ~25% narrower than before.
+    // As compact as the widest row allows: the width is defined by the profile
+    // button row (combo + three buttons), everything else adapts.
     layout->setContentsMargins(8, 6, 8, 6);
     layout->setSpacing(3);
-    setMinimumWidth(210);
-    setMaximumWidth(260);
+    setMinimumWidth(kCompanionMinWidth);
+    setMaximumWidth(kCompanionMaxWidth);
     // Explicit header inside the dialog (there is no functional system title
     // bar anymore): format name placeholder, replaced by rebuild().
     title_ = new QLabel(this);
@@ -309,13 +310,13 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     profileLayout->setSpacing(4);
     profileCombo_ = new QComboBox(profileRow);
     profileCombo_->setObjectName(QStringLiteral("compressionProfile"));
-    profileCombo_->setMinimumWidth(80);
+    // No maximum widths on the buttons: a hard cap made the row narrower than
+    // the rest of the dialog, so Qt's layout squeezed the labels and they
+    // visually collided with the combo. Their sizeHint is small enough on its
+    // own, and the (slightly wider) dialog now has room for the natural sizes.
     auto *loadButton = new QPushButton(IX_TEXT("Laden"), profileRow);
     auto *deleteButton = new QPushButton(IX_TEXT("Löschen"), profileRow);
     auto *saveButton = new QPushButton(IX_TEXT("Speichern"), profileRow);
-    loadButton->setMaximumWidth(62);
-    deleteButton->setMaximumWidth(62);
-    saveButton->setMaximumWidth(74);
     profileLayout->addWidget(profileCombo_, 1);
     profileLayout->addWidget(loadButton);
     profileLayout->addWidget(deleteButton);
