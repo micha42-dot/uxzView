@@ -898,6 +898,7 @@
 ["EXIF-Ausrichtung korrigieren", "Correct EXIF orientation", "EXIF 방향 보정", "EXIFの向きを補正", "Corriger l’orientation EXIF"],
 ["Derzeit ohne Wirkung — die Ausrichtung ist bereits in den Pixeln enthalten.", "Currently no effect — orientation is already baked into the pixels.", "현재 효과 없음 — 방향이 이미 픽셀에 포함되어 있습니다.", "現在効果なし — 方向は既にピクセルに含まれています。", "Sans effet pour l’instant — l’orientation est déjà incluse dans les pixels."],
 ["Zieldateigröße:", "Target file size:", "대상 파일 크기:", "目標ファイルサイズ:", "Taille cible :"],
+["Ziel:", "Target:", "대상:", "保存先:", "Destination :"],
 ["Optimiere Qualität …", "Optimizing quality …", "품질 최적화 중 …", "品質を最適化中 …", "Optimisation de la qualité …"],
 ["Qualität %1 (ca. %2 KB).", "Quality %1 (approx. %2 KB).", "품질 %1 (약 %2KB).", "品質%1（約%2 KB）。", "Qualité %1 (env. %2 Ko)."],
 ["Verworfen — Einstellungen wurden geändert.", "Discarded — settings were changed.", "취소됨 — 설정이 변경되었습니다.", "破棄 — 設定が変更されました。", "Abandonné — les réglages ont été modifiés."],
