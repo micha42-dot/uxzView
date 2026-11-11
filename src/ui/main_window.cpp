@@ -1403,8 +1403,12 @@ void MainWindow::syncBusyHint() {
     // refusal (showBusyHint(true)) may flash the reason; see below.
     if (activity_.phase() == DocumentActivity::Phase::Saving) {
         // Keep our own queued text in step so a later refusal flash still
-        // names the right phase — but never paint it unprompted.
-        if (!busyHintDelay_.isActive() && statusBar()->currentMessage().isEmpty())
+        // names the right phase — but never paint it unprompted, and never
+        // clobber an active refusal flash: the idle branch clears the message
+        // only when it still matches pendingBusyText_, so overwriting it here
+        // would strand the flash past the end of the transaction.
+        if (!busyHintTimer_.isActive() && !busyHintDelay_.isActive() &&
+            statusBar()->currentMessage().isEmpty())
             pendingBusyText_ = busyHint();
         return;
     }
