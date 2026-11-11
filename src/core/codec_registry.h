@@ -38,7 +38,12 @@ class CodecRegistry {
         int quality = 95;
         bool progressive = false;   // Honored by the jpegli path below.
         bool noSubsampling = false; // Honored by the jpegli path below.
-        bool interlaced = false;    // Reserved: honored once the encoder exposes it.
+        bool interlaced = false;    // Requested for GIF; Qt's QImageWriter
+                                    // exposes no interlace switch, so the flag
+                                    // is accepted but currently a no-op (see
+                                    // saveWithOptions).
+        bool lossless = false;      // Quality 100 on capable writers (WebP/AVIF/JXL).
+        int effort = 50;            // Mapped to QImageWriter compression where supported.
         int compressionLevel = -1;  // PNG 0-9 mapped to writer quality; -1 keeps default.
         bool keepExif = true, keepIptc = true, keepXmp = true, keepIcc = true;
         // PNG->JPEG alpha handling: White flattens onto white (legacy default),

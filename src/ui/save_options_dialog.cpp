@@ -25,6 +25,7 @@
 #include <QTimer>
 #include <QtConcurrent>
 #include <atomic>
+#include <utility>
 namespace ix {
 SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *parent)
     : QDialog(parent), document_(document) {

@@ -24,6 +24,7 @@
 #include <QSet>
 #include <QMap>
 #include <QLibrary>
+#include <algorithm>
 #include <mutex>
 namespace ix {
 bool isRawFormat(const QByteArray &format) {
@@ -452,13 +453,15 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     else
         writer.setQuality(quality);
     // Mirror the optimizer (encodeSize): lossless forces quality 100 on
-    // capable writers, effort maps to compression, interlaced to GIF
-    // progressive display. Writers without support ignore the knobs.
+    // capable writers, effort maps to compression where supported.
+    // (No interlace switch exists on QImageWriter — see note below.)
     if (encode.lossless) writer.setQuality(100);
     if (format == "webp" || format == "avif" || format == "heif" || format == "heic" ||
         format == "jxl" || format == "png" || format == "tiff")
         writer.setCompression(encode.effort);
-    if (encode.interlaced) writer.setInterlaced(true);
+    // Note: Qt's QImageWriter exposes no GIF interlace switch, so
+    // encode.interlaced is accepted (UI + profiles) but currently a no-op.
+    Q_UNUSED(encode.interlaced);
     QImage output = d.pixels;
     // alphaWhite != 0 (legacy default) flattens transparency onto white for
     // formats without alpha. alphaWhite == 0 keeps the pixels untouched; the

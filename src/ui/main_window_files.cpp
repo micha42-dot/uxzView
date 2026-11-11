@@ -243,6 +243,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     encode.progressive = saveOptions.progressive;
     encode.noSubsampling = saveOptions.noSubsampling;
     encode.interlaced = saveOptions.interlaced;
+    encode.lossless = saveOptions.lossless;
+    encode.effort = saveOptions.effort;
     encode.compressionLevel = format == "png" ? saveOptions.pngLevel : -1;
     encode.keepExif = saveOptions.keepExif;
     encode.keepIptc = saveOptions.keepIptc;
