@@ -5,6 +5,11 @@
 // profiles. Non-modal; dies with the save dialog.
 #include "core/save_options.h"
 #include <QDialog>
+#include <QFutureWatcher>
+#include <QList>
+#include <QPointer>
+#include <atomic>
+#include <memory>
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -34,6 +39,8 @@ class SaveOptionsDialog final : public QDialog {
   protected:
     void closeEvent(QCloseEvent *event) override;
     void moveEvent(QMoveEvent *event) override;
+
+  public:
     ~SaveOptionsDialog() override;
 
   private:
@@ -76,6 +83,9 @@ class SaveOptionsDialog final : public QDialog {
     void rebuild();
     void collect();
     void runTargetOptimization();
+    // Cancels all running target-size workers (sets their flags; the
+    // finished handlers double-check staleness before publishing).
+    void cancelTargetWorkers();
     void loadProfile(int index);
     void saveProfile();
     void deleteProfile();

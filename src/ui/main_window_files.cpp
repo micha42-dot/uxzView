@@ -8,6 +8,7 @@
 #include "main_window.h"
 #include "save_options_dialog.h"
 #include "worker_wait.h"
+#include <QScreen>
 #include "file_navigation.h"
 #include <QScopeGuard>
 #include <QSettings>
@@ -108,11 +109,13 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             const auto frame = chooser.frameGeometry();
             if (!frame.isValid())
                 return;
+            QScreen *screen = chooser.screen() ? chooser.screen() : QApplication::primaryScreen();
+            const QRect available = screen ? screen->availableGeometry() : QRect();
             QPoint pos = frame.topRight() + QPoint(8, 0);
-            if (pos.x() + companion.width() > screen.right()) // Fall back to the left side.
+            if (pos.x() + companion.width() > available.right()) // Fall back to the left side.
                 pos = {frame.left() - companion.width() - 8, frame.top()};
-            pos.setY(std::clamp(pos.y(), screen.top(), std::max(screen.top(), screen.bottom() - companion.height())));
-            pos.setX(std::clamp(pos.x(), screen.left(), std::max(screen.left(), screen.right() - companion.width())));
+            pos.setY(std::clamp(pos.y(), available.top(), std::max(available.top(), available.bottom() - companion.height())));
+            pos.setX(std::clamp(pos.x(), available.left(), std::max(available.left(), available.right() - companion.width())));
             companion.move(pos);
         };
         auto previous = target.format;

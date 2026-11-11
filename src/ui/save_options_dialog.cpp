@@ -274,6 +274,10 @@ void SaveOptionsDialog::setRegistry(const CodecRegistry *registry) {
     registry_ = registry;
 }
 void SaveOptionsDialog::setFormat(const QByteArray &format) {
+    // A format switch invalidates any running target-size worker: cancel it
+    // so no stale result can publish into the new format (the finished
+    // handler double-checks, this stops the wasted encodes early).
+    cancelTargetWorkers();
     options_ = loadSaveOptions(format);
     caps_ = saveCapabilities(format);
     rebuild();
@@ -416,41 +420,51 @@ void SaveOptionsDialog::runTargetOptimization() {
     // running QtConcurrent task, so a late completion after dialog close must
     // do nothing instead of touching dead widgets.
     QPointer<SaveOptionsDialog> guard(this);
-    connect(watcher, &QFutureWatcherBase::finished, this, [guard, watcher, cancel] {
-        watcher->deleteLater();
-        if (!guard)
-            return;
-        guard->targetWatchers_.removeAll(watcher);
-        guard->targetCancels_.removeAll(cancel);
-        targetProgress_->setVisible(false);
-        targetCancel_->setVisible(false);
-        const auto result = watcher->future().takeResult();
-        if (cancel->load()) {
-            targetResult_->setText(IX_TEXT("Abgebrochen."));
-            return;
-        }
-        if (!result.quality) {
-            targetResult_->setText(result.error);
-            QMessageBox::warning(guard, IX_TEXT("Zieldateigröße"), result.error);
-            return;
-        }
-        options_.autoQuality = *result.quality;
-        const QSignalBlocker blockSlider(qualitySlider_);
-        const QSignalBlocker blockSpin(qualitySpin_);
-        qualitySlider_->setValue(*result.quality);
-        qualitySpin_->setValue(*result.quality);
-        // IrfanView-style honesty: when even quality 1 exceeds the target,
-        // say so but still save the smallest reachable file.
-        if (result.bytes > options_.targetBytes)
-            targetResult_->setText(IX_TEXT("Ziel nicht erreichbar — kleinstmöglich: Qualität 1 (ca. %1 KB).")
-                                       .arg(result.bytes / 1024));
-        else
-            targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).")
-                                       .arg(*result.quality)
-                                       .arg(result.bytes / 1024));
-        storeSaveOptions(options_);
-        emit optionsChanged(options_);
-    });
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [guard, watcher, cancel] {
+                watcher->deleteLater();
+                if (!guard)
+                    return;
+                guard->targetWatchers_.removeAll(watcher);
+                guard->targetCancels_.removeAll(cancel);
+                guard->targetProgress_->setVisible(false);
+                guard->targetCancel_->setVisible(false);
+                const auto result = watcher->future().takeResult();
+                if (cancel->load()) {
+                    guard->targetResult_->setText(IX_TEXT("Abgebrochen."));
+                    return;
+                }
+                if (!result.quality) {
+                    guard->targetResult_->setText(result.error);
+                    QMessageBox::warning(guard, IX_TEXT("Zieldateigröße"), result.error);
+                    return;
+                }
+                // Any manual change while the worker ran invalidates its
+                // result: only publish when the options are untouched.
+                if (guard->options_.autoQuality >= 0 || guard->options_.quality != options.quality ||
+                    guard->options_.targetBytes != options.targetBytes ||
+                    guard->options_.format != options.format) {
+                    guard->targetResult_->setText(IX_TEXT("Verworfen — Einstellungen wurden geändert."));
+                    return;
+                }
+                guard->options_.autoQuality = *result.quality;
+                const QSignalBlocker blockSlider(guard->qualitySlider_);
+                const QSignalBlocker blockSpin(guard->qualitySpin_);
+                guard->qualitySlider_->setValue(*result.quality);
+                guard->qualitySpin_->setValue(*result.quality);
+                // IrfanView-style honesty: when even quality 1 exceeds the target,
+                // say so but still save the smallest reachable file.
+                if (result.bytes > guard->options_.targetBytes)
+                    guard->targetResult_->setText(
+                        IX_TEXT("Ziel nicht erreichbar — kleinstmöglich: Qualität 1 (ca. %1 KB).")
+                            .arg(result.bytes / 1024));
+                else
+                    guard->targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).")
+                                                      .arg(*result.quality)
+                                                      .arg(result.bytes / 1024));
+                storeSaveOptions(guard->options_);
+                emit guard->optionsChanged(guard->options_);
+            });
     watcher->setFuture(QtConcurrent::run([document, options, registry, cancel] {
         const std::atomic_bool &stop = *cancel;
         return optimizeForTargetSize(document, options, *registry, {}, stop);
@@ -492,6 +506,7 @@ void SaveOptionsDialog::loadProfile(int index) {
     const auto name = profileCombo_->itemText(index);
     if (!profiles_.contains(name))
         return;
+    cancelTargetWorkers();
     options_ = SaveOptions::fromJson(profiles_.value(name).toObject());
     caps_ = saveCapabilities(options_.format);
     rebuild();
@@ -545,15 +560,19 @@ void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
         emit movedByUser(pos());
 }
 
+void SaveOptionsDialog::cancelTargetWorkers() {
+    for (const auto &cancel : std::as_const(targetCancels_)) {
+        if (cancel)
+            cancel->store(true);
+    }
+}
+
 SaveOptionsDialog::~SaveOptionsDialog() {
     // Note: QFutureWatcher::cancel() cannot stop an already running
     // QtConcurrent task — the shared atomic flags are what actually abort
     // the bounded probe loop. Set them here so no worker keeps encoding
     // after the dialog is gone.
-    for (const auto &cancel : std::as_const(targetCancels_)) {
-        if (cancel)
-            cancel->store(true);
-    }
+    cancelTargetWorkers();
     // Drop all queued finished/timeout calls before children are torn down;
     // the handlers guard with QPointer, this is the second safety net.
     for (const auto &watcher : targetWatchers_) {
