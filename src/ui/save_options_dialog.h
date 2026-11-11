@@ -91,7 +91,9 @@ class SaveOptionsDialog final : public QDialog {
     QSpinBox *pngLevel_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
     QLabel *effortCaption_ = nullptr;
-    // Stacked (caption, row) pairs: rebuild() hides both together.
+    // captions_ holds (caption, row) pairs so rebuild() can hide both when the
+    // format does not provide the feature — stacked rows can never overlap.
+    // A null caption marks a bare row (lossless_); only the row is toggled.
     QList<QPair<QLabel *, QWidget *>> captions_;
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,
             *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;

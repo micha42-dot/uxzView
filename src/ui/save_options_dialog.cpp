@@ -323,9 +323,21 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     captions_.append({metaCaption, metaBox_});
     captions_.append({effortCaption_, effortRow_});
     captions_.append({targetCaption, targetRow_});
+    // lossless_ is a bare row without a stacked caption: track it with a null
+    // caption so the ctor-hide loop and rebuild() treat it like every row.
+    captions_.append({nullptr, lossless_});
     connect(loadButton, &QPushButton::clicked, this, [this] { loadProfile(profileCombo_->currentIndex()); });
     connect(deleteButton, &QPushButton::clicked, this, [this] { deleteProfile(); });
     connect(saveButton, &QPushButton::clicked, this, [this] { saveProfile(); });
+    // Start hidden: only setFormat()/rebuild() decides visibility per format.
+    // Leaving the ctor-visible default otherwise paints every row for one
+    // frame (the "empty dialog, then rows pop in" flicker). Bare rows carry
+    // a null caption and hide the row only.
+    for (const auto &pair : std::as_const(captions_)) {
+        pair.second->hide();
+        if (pair.first)
+            pair.first->hide();
+    }
 }
 void SaveOptionsDialog::setRegistry(const CodecRegistry *registry) {
     registry_ = registry;
@@ -378,7 +390,9 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
         return;
     // IrfanView docks its JPEG options window to the right of the native
     // save dialog. The native geometry is only valid once it is mapped, so
-    // retry via a one-shot timer instead of stacking on top (old behavior).
+    // retry via a repeating timer instead of stacking on top (old behavior).
+    // NOTE: fixed size must survive the dock — never call adjustSize() here
+    // (it would unfreeze the prepare() geometry and repaint rows mid-dock).
     auto *poller = new QTimer(this);
     poller->setSingleShot(false);
     poller->setInterval(50);
@@ -412,7 +426,6 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
         poller->deleteLater();
         const QRect frame = dialogGuard->frameGeometry();
         const QRect screen = dialogGuard->screen() ? dialogGuard->screen()->availableGeometry() : frame;
-        selfGuard->adjustSize();
         QPoint pos(frame.right() + 8, frame.top());
         if (pos.x() + selfGuard->width() > screen.right())
             pos.setX(qMax(screen.left(), frame.left() - selfGuard->width() - 8));
@@ -508,9 +521,12 @@ void SaveOptionsDialog::rebuild() {
     fixOrientation_->setVisible(caps_.orientation);
     targetRow_->setVisible(caps_.targetSize);
     // Captions follow their rows: a caption without its row (or vice versa)
-    // left the stale overlaps. The profile box is always visible.
-    for (const auto &pair : std::as_const(captions_))
-        pair.first->setVisible(pair.second->isVisible());
+    // left the stale overlaps. The profile box is always visible. Bare rows
+    // (null caption, e.g. lossless_) toggle the row only.
+    for (const auto &pair : std::as_const(captions_)) {
+        if (pair.first)
+            pair.first->setVisible(pair.second->isVisible());
+    }
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     // No adjustSize() here: the single-shot prepare() path sizes once from the
@@ -690,6 +706,15 @@ void SaveOptionsDialog::loadProfile(int index) {
     options_ = SaveOptions::fromJson(profiles_.value(name).toObject());
     caps_ = saveCapabilities(options_.format);
     rebuild();
+    // A profile may switch formats (JPEG -> PNG): the fixed prepare() size no
+    // longer fits the visible rows. Unfix, re-measure, re-freeze — same as the
+    // live filterSelected path in MainWindow::saveImage.
+    if (!minimumSize().isNull() || !maximumSize().isNull()) {
+        setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        adjustSize();
+        setFixedSize(size());
+    }
     emit optionsChanged(options_);
 }
 void SaveOptionsDialog::saveProfile() {

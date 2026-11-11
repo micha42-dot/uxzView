@@ -132,8 +132,17 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             const auto next = formatForFilter(filter);
             if (next == formats.cend())
                 return;
-            if (next->id != companion.options().format)
+            if (next->id != companion.options().format) {
+                // The dialog has a fixed size from prepare(): unfix, update
+                // the visible rows for the new format, re-freeze. Without
+                // setMinimum/MaximumSize(16777215) the fixed size would keep
+                // hidden rows' space (or clip newly shown ones).
+                companion.setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+                companion.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
                 companion.setFormat(next->id);
+                companion.adjustSize();
+                companion.setFixedSize(companion.size());
+            }
             saveOptions = companion.options();
         });
         connect(&companion, &SaveOptionsDialog::optionsChanged, &chooser,
