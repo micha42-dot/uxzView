@@ -3,7 +3,6 @@
 #include "core/codec_registry.h"
 #include "core/image_document.h"
 #include "core/localization.h"
-#include "ui/dialog_layout.h"
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -17,6 +16,7 @@
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScopeGuard>
 #include <QSlider>
 #include <QSpinBox>
@@ -27,14 +27,25 @@ namespace ix {
 SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *parent)
     : QDialog(parent), document_(document) {
     setAttribute(Qt::WA_DeleteOnClose, false);
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
-    auto *layout = dialogLayout(this);
+    // Tool window: stays beside the (possibly native) file dialog without
+    // blocking it; closes with the save flow via its parent.
+    setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowCloseButtonHint);
+    setWindowModality(Qt::NonModal);
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->setSpacing(6);
     title_ = new QLabel(this);
     QFont titleFont = title_->font();
     titleFont.setBold(true);
     title_->setFont(titleFont);
+    title_->setObjectName(QStringLiteral("compressionTitle"));
     layout->addWidget(title_);
-    auto *form = dialogFormLayout();
+    auto *form = new QFormLayout;
+    form->setContentsMargins(0, 0, 0, 0);
+    form->setHorizontalSpacing(8);
+    form->setVerticalSpacing(2);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     layout->addLayout(form);
     qualityRow_ = new QWidget(this);
     auto *qualityLayout = new QHBoxLayout(qualityRow_);
@@ -67,6 +78,7 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     jpegRow_ = new QWidget(this);
     auto *jpegLayout = new QVBoxLayout(jpegRow_);
     jpegLayout->setContentsMargins(0, 0, 0, 0);
+    jpegLayout->setSpacing(2);
     progressive_ = new QCheckBox(IX_TEXT("Als progressives JPEG speichern"), this);
     progressive_->setObjectName(QStringLiteral("compressionProgressive"));
     subsampling_ = new QCheckBox(IX_TEXT("Chroma-Subsampling deaktivieren"), this);
@@ -122,9 +134,32 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     gifLayout->addWidget(interlaced_);
     form->addRow(gifRow_);
     connect(interlaced_, &QCheckBox::toggled, this, [this] { collect(); });
+    // Transparency handling for formats without alpha (screenshot: Farbe des
+    // Hauptfensters / Transparenter Farbwert / Vorschau): White flattens
+    // onto white, Keep preserves the pixels, Ask resolves per save.
+    alphaBox_ = new QWidget(this);
+    auto *alphaLayout = new QVBoxLayout(alphaBox_);
+    alphaLayout->setContentsMargins(0, 0, 0, 0);
+    alphaLayout->setSpacing(2);
+    alphaWhite_ = new QRadioButton(IX_TEXT("Auf Weiß reduzieren"), this);
+    alphaWhite_->setObjectName(QStringLiteral("compressionAlphaWhite"));
+    alphaKeep_ = new QRadioButton(IX_TEXT("Pixel behalten"), this);
+    alphaKeep_->setObjectName(QStringLiteral("compressionAlphaKeep"));
+    alphaAsk_ = new QRadioButton(IX_TEXT("Bei jedem Speichern fragen"), this);
+    alphaAsk_->setObjectName(QStringLiteral("compressionAlphaAsk"));
+    alphaLayout->addWidget(alphaWhite_);
+    alphaLayout->addWidget(alphaKeep_);
+    alphaLayout->addWidget(alphaAsk_);
+    form->addRow(IX_TEXT("Transparenz:"), alphaBox_);
+    for (auto *button : {alphaWhite_, alphaKeep_, alphaAsk_})
+        connect(button, &QRadioButton::toggled, this, [this](bool checked) {
+            if (checked)
+                collect();
+        });
     metaBox_ = new QWidget(this);
     auto *metaLayout = new QVBoxLayout(metaBox_);
     metaLayout->setContentsMargins(0, 0, 0, 0);
+    metaLayout->setSpacing(2);
     keepExif_ = new QCheckBox(IX_TEXT("EXIF-Metadaten erhalten"), this);
     keepExif_->setObjectName(QStringLiteral("compressionKeepExif"));
     keepIptc_ = new QCheckBox(IX_TEXT("IPTC-Metadaten erhalten"), this);
@@ -182,20 +217,31 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     targetBarLayout->addWidget(targetCancel_);
     targetLayout->addWidget(targetBar);
     form->addRow(targetRow_);
+    optimizeTimer_ = new QTimer(this);
+    optimizeTimer_->setSingleShot(true);
+    optimizeTimer_->setInterval(600);
+    connect(optimizeTimer_, &QTimer::timeout, this, [this] {
+        if (targetEnabled_->isChecked())
+            runTargetOptimization();
+    });
     connect(targetEnabled_, &QCheckBox::toggled, this, [this](bool checked) {
         collect();
+        optimizeTimer_->stop();
         if (checked)
             runTargetOptimization();
     });
     connect(targetValue_, &QDoubleSpinBox::valueChanged, this, [this] {
         collect();
+        // Debounced: typing a size must not start an optimization per keystroke.
+        optimizeTimer_->stop();
         if (targetEnabled_->isChecked())
-            runTargetOptimization();
+            optimizeTimer_->start();
     });
     connect(targetUnit_, &QComboBox::currentIndexChanged, this, [this] {
         collect();
+        optimizeTimer_->stop();
         if (targetEnabled_->isChecked())
-            runTargetOptimization();
+            optimizeTimer_->start();
     });
     auto *profileRow = new QWidget(this);
     auto *profileLayout = new QHBoxLayout(profileRow);
@@ -250,6 +296,15 @@ void SaveOptionsDialog::rebuild() {
     keepXmp_->setChecked(options_.keepXmp);
     keepIcc_->setChecked(options_.keepIcc);
     fixOrientation_->setChecked(options_.fixOrientation);
+    // Alpha handling only matters for formats without alpha; otherwise the
+    // section stays hidden but the stored choice is preserved.
+    if (options_.alphaMode == SaveOptions::AlphaMode::Keep)
+        alphaKeep_->setChecked(true);
+    else if (options_.alphaMode == SaveOptions::AlphaMode::Ask)
+        alphaAsk_->setChecked(true);
+    else
+        alphaWhite_->setChecked(true);
+    alphaBox_->setVisible(!alphaWritable(options_.format) && options_.format != "jpeg");
     const bool kb = options_.targetBytes < 1024 * 1024;
     targetUnit_->setCurrentIndex(targetUnit_->findData(kb ? 1024 : 1024 * 1024));
     targetValue_->setValue(double(options_.targetBytes) / (kb ? 1024.0 : 1024.0 * 1024.0));
@@ -286,6 +341,12 @@ void SaveOptionsDialog::collect() {
     options_.effort = effortSlider_->value();
     options_.pngLevel = pngLevel_->value();
     options_.interlaced = interlaced_->isChecked();
+    if (alphaWhite_->isChecked())
+        options_.alphaMode = SaveOptions::AlphaMode::White;
+    else if (alphaKeep_->isChecked())
+        options_.alphaMode = SaveOptions::AlphaMode::Keep;
+    else if (alphaAsk_->isChecked())
+        options_.alphaMode = SaveOptions::AlphaMode::Ask;
     options_.keepExif = keepExif_->isChecked();
     options_.keepIptc = keepIptc_->isChecked();
     options_.keepXmp = keepXmp_->isChecked();

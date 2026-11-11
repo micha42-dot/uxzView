@@ -11,8 +11,10 @@ class QDoubleSpinBox;
 class QLabel;
 class QProgressBar;
 class QPushButton;
+class QRadioButton;
 class QSlider;
 class QSpinBox;
+class QTimer;
 namespace ix {
 class CodecRegistry;
 struct ImageDocument;
@@ -52,6 +54,9 @@ class SaveOptionsDialog final : public QDialog {
     QPushButton *targetCancel_ = nullptr;
     QCheckBox *keepExif_ = nullptr, *keepIptc_ = nullptr, *keepXmp_ = nullptr, *keepIcc_ = nullptr,
               *fixOrientation_ = nullptr;
+    QRadioButton *alphaWhite_ = nullptr, *alphaKeep_ = nullptr, *alphaAsk_ = nullptr;
+    QWidget *alphaBox_ = nullptr;
+    QTimer *optimizeTimer_ = nullptr;
     QSpinBox *pngLevel_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,

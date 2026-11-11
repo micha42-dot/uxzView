@@ -912,5 +912,12 @@
 ["Qualität (0–100):", "Quality (0–100):", "품질 (0–100):", "品質 (0–100):", "Qualité (0–100) :"],
 ["Zieldateigröße (KB, 0 = aus):", "Target file size (KB, 0 = off):", "목표 파일 크기 (KB, 0 = 끔):", "目標ファイルサイズ (KB, 0 = オフ):", "Taille cible (Ko, 0 = désactivé) :"],
 ["Zieldateigröße", "Target file size", "목표 파일 크기", "目標ファイルサイズ", "Taille cible"],
-["Profil löschen", "Delete profile", "프로필 삭제", "プロファイルを削除", "Supprimer le profil"]
+["Profil löschen", "Delete profile", "프로필 삭제", "プロファイルを削除", "Supprimer le profil"],
+["Transparenz", "Transparency", "투명도", "透明度", "Transparence"],
+["Das Bild enthält Transparenz, die dieses Format nicht speichern kann.", "The image contains transparency that this format cannot store.", "이 형식에 저장할 수 없는 투명도가 이미지에 포함되어 있습니다.", "この形式では保存できない透明度が画像に含まれています。", "L'image contient une transparence que ce format ne peut pas enregistrer."],
+["Auf Weiß reduzieren oder Originalpixel behalten?", "Flatten onto white or keep original pixels?", "흰색으로 합치거나 원본 픽셀을 유지하시겠습니까?", "白で合成するか元のピクセルを保持しますか？", "Aplatir sur blanc ou conserver les pixels d'origine ?"],
+["Auf Weiß reduzieren", "Flatten onto white", "흰색으로 합치기", "白で合成", "Aplatir sur blanc"],
+["Pixel behalten", "Keep pixels", "픽셀 유지", "ピクセルを保持", "Conserver les pixels"],
+["Bei jedem Speichern fragen", "Ask on every save", "저장할 때마다 묻기", "保存のたびに確認", "Demander à chaque enregistrement"],
+["Transparenz:", "Transparency:", "투명도:", "透明度：", "Transparence :"]
 ]

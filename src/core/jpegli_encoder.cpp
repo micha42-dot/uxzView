@@ -56,6 +56,10 @@ qint64 jpegliWorkingBytes(int width) {
     return ((qint64(std::max(0, width)) + 15) / 16 * 16) * 4096 + 2 * MiB;
 }
 QString writeJpegli(QIODevice &destination, const QImage &image, int quality, qint64 byteBudget) {
+    return writeJpegli(destination, image, quality, JpegliOptions{}, byteBudget);
+}
+QString writeJpegli(QIODevice &destination, const QImage &image, int quality,
+                    const JpegliOptions &options, qint64 byteBudget) {
     // Sequential, non-optimized coding keeps jpegli's MCU-row streaming path.
     // Allow its float row planes, adaptation data, conversion row and IO buffer.
     const qint64 working = jpegliWorkingBytes(image.width());
@@ -79,7 +83,17 @@ QString writeJpegli(QIODevice &destination, const QImage &image, int quality, qi
         state.in_color_space = cmyk ? JCS_CMYK : gray ? JCS_GRAYSCALE : JCS_RGB;
         jpegli_set_defaults(&state);
         jpegli_set_quality(&state, quality < 0 ? 95 : std::clamp(quality, 0, 100), TRUE);
-        jpegli_set_progressive_level(&state, 0);
+        // Progressive and 4:4:4 sampling are real encoder switches (not just
+        // stored UI flags): they change the produced bitstream. Both must be
+        // set after jpegli_set_defaults (which resets them); level 0 pins
+        // sequential mode, level 2 selects the default progression.
+        jpegli_set_progressive_level(&state, options.progressive ? 2 : 0);
+        if (options.noSubsampling && state.num_components == 3) {
+            for (int i = 0; i < 3; ++i) {
+                state.comp_info[i].h_samp_factor = 1;
+                state.comp_info[i].v_samp_factor = 1;
+            }
+        }
         state.optimize_coding = FALSE;
         state.write_JFIF_header = !cmyk; // JFIF defines grayscale/YCbCr, not CMYK.
         if (cmyk) state.write_Adobe_marker = TRUE;
@@ -105,7 +119,7 @@ QString writeJpegli(QIODevice &destination, const QImage &image, int quality, qi
             jpegli_write_marker(&state, JPEG_COM, reinterpret_cast<const JOCTET *>(comment.constData()), unsigned(comment.size()));
         }
         QImage whiteRow;
-        if (image.hasAlphaChannel()) {
+        if (image.hasAlphaChannel() && options.flattenAlpha) {
             whiteRow = QImage(image.width(), 1, QImage::Format_RGB888);
             if (whiteRow.isNull()) throw std::bad_alloc();
         }
@@ -126,7 +140,7 @@ QString writeJpegli(QIODevice &destination, const QImage &image, int quality, qi
             else if (convertColor) {
                 row.setColorSpace(image.colorSpace());
                 row = row.convertedToColorSpace(colorSpace, QImage::Format_RGB888);
-            } else if (image.hasAlphaChannel()) {
+            } else if (image.hasAlphaChannel() && options.flattenAlpha) {
                 const auto premultiplied = row.convertToFormat(QImage::Format_ARGB32_Premultiplied);
                 if (premultiplied.isNull()) throw std::bad_alloc();
                 const auto *source = reinterpret_cast<const QRgb *>(premultiplied.constBits());

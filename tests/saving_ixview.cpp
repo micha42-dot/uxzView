@@ -338,6 +338,8 @@ class SavingTests : public QObject {
     void targetSizeOptimizationRespectsBudget();
     void compressionProfilesRoundTrip();
     void perTypeMetadataMaskingDropsOnlyDeselected();
+    void alphaModeControlsFlattening();
+    void jpegFilterMatchesCanonicalFormat();
 };
 void SavingTests::compressionOptionsAffectOutput() {
     const auto format = QByteArrayLiteral("webp");
@@ -445,6 +447,49 @@ void SavingTests::perTypeMetadataMaskingDropsOnlyDeselected() {
     keep.keepXmp = false;
     QVERIFY(registry.saveWithOptions(document, temp_.filePath(QStringLiteral("masked.png")), "png",
                                      keep, true).isEmpty());
+}
+void SavingTests::alphaModeControlsFlattening() {
+    // Real transparency + JPEG: White flattens, Keep preserves pixels.
+    QImage image(32, 32, QImage::Format_ARGB32);
+    image.fill(QColor(10, 200, 30, 128));
+    ix::ImageDocument document;
+    document.pixels = image;
+    QVERIFY(ix::imageHasRealTransparency(document.pixels));
+    ix::CodecRegistry registry;
+    ix::CodecRegistry::EncodeOptions white, keep;
+    white.alphaWhite = 1;
+    keep.alphaWhite = 0;
+    const auto whitePath = temp_.filePath(QStringLiteral("alpha-white.jpg"));
+    const auto keepPath = temp_.filePath(QStringLiteral("alpha-keep.jpg"));
+    QVERIFY(registry.saveWithOptions(document, whitePath, "jpeg", white, true).isEmpty());
+    // Keep bypasses flattening through jpegli's alpha path: still encodes.
+    QVERIFY(registry.saveWithOptions(document, keepPath, "jpeg", keep, true).isEmpty());
+    QVERIFY(QImageReader(whitePath).canRead());
+    QVERIFY(QImageReader(keepPath).canRead());
+    // Opaque images never warn and never flatten regardless of mode.
+    ix::ImageDocument opaque;
+    opaque.pixels = sample();
+    QVERIFY(!ix::imageHasRealTransparency(opaque.pixels));
+    QVERIFY(ix::CodecRegistry::exportLosses(opaque, "jpeg").isEmpty());
+}
+void SavingTests::jpegFilterMatchesCanonicalFormat() {
+    // A JFIF-labeled filter (as advertised by some Qt builds) must resolve
+    // to the canonical jpeg entry, never to a phantom JFIF default.
+    ix::CodecRegistry registry;
+    const auto formats = ix::writableSaveFormats(registry);
+    const auto byId = [&](const QByteArray &id) {
+        return std::find_if(formats.cbegin(), formats.cend(),
+                            [&](const auto &f) { return f.id == id; });
+    };
+    QVERIFY(byId("jpeg") != formats.cend());
+    QCOMPARE(ix::canonicalSaveFormat(QByteArray("jfif")), QByteArray("jpeg"));
+    // selectedSaveTarget prefers the filename suffix, falling back to the
+    // filter; a bare name with a JPEG filter lands on jpeg, not jfif.
+    const auto jpegFilter = byId("jpeg")->filter();
+    const auto target = ix::selectedSaveTarget(temp_.filePath(QStringLiteral("photo")),
+                                               jpegFilter, formats);
+    QCOMPARE(target.format.id, QByteArray("jpeg"));
+    QVERIFY(target.suggestedPath.endsWith(QStringLiteral(".jpg")));
 }
 int main(int argc,char **argv) {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);

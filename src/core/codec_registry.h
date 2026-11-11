@@ -7,6 +7,7 @@
 #include <optional>
 namespace ix {
 bool isRawFormat(const QByteArray &format);
+bool alphaWritable(const QByteArray &format);
 struct FormatCapability {
     QString name;
     QStringList extensions;
@@ -35,11 +36,15 @@ class CodecRegistry {
     ImageResult read(const QString &path, int page = 0) const;
     struct EncodeOptions {
         int quality = 95;
-        bool progressive = false;   // Reserved: honored once the encoder exposes it.
-        bool noSubsampling = false; // Reserved: honored once the encoder exposes it.
+        bool progressive = false;   // Honored by the jpegli path below.
+        bool noSubsampling = false; // Honored by the jpegli path below.
         bool interlaced = false;    // Reserved: honored once the encoder exposes it.
         int compressionLevel = -1;  // PNG 0-9 mapped to writer quality; -1 keeps default.
         bool keepExif = true, keepIptc = true, keepXmp = true, keepIcc = true;
+        // PNG->JPEG alpha handling: White flattens onto white (legacy default),
+        // Keep preserves the pixels for encoders that store alpha. Ask is
+        // resolved by the caller before encoding (never reaches the encoder).
+        int alphaWhite = 1;
         // Orientation pixels are already applied by the reader (autoTransform);
         // the flag is persisted for the upcoming tag-normalization step and
         // currently guards no additional transform to avoid double rotation.

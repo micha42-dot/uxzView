@@ -71,20 +71,14 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         QString suggested = target.suggestedPath;
         if (suggested.isEmpty()) suggested = QDir(settings.value(QStringLiteral("files/directory"), QDir::homePath()).toString())
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
-        // A companion dialog needs a Qt (non-native) file dialog it can track:
-        // native dialogs are OS windows the app cannot position next to.
-        // Standard behavior (filters, navigation, overwrite handling) stays intact.
+        // Native file dialog (unchanged standard behavior). The compression
+        // companion is a separate tool window tracked next to it.
         QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, registry_.saveFilter());
-        chooser.setOption(QFileDialog::DontUseNativeDialog);
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
         chooser.setOption(QFileDialog::DontConfirmOverwrite);
         chooser.selectNameFilter(selected);
         chooser.setDefaultSuffix(target.format.suffix());
-        auto *showCompanion = new QCheckBox(IX_TEXT("Kompressionsoptionen anzeigen"), &chooser);
-        showCompanion->setObjectName(QStringLiteral("save/showCompression"));
-        showCompanion->setChecked(saveCompanionEnabled());
-        chooser.layout()->addWidget(showCompanion);
         SaveOptionsDialog companion(output, &chooser);
         companion.setRegistry(&registry_);
         companion.setProfiles(loadSaveProfiles());
@@ -94,7 +88,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             if (!companion.isVisible())
                 return;
             const auto frame = chooser.frameGeometry();
-            const auto screen = chooser.screen()->availableGeometry();
+            const auto screen = chooser.screen() ? chooser.screen()->availableGeometry()
+                                                 : QApplication::primaryScreen()->availableGeometry();
             companion.adjustSize();
             QPoint pos = frame.topRight() + QPoint(8, 0);
             if (pos.x() + companion.width() > screen.right()) // Fall back to the left side.
@@ -104,8 +99,31 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             companion.move(pos);
         };
         auto previous = target.format;
+        const auto formatForFilter = [&](const QString &filter) -> QList<SaveFormat>::const_iterator {
+            // Match by canonical id: Qt may list the same codec under a
+            // different label or extension order (e.g. JFIF vs JPEG).
+            const auto byFilter = std::find_if(formats.cbegin(), formats.cend(),
+                                               [&](const auto &f) { return f.filter() == filter; });
+            if (byFilter != formats.cend())
+                return byFilter;
+            // Fallback: first extension token of the filter ("*.jpg ..."),
+            // matched canonically.
+            const auto tokens = filter.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (const auto &token : tokens) {
+                auto cleaned = token;
+                cleaned.remove(QLatin1Char('(')).remove(QLatin1Char(')'));
+                if (cleaned.startsWith(QStringLiteral("*."))) {
+                    const auto id = canonicalSaveFormat(cleaned.sliced(2).toLatin1());
+                    const auto byId = std::find_if(formats.cbegin(), formats.cend(),
+                                                   [&](const auto &f) { return f.id == id; });
+                    if (byId != formats.cend())
+                        return byId;
+                }
+            }
+            return formats.cend();
+        };
         connect(&chooser, &QFileDialog::filterSelected, &chooser, [&](const QString &filter) {
-            const auto next = std::find_if(formats.cbegin(), formats.cend(), [&](const auto &f) { return f.filter() == filter; });
+            const auto next = formatForFilter(filter);
             if (next == formats.cend()) return;
             const auto name = chooser.selectedFiles().value(0);
             if (next->id != previous.id && !name.isEmpty() && canonicalSaveFormat(QFileInfo(name).suffix().toLatin1()) == previous.id)
@@ -114,8 +132,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             previous = *next;
         });
         connect(&chooser, &QFileDialog::filterSelected, &companion, [&](const QString &filter) {
-            const auto next = std::find_if(formats.cbegin(), formats.cend(),
-                                           [&](const auto &f) { return f.filter() == filter; });
+            const auto next = formatForFilter(filter);
             if (next == formats.cend())
                 return;
             if (next->id != companion.options().format)
@@ -125,9 +142,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         connect(&companion, &SaveOptionsDialog::optionsChanged, &chooser,
                 [&](const SaveOptions &updated) {
                     saveOptions = updated;
-                    // A loaded profile may target another format: mirror it in
-                    // the file dialog filter (guarded: filterSelected only fires
-                    // on actual change, so no recursion).
                     if (updated.format != target.format.id) {
                         const auto match = std::find_if(formats.cbegin(), formats.cend(),
                                                         [&](const auto &f) { return f.id == updated.format; });
@@ -135,11 +149,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                             chooser.selectNameFilter(match->filter());
                     }
                 });
-        connect(showCompanion, &QCheckBox::toggled, &chooser, [&](bool checked) {
-            setSaveCompanionEnabled(checked);
-            companion.setVisible(checked);
-            placeCompanion();
-        });
         struct CompanionPlacer final : QObject {
             QFileDialog *chooser = nullptr;
             std::function<void()> place;
@@ -159,11 +168,28 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             chooser.removeEventFilter(placer);
             placer->deleteLater();
         });
-        if (showCompanion->isChecked()) {
-            companion.show();
-            placeCompanion();
-        }
-        if (chooser.exec() != QDialog::Accepted) return false;
+        // Follow the native dialog while it is open; the companion closes
+        // with it (child widget) and never outlives the save flow.
+        auto *followTimer = new QTimer(&chooser);
+        followTimer->setInterval(250);
+        connect(followTimer, &QTimer::timeout, &chooser, [&] {
+            if (chooser.isVisible())
+                placeCompanion();
+            else
+                companion.close();
+        });
+        followTimer->start();
+        // The companion is always shown (compact tool window); closing it via
+        // its own close button only hides it for this save, the file dialog
+        // keeps running with the last options.
+        connect(&companion, &QDialog::rejected, &companion, [&] { companion.hide(); });
+        companion.show();
+        placeCompanion();
+        // The native dialog runs its own modal loop; the companion is a child
+        // tool window and stays interactive while it is open.
+        const bool accepted = chooser.exec() == QDialog::Accepted;
+        followTimer->stop();
+        if (!accepted) return false;
         saveOptions = companion.options();
         storeSaveOptions(saveOptions);
         target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
@@ -222,6 +248,28 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     encode.keepIptc = saveOptions.keepIptc;
     encode.keepXmp = saveOptions.keepXmp;
     encode.keepIcc = saveOptions.keepIcc;
+    // Ask mode: resolve transparency handling with the user before encoding.
+    // White flattens (legacy default), Keep preserves pixels for formats
+    // that store alpha; either choice is then applied silently.
+    if (saveOptions.alphaMode == SaveOptions::AlphaMode::Ask &&
+        format != "jpeg" && !alphaWritable(format) && imageHasRealTransparency(output.pixels)) {
+        QMessageBox ask(this);
+        ask.setWindowTitle(IX_TEXT("Transparenz"));
+        ask.setText(IX_TEXT("Das Bild enthält Transparenz, die dieses Format nicht speichern kann."));
+        ask.setInformativeText(IX_TEXT("Auf Weiß reduzieren oder Originalpixel behalten?"));
+        auto *whiteButton = ask.addButton(IX_TEXT("Auf Weiß reduzieren"), QMessageBox::AcceptRole);
+        auto *keepButton = ask.addButton(IX_TEXT("Pixel behalten"), QMessageBox::AcceptRole);
+        ask.addButton(QMessageBox::Cancel);
+        ask.setDefaultButton(whiteButton);
+        ask.exec();
+        const auto clicked = ask.clickedButton();
+        if (clicked != whiteButton && clicked != keepButton)
+            return false;
+        saveOptions.alphaMode = clicked == whiteButton ? SaveOptions::AlphaMode::White
+                                                       : SaveOptions::AlphaMode::Keep;
+        storeSaveOptions(saveOptions);
+    }
+    encode.alphaWhite = saveOptions.alphaMode == SaveOptions::AlphaMode::Keep ? 0 : 1;
     // Losses the user explicitly opted out of (deselected metadata) are not
     // warned about; the global switch still suppresses everything.
     auto losses = CodecRegistry::exportLosses(output, format, &encode);

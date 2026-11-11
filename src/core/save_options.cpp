@@ -23,7 +23,10 @@ qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int
             error = buffer.errorString();
             return -1;
         }
-        error = writeJpegli(buffer, document.pixels, quality);
+        ix::JpegliOptions jpegOptions;
+        jpegOptions.progressive = options.progressive;
+        jpegOptions.noSubsampling = options.noSubsampling;
+        error = writeJpegli(buffer, document.pixels, quality, jpegOptions);
         if (!error.isEmpty())
             return -1;
         return encoded.size();
@@ -105,6 +108,7 @@ QJsonObject SaveOptions::toJson() const {
             {QStringLiteral("noSubsampling"), noSubsampling},
             {QStringLiteral("interlaced"), interlaced},
             {QStringLiteral("pngLevel"), pngLevel},
+            {QStringLiteral("alphaMode"), int(alphaMode)},
             {QStringLiteral("keepExif"), keepExif},
             {QStringLiteral("keepIptc"), keepIptc},
             {QStringLiteral("keepXmp"), keepXmp},
@@ -123,6 +127,8 @@ SaveOptions SaveOptions::fromJson(const QJsonObject &object) {
     options.noSubsampling = object.value(QStringLiteral("noSubsampling")).toBool(false);
     options.interlaced = object.value(QStringLiteral("interlaced")).toBool(false);
     options.pngLevel = std::clamp(object.value(QStringLiteral("pngLevel")).toInt(6), 0, 9);
+    options.alphaMode = static_cast<SaveOptions::AlphaMode>(
+        std::clamp(object.value(QStringLiteral("alphaMode")).toInt(0), 0, 2));
     options.keepExif = object.value(QStringLiteral("keepExif")).toBool(true);
     options.keepIptc = object.value(QStringLiteral("keepIptc")).toBool(true);
     options.keepXmp = object.value(QStringLiteral("keepXmp")).toBool(true);
@@ -155,19 +161,13 @@ void storeSaveOptions(const SaveOptions &options) {
     settings.setValue(QStringLiteral("save/lastOptions"), options.toJson());
     settings.sync();
 }
-bool saveCompanionEnabled() {
-    return QSettings().value(QStringLiteral("save/showCompression"), true).toBool();
-}
-void setSaveCompanionEnabled(bool enabled) {
-    QSettings().setValue(QStringLiteral("save/showCompression"), enabled);
-}
-QJsonObject loadSaveProfiles() {
-    return QSettings().value(QStringLiteral("save/profiles")).toJsonObject();
-}
 void storeSaveProfiles(const QJsonObject &profiles) {
     QSettings settings;
     settings.setValue(QStringLiteral("save/profiles"), profiles);
     settings.sync();
+}
+QJsonObject loadSaveProfiles() {
+    return QSettings().value(QStringLiteral("save/profiles")).toJsonObject();
 }
 QString saveProfileError(const QString &name, const QJsonObject &profiles, bool exists) {
     if (name.trimmed().isEmpty())

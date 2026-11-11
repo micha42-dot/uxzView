@@ -41,6 +41,8 @@ struct SaveOptions {
     bool noSubsampling = false;     // JPEG: disable chroma subsampling.
     bool interlaced = false;        // GIF interlaced.
     int pngLevel = 6;               // PNG compression level 0-9.
+    enum class AlphaMode { White = 0, Keep = 1, Ask = 2 };
+    AlphaMode alphaMode = AlphaMode::White; // PNG->JPEG transparency handling.
     bool keepExif = true, keepIptc = true, keepXmp = true, keepIcc = true;
     bool fixOrientation = true;     // Correct EXIF orientation tag.
     bool targetSizeEnabled = false;
@@ -55,8 +57,6 @@ SaveOptions defaultSaveOptions(const QByteArray &format);
 // Persistence helpers (QSettings-backed, portable-compatible).
 SaveOptions loadSaveOptions(const QByteArray &format);
 void storeSaveOptions(const SaveOptions &options);
-bool saveCompanionEnabled();
-void setSaveCompanionEnabled(bool enabled);
 // Named profiles: map profile name -> options JSON.
 QJsonObject loadSaveProfiles();
 void storeSaveProfiles(const QJsonObject &profiles);

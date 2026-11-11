@@ -164,12 +164,15 @@ format limits in [large images](LARGE_IMAGES.md).
 
 ## Kompressionsoptionen beim Speichern
 
-**Datei → Speichern unter** öffnet neben dem Dateidialog ein kompaktes Begleitfenster
-mit den Kompressionseinstellungen des gewählten Formats (z. B. „JPEG-Optionen
-speichern"). Beide Fenster bleiben vor dem Speichern bedienbar; das Begleitfenster
-folgt dem Dateidialog und weicht bei Platzmangel auf die linke Seite aus. Der
-Schalter **Kompressionsoptionen anzeigen** im Dateidialog blendet es ein oder aus
-und bleibt gespeichert.
+**Datei → Speichern unter** öffnet den gewohnten nativen Dateidialog; daneben
+erscheint ein kompaktes Begleitfenster mit den Kompressionseinstellungen des
+gewählten Formats (z. B. „JPEG-Optionen speichern"). Beide Fenster bleiben vor
+dem Speichern bedienbar; das Begleitfenster folgt dem Dateidialog und weicht bei
+Platzmangel auf die linke Seite aus. Das Schließen des Begleitfensters bricht
+den Speichervorgang nicht ab — gespeichert wird mit den zuletzt gewählten
+Einstellungen. Die Dateiformatliste des nativen Dialogs wird kanonisch
+gematcht, sodass z. B. ein als JFIF geführter JPEG-Eintrag weiterhin das
+JPEG-Format wählt.
 
 - **Qualität (0–100, Slider + Zahl):** JPEG (jpegli-Encoder), WebP und AVIF/HEIF;
   PNG nutzt stattdessen eine verlustfreie Stufe 0–9.
@@ -181,6 +184,11 @@ und bleibt gespeichert.
   und Aufwand; GIF interlaced. Nur unterstützte Schalter werden angezeigt.
 - **Metadaten:** EXIF/IPTC/XMP und ICC-Profil einzeln abwählbar; die
   EXIF-Ausrichtung wird auf die Pixel angewendet.
+- **Transparenz:** Für Formate ohne Alphakanal wählbar — auf Weiß reduzieren
+  (bisheriges Verhalten), Originalpixel behalten oder bei jedem Speichern
+  fragen. Die Warnung vor Formatverlusten erscheint nur noch bei tatsächlich
+  vorhandener Transparenz statt bei bloßem Alphakanal und lässt sich zusätzlich
+  über `save/warnLosses` abschalten.
 - **Profile:** Kombinationen aus Format und Einstellungen lassen sich benennen,
   laden, überschreiben (mit Nachfrage) und löschen; die letzten Einstellungen
   werden beim nächsten Speichern wiederhergestellt.

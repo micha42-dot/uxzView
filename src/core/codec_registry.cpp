@@ -32,6 +32,11 @@ bool isRawFormat(const QByteArray &format) {
         "sr2 srf srw sti x3f").split(' ');
     return formats.contains(format.toLower());
 }
+bool alphaWritable(const QByteArray &f) {
+    return QList<QByteArray>{"png",  "tiff", "webp", "ico", "cur", "avif", "heif",
+                             "heic", "jxl",  "exr",  "dds", "tga", "qoi"}
+        .contains(f);
+}
 namespace {
 #ifdef IX_PDF_MODULE
 ImageResult readPdf(const QString &path, int page) {
@@ -77,11 +82,6 @@ QString backend(const QByteArray &f) {
     if (isRawFormat(f))
         return QStringLiteral("KImageFormats / LibRaw");
     return QStringLiteral("Qt / KImageFormats");
-}
-bool alphaWritable(const QByteArray &f) {
-    return QList<QByteArray>{"png",  "tiff", "webp", "ico", "cur", "avif", "heif",
-                             "heic", "jxl",  "exr",  "dds", "tga", "qoi"}
-        .contains(f);
 }
 QByteArray normalized(QByteArray f) {
     return canonicalSaveFormat(std::move(f));
@@ -452,7 +452,12 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     else
         writer.setQuality(quality);
     QImage output = d.pixels;
-    if (format != "jpeg" && output.hasAlphaChannel() && !alphaWritable(format)) {
+    // alphaWhite != 0 (legacy default) flattens transparency onto white for
+    // formats without alpha. alphaWhite == 0 keeps the pixels untouched; the
+    // Ask mode is resolved by the caller before encoding (see saveImage) and
+    // never reaches this point with alpha present.
+    if (format != "jpeg" && encode.alphaWhite != 0 && output.hasAlphaChannel() &&
+        !alphaWritable(format) && imageHasRealTransparency(output)) {
         QImage flat;
         try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
         catch (const std::exception &error) { file.cancelWriting(); return localized(QString::fromUtf8(error.what())); }
@@ -471,8 +476,12 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
         inheritImageProperties(output, flat);
         output = flat;
     }
-    const QString encodeError = format == "jpeg" ? writeJpegli(*destination, output, quality)
-                                                : writer.write(output) ? QString() : writer.errorString();
+    const QString encodeError =
+        format == "jpeg"
+            ? writeJpegli(*destination, output, quality,
+                          JpegliOptions{encode.progressive, encode.noSubsampling,
+                                        encode.alphaWhite != 0})
+            : writer.write(output) ? QString() : writer.errorString();
     if (!encodeError.isEmpty()) {
         file.cancelWriting();
         return encodeError;
