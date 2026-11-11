@@ -2,7 +2,12 @@
 #pragma once
 // Companion window next to the Save As dialog: compact per-format compression
 // options with quality slider, target file size, metadata choices and named
-// profiles. Non-modal; dies with the save dialog.
+// profiles. Non-modal, parented to the native save dialog while a save is in
+// flight. The main window owns one instance across save sessions: building the
+// ~20 widgets costs ~100 ms, so re-creating it per Save As is what felt slow.
+// The native QFileDialog itself stays per-save (a reused one clobbers the
+// typed file name through its asynchronous directory model).
+#include "core/codec_registry.h"
 #include "core/save_options.h"
 #include <QDialog>
 #include <QFutureWatcher>
@@ -21,22 +26,23 @@ class QSlider;
 class QSpinBox;
 class QTimer;
 namespace ix {
-class CodecRegistry;
 struct ImageDocument;
 class SaveOptionsDialog final : public QDialog {
     Q_OBJECT
   public:
-    explicit SaveOptionsDialog(const ImageDocument &document, QWidget *parent = nullptr);
+    SaveOptionsDialog(const CodecRegistry &registry, QWidget *owner);
     SaveOptions options() const { return options_; }
     void setFormat(const QByteArray &format);
-    void setRegistry(const CodecRegistry *registry);
-    void setProfiles(const QJsonObject &profiles);
-    // Prepares everything before first show: format + profiles + one rebuild
-    // and one fixed size, with updates frozen. The dialog must never paint
-    // an empty/half-built intermediate state (IrfanView shows its dialog
-    // fully populated at once).
-    void prepare(const QByteArray &format, const QJsonObject &profiles,
-                 const QPointer<QDialog> &nativeDialog);
+    // One session = one Save As: hand over the current document/options/profiles
+    // and the native chooser. Everything (values, profile list, visibility and
+    // the fixed size) is applied with updates frozen, so the first paint is
+    // already complete. Parents the window to the chooser (top-most + usable
+    // while its modal loop runs) and docks it beside the native frame.
+    void prepare(const ImageDocument &document, SaveOptions options,
+                 const QJsonObject &profiles, QDialog &chooser);
+    // Ends the session: hide, cancel workers, clear the stale auto result and
+    // give the window back to its owner so the next save can reuse it.
+    void endSession();
     // Places the companion beside the given native save dialog once it is
     // visible (IrfanView shows both windows side-by-side, not stacked).
     void placeBeside(QWidget *nativeDialog);
@@ -58,8 +64,10 @@ class SaveOptionsDialog final : public QDialog {
     ~SaveOptionsDialog() override;
 
   private:
-    const ImageDocument &document_;
-    const CodecRegistry *registry_ = nullptr;
+    QWidget *const owner_;
+    const CodecRegistry registry_;
+    QPointer<QDialog> chooser_;
+    ImageDocument document_;
     SaveOptions options_;
     QJsonObject profiles_;
     SaveCapabilities caps_;
@@ -101,11 +109,13 @@ class SaveOptionsDialog final : public QDialog {
     bool autoPlaced_ = false; // True only inside the placeBeside() move window.
     // Set by setFormat(); consumed on first show so no encode blocks paint.
     bool pendingAutoOptimize_ = false;
+    void applyOptions(SaveOptions options);
     void rebuild();
     void collect();
     void runTargetOptimization();
-    // Cancels all running target-size workers (sets their flags; the
-    // finished handlers double-check staleness before publishing).
+    // Stops every live target-size worker (flags + watchers + timers) so no
+    // stale finished handler can publish into the next session.
+    void cancelTargetOptimization();
     void cancelTargetWorkers();
     void loadProfile(int index);
     void saveProfile();

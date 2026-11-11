@@ -30,7 +30,43 @@ void applySource(ImageDocument &document, const SourceFileState &source) {
     document.sourceModified = source.modified;
     document.fileBytes = source.bytes;
 }
+
 } // namespace
+SaveOptionsDialog &MainWindow::saveCompanion() {
+    // One instance for the whole window: building ~20 widgets costs ~100 ms,
+    // which is what made Save As feel slow. Rebuild only on language change,
+    // because every caption is baked at construction time.
+    const auto language = uiLanguage();
+    if (!saveOptionsDialog_ || saveOptionsLanguage_ != language) {
+        delete saveOptionsDialog_;
+        saveOptionsDialog_ = new SaveOptionsDialog(registry_, this);
+        saveOptionsLanguage_ = language;
+    }
+    return *saveOptionsDialog_;
+}
+
+void MainWindow::scheduleSaveUiWarmup() {
+    if (saveUiWarmupScheduled_)
+        return;
+    saveUiWarmupScheduled_ = true;
+    if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
+        return;
+    // Warm the format list off the GUI thread: writableSaveFormats() walks
+    // every codec capability (~60-70 ms cold), and Save As must not pay it.
+    saveFormatsWarmup_ = QtConcurrent::run([registry = registry_] {
+        (void)writableSaveFormats(registry);
+    });
+    // Build the hidden companion after the first image has had time to paint:
+    // by the time the user hits Save As, the widgets already exist.
+    QTimer::singleShot(150, this, [this] {
+        if (!isVisible() || document_.empty() || activity_.busy() || QApplication::activeModalWidget())
+            return;
+        if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
+            return;
+        saveCompanion().ensurePolished();
+    });
+}
+
 bool MainWindow::confirmDiscard() {
     if (!document_.modified ||
         !QSettings().value(QStringLiteral("navigation/askToSave"), false).toBool())
@@ -89,11 +125,10 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         chooser.setOption(QFileDialog::DontConfirmOverwrite);
         chooser.selectNameFilter(selected);
         chooser.setDefaultSuffix(target.format.suffix());
-        SaveOptionsDialog companion(output, &chooser);
-        companion.setRegistry(&registry_);
+        SaveOptionsDialog &companion = saveCompanion();
         // Fully populated BEFORE first show: one frozen prepare (values +
         // profiles + fixed size), so no empty/half-built frame ever paints.
-        companion.prepare(target.format.id, loadSaveProfiles(), QPointer<QDialog>(&chooser));
+        companion.prepare(output, saveOptions, loadSaveProfiles(), chooser);
         saveOptions = companion.options();
         auto previous = target.format;
         const auto formatForFilter = [&](const QString &filter) -> QList<SaveFormat>::const_iterator {
@@ -204,8 +239,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         const bool accepted = chooser.exec() == QDialog::Accepted;
         // Esc (in either window) closes both: the companions reject() forwards
         // to the chooser, and the chooser's own Esc/reject path lands here —
-        // always hide the companion so no orphaned window stays on screen.
-        companion.hide();
+        // always end the session so no orphaned window or worker survives.
+        companion.endSession();
         // Flush a still-pending companion position before the locals die.
         if (companionPosTimer.isActive()) {
             companionPosTimer.stop();

@@ -31,8 +31,8 @@
 #include <memory>
 #include <utility>
 namespace ix {
-SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *parent)
-    : QDialog(parent), document_(document) {
+SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *owner)
+    : QDialog(owner), owner_(owner), registry_(registry) {
     setAttribute(Qt::WA_DeleteOnClose, false);
     // Side-by-side companion WITHOUT any system buttons: Qt::CustomizeWindowHint
     // strips the native title-bar buttons, so the ugly hover-red X is gone for
@@ -339,38 +339,62 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
             pair.first->hide();
     }
 }
-void SaveOptionsDialog::setRegistry(const CodecRegistry *registry) {
-    registry_ = registry;
-}
 void SaveOptionsDialog::setFormat(const QByteArray &format) {
-    // A format switch invalidates any running target-size worker: cancel it
-    // so no stale result can publish into the new format (the finished
-    // handler double-checks, this stops the wasted encodes early).
-    cancelTargetWorkers();
-    options_ = loadSaveOptions(format);
-    caps_ = saveCapabilities(format);
-    rebuild();
+    // One atomic format swap; applyOptions() cancels stale workers first so no
+    // late result can publish into the new format.
+    const bool wasFixed = !minimumSize().isNull() || !maximumSize().isNull();
+    if (wasFixed) {
+        setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    }
+    applyOptions(loadSaveOptions(format));
+    if (wasFixed) {
+        adjustSize();
+        setFixedSize(size());
+    }
     // Defer the IrfanView-style auto-optimization until the dialog is
     // actually visible: starting full-res encodes here blocked first paint.
     pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
 }
 
-void SaveOptionsDialog::prepare(const QByteArray &format, const QJsonObject &profiles,
-                                const QPointer<QDialog> & /*nativeDialog*/) {
-    // Single-shot, fully-populated construction: everything (values, profile
-    // list, visibility, fixed size) is done while updates are frozen, before
-    // anyone shows the window. The old path (setFormat/setProfiles/show +
-    // showEvent-driven rebuild + placeBeside timer) painted empty/half-built
-    // frames first — that staged loading is what felt slow.
+void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions options,
+                                const QJsonObject &profiles, QDialog &chooser) {
+    // Single-shot, fully-populated session start: everything (values, profile
+    // list, visibility, fixed size) is applied with updates frozen, before the
+    // window is shown. The old path painted empty/half-built frames first —
+    // that staged loading is exactly what felt slow.
+    Q_ASSERT(owner_);
+    if (parentWidget() != &chooser)
+        setParent(&chooser, windowFlags());
+    chooser_ = &chooser;
+    document_ = document;
+    profiles_ = profiles;
+    refreshProfileCombo();
     setUpdatesEnabled(false);
     const auto unfreeze = qScopeGuard([this] { setUpdatesEnabled(true); });
-    setProfiles(profiles);
-    setFormat(format);
+    applyOptions(options);
     updateGeometry();
     // One fixed size from the fully populated layout; no further adjustSize()
     // passes while the dialog is visible (each one repaints empty first).
     adjustSize();
     setFixedSize(size());
+}
+
+void SaveOptionsDialog::endSession() {
+    // A finished/cancelled save must not leave a stale auto result or a live
+    // worker behind: the next session starts from neutral state.
+    cancelTargetWorkers();
+    hide();
+    if (parentWidget() != owner_)
+        setParent(owner_, windowFlags());
+    chooser_ = nullptr;
+    document_ = ImageDocument();
+    targetResult_->clear();
+    targetProgress_->hide();
+    targetCancel_->hide();
+    options_.autoQuality = -1;
+    pendingAutoOptimize_ = false;
+    optimizeTimer_->stop();
 }
 
 void SaveOptionsDialog::showEvent(QShowEvent *event) {
@@ -438,6 +462,24 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
         selfGuard->autoPlaced_ = false;
     });
     poller->start();
+}
+
+void SaveOptionsDialog::applyOptions(SaveOptions options) {
+    // One atomic option swap: cancel, then apply values and visibility with all
+    // signals blocked, so nothing persists or optimizes half-way.
+    cancelTargetOptimization();
+    options_ = std::move(options);
+    caps_ = saveCapabilities(options_.format);
+    rebuild();
+    if (options_.targetSizeEnabled && caps_.targetSize && isVisible()) {
+        targetProgress_->show();
+        targetCancel_->show();
+        runTargetOptimization();
+    } else {
+        targetProgress_->hide();
+        targetCancel_->hide();
+        targetResult_->clear();
+    }
 }
 
 void SaveOptionsDialog::rebuild() {
@@ -570,8 +612,35 @@ void SaveOptionsDialog::collect() {
     // synchronously on every slider tick and made dragging stutter.
     emit optionsChanged(options_);
 }
+void SaveOptionsDialog::cancelTargetOptimization() {
+    // Shared by setFormat(), applyOptions() and endSession(): stop every live
+    // worker so no stale finished-handler can publish into the next session.
+    for (const auto &watcher : std::as_const(targetWatchers_)) {
+        if (watcher) {
+            watcher->disconnect(this);
+            watcher->cancel();
+        }
+    }
+    targetWatchers_.clear();
+    for (const auto &timer : std::as_const(targetTimers_)) {
+        if (timer) {
+            timer->disconnect(this);
+            timer->stop();
+        }
+    }
+    targetTimers_.clear();
+    for (const auto &cancel : std::as_const(targetCancels_)) {
+        if (cancel)
+            cancel->store(true);
+    }
+    targetCancels_.clear();
+    optimizeTimer_->stop();
+    targetProgress_->hide();
+    targetCancel_->hide();
+}
+
 void SaveOptionsDialog::runTargetOptimization() {
-    if (!registry_ || !caps_.targetSize)
+    if (!caps_.targetSize || document_.empty())
         return;
     // Drop superseded runs before starting a new one: cancel + disconnect
     // the previous worker so a stale finished-handler cannot overwrite the
@@ -601,7 +670,6 @@ void SaveOptionsDialog::runTargetOptimization() {
     // values + the cancel flag, never the dialog or its widgets.
     const auto document = document_;
     const auto options = options_;
-    const auto *registry = registry_;
     targetProgress_->setVisible(true);
     targetProgress_->setValue(0);
     targetCancel_->setVisible(true);
@@ -661,9 +729,9 @@ void SaveOptionsDialog::runTargetOptimization() {
                 // persisted once on dialog accept (keeps the UI instant).
                 emit guard->optionsChanged(guard->options_);
             });
-    watcher->setFuture(QtConcurrent::run([document, options, registry, cancel] {
+    watcher->setFuture(QtConcurrent::run([document, options, registry = registry_, cancel] {
         const std::atomic_bool &stop = *cancel;
-        return optimizeForTargetSize(document, options, *registry, {}, stop);
+        return optimizeForTargetSize(document, options, registry, {}, stop);
     }));
     // Progress pulses while the worker runs; the bounded probe count keeps
     // this short. Cancellation flows through the shared flag.
@@ -686,10 +754,6 @@ void SaveOptionsDialog::runTargetOptimization() {
     });
     pulse->start(120);
 }
-void SaveOptionsDialog::setProfiles(const QJsonObject &profiles) {
-    profiles_ = profiles;
-    refreshProfileCombo();
-}
 void SaveOptionsDialog::refreshProfileCombo() {
     const QSignalBlocker block(profileCombo_);
     profileCombo_->clear();
@@ -702,16 +766,15 @@ void SaveOptionsDialog::loadProfile(int index) {
     const auto name = profileCombo_->itemText(index);
     if (!profiles_.contains(name))
         return;
-    cancelTargetWorkers();
-    options_ = SaveOptions::fromJson(profiles_.value(name).toObject());
-    caps_ = saveCapabilities(options_.format);
-    rebuild();
-    // A profile may switch formats (JPEG -> PNG): the fixed prepare() size no
-    // longer fits the visible rows. Unfix, re-measure, re-freeze — same as the
-    // live filterSelected path in MainWindow::saveImage.
-    if (!minimumSize().isNull() || !maximumSize().isNull()) {
+    // applyOptions() cancels workers and re-applies everything atomically,
+    // including the fixed-size re-measure when the profile changes format.
+    const bool wasFixed = !minimumSize().isNull() || !maximumSize().isNull();
+    if (wasFixed) {
         setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    }
+    applyOptions(SaveOptions::fromJson(profiles_.value(name).toObject()));
+    if (wasFixed) {
         adjustSize();
         setFixedSize(size());
     }
@@ -805,10 +868,9 @@ void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
 }
 
 void SaveOptionsDialog::cancelTargetWorkers() {
-    for (const auto &cancel : std::as_const(targetCancels_)) {
-        if (cancel)
-            cancel->store(true);
-    }
+    // Compatibility wrapper: the full cancel (flags + watchers + timers) is
+    // cancelTargetOptimization().
+    cancelTargetOptimization();
 }
 
 SaveOptionsDialog::~SaveOptionsDialog() {

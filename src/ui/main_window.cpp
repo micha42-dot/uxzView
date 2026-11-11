@@ -352,6 +352,9 @@ MainWindow::~MainWindow() {
     // running while the cache and the registry are destroyed.
     if (prefetchCancel_) prefetchCancel_->store(true);
     prefetchPool_.waitForDone();
+    // The format warmup captured a registry copy: join it before the registry
+    // and its codecs go away.
+    saveFormatsWarmup_.waitForFinished();
 }
 void MainWindow::deliverDeferredOpen() {
     if (!deferredOpen_) return;
@@ -1090,6 +1093,10 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
         animationTimer_.start(document_.delayMs);
     else if (!document_.animated)
         stopAnimation();
+    // Warm the Save As companion + format list once a real image is up, so the
+    // first Save As does not pay for widget construction or a codec rescan.
+    if (!document_.empty())
+        scheduleSaveUiWarmup();
 }
 void MainWindow::updatePreviews() {
     if (previewStrip_ && !previewStrip_->isHidden())

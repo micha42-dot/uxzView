@@ -30,6 +30,7 @@ namespace ix {
 class PreviewStrip;
 class ActionSearch;
 class DirectoryIndexService;
+class SaveOptionsDialog;
 struct WorkResult {
     ImageDocument document;
     QImage display;
@@ -64,6 +65,13 @@ class MainWindow : public QMainWindow {
   private:
     QString cacheRoot_;
     CodecRegistry registry_;
+    // Persistent Save As companion + background warmup state (see
+    // saveCompanion()/scheduleSaveUiWarmup()): building the dialog and scanning
+    // codec capabilities are the two costs that made Save As feel slow.
+    SaveOptionsDialog *saveOptionsDialog_ = nullptr;
+    QString saveOptionsLanguage_;
+    QFuture<void> saveFormatsWarmup_;
+    bool saveUiWarmupScheduled_ = false;
     ImageDocument document_;
     ImageView *view_;
     QToolBar *toolbar_ = nullptr;
@@ -174,6 +182,10 @@ class MainWindow : public QMainWindow {
     void page(int direction);
     bool confirmDiscard();
     bool saveImage(bool selection = false, bool forceDialog = false);
+    // One persistent companion dialog + background format warmup: Save As must
+    // not rebuild ~20 widgets or rescan codec capabilities on every open.
+    SaveOptionsDialog &saveCompanion();
+    void scheduleSaveUiWarmup();
     void fileOperation(const QString &operation);
     void operation(std::function<QImage(const QImage &)> fn, bool streaming = false);
     void effect(std::function<QImage(const QImage &)> fn);
