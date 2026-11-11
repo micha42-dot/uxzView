@@ -2195,12 +2195,16 @@ void MainWindow::dispatch(const QString &cmd) {
     if (cmd == QStringLiteral("autoSelect")) {
         stopAnimation();
         auto d = document_;
-        beginWork([d] { return WorkResult{d, {}, {}, autoCropRect(d.pixels)}; }, WorkMode::Selection);
+        // kAutoCropTolerance: video screenshots keep compression noise inside
+        // their letterbox bars. Tolerance 0 stops the bounding box inside the
+        // bar and leaves a visible margin behind.
+        beginWork([d] { return WorkResult{d, {}, {}, autoCropRect(d.pixels, kAutoCropTolerance)}; },
+                  WorkMode::Selection);
         return;
     }
     if (cmd == QStringLiteral("autoCrop")) {
         operation([](const QImage &s) {
-            auto image = copyImageRegion(s,autoCropRect(s));
+            auto image = copyImageRegion(s, autoCropRect(s, kAutoCropTolerance));
             inheritImageProperties(s, image);
             return image;
         }, true);

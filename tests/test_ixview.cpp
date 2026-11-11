@@ -3215,6 +3215,40 @@ class IxTests : public QObject {
         QCOMPARE(c.pixelColor(0, 0), QColor(Qt::black));
         QCOMPARE(c.pixelColor(3, 6), QColor(Qt::red));
     }
+    void letterboxBarsWithCompressionNoiseAreRemoved() {
+        // 21:9 movie screenshot: black bars top (rows 0-5) and bottom (34-39),
+        // picture area in between. Real encoders do not produce a perfectly
+        // uniform bar: the pixels near the picture edge carry ringing/noise
+        // (values a few steps above black) from H.264/JPEG compression.
+        // With tolerance 0 those noisy rows count as content, the bounding box
+        // starts inside the bar and a narrow but clearly visible margin stays
+        // behind — exactly the reported symptom. A small tolerance treats the
+        // noise as background and removes the bar completely.
+        QImage image(64, 40, QImage::Format_RGB32);
+        image.fill(Qt::black);
+        // Noise only in the three rows adjacent to each picture edge.
+        for (int y = 3; y < 6; ++y)
+            for (int x = 0; x < 64; ++x) {
+                const int v = 1 + (x * 7 + y * 13) % 5;
+                image.setPixelColor(x, y, qRgb(v, v, v));
+            }
+        for (int y = 34; y < 37; ++y)
+            for (int x = 0; x < 64; ++x) {
+                const int v = 1 + (x * 5 + y * 11) % 5;
+                image.setPixelColor(x, y, qRgb(v, v, v));
+            }
+        for (int y = 6; y < 34; ++y)
+            for (int x = 0; x < 64; ++x)
+                image.setPixelColor(x, y, qRgb(90, 120, 160));
+        // Tolerance 0: the noisy rows become "content" -> box stops inside the bar.
+        const auto strict = ix::autoCropRect(image, 0);
+        QCOMPARE(strict.top(), 3);
+        QCOMPARE(strict.bottom(), 36);
+        // The shipped tolerance removes both bars completely.
+        const auto tolerant = ix::autoCropRect(image, ix::kAutoCropTolerance);
+        QCOMPARE(tolerant.top(), 6);
+        QCOMPARE(tolerant.height(), 28);
+    }
     void png16AndICC() {
         ix::ImageDocument d;
         d.pixels = QImage(3, 2, QImage::Format_RGBA64);
