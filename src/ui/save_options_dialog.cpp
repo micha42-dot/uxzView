@@ -14,6 +14,8 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMoveEvent>
+#include <QPointer>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRadioButton>
@@ -27,10 +29,12 @@ namespace ix {
 SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *parent)
     : QDialog(parent), document_(document) {
     setAttribute(Qt::WA_DeleteOnClose, false);
-    // Tool window: stays beside the (possibly native) file dialog without
-    // blocking it; closes with the save flow via its parent.
-    setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowCloseButtonHint);
+    // Compact window beside the file dialog: a normal title bar with the
+    // platform close button (no frameless red-X styling), freely movable.
+    setWindowFlags(Qt::Tool | Qt::WindowTitleHint | Qt::WindowSystemMenuHint |
+                   Qt::WindowCloseButtonHint);
     setWindowModality(Qt::NonModal);
+    setAttribute(Qt::WA_DeleteOnClose, false);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(6);
@@ -213,6 +217,10 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     targetProgress_->setVisible(false);
     targetCancel_ = new QPushButton(IX_TEXT("Abbrechen"), this);
     targetCancel_->setVisible(false);
+    connect(targetCancel_, &QPushButton::clicked, this, [this] {
+        if (activeCancel_)
+            activeCancel_->store(true);
+    });
     targetBarLayout->addWidget(targetProgress_, 1);
     targetBarLayout->addWidget(targetCancel_);
     targetLayout->addWidget(targetBar);
@@ -367,15 +375,52 @@ void SaveOptionsDialog::collect() {
 void SaveOptionsDialog::runTargetOptimization() {
     if (!registry_ || !caps_.targetSize)
         return;
+    // Drop superseded runs before starting a new one: cancel + disconnect
+    // the previous worker so a stale finished-handler cannot overwrite the
+    // fresh result. Rapid quality ticks otherwise stack watchers (and their
+    // targetCancel_ connections) without bound.
+    for (const auto &old : std::as_const(targetWatchers_)) {
+        if (old) {
+            old->disconnect(this);
+            old->cancel();
+        }
+    }
+    for (const auto &old : std::as_const(targetTimers_)) {
+        if (old) {
+            old->disconnect(this);
+            old->stop();
+        }
+    }
+    targetWatchers_.clear();
+    targetTimers_.clear();
+    for (const auto &old : std::as_const(targetCancels_)) {
+        if (old)
+            old->store(true);
+    }
+    targetCancels_.clear();
     auto cancel = std::make_shared<std::atomic_bool>(false);
+    // The worker lambda must not touch this after teardown: capture only
+    // values + the cancel flag, never the dialog or its widgets.
+    const auto document = document_;
+    const auto options = options_;
+    const auto *registry = registry_;
     targetProgress_->setVisible(true);
     targetProgress_->setValue(0);
     targetCancel_->setVisible(true);
     targetResult_->setText(IX_TEXT("Optimiere Qualität …"));
-    auto *watcher = new QFutureWatcher<TargetSizeResult>(this);
-    connect(targetCancel_, &QPushButton::clicked, watcher, [cancel] { cancel->store(true); });
-    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, cancel] {
+    auto *watcher = new QFutureWatcher<TargetSizeResult>(this); targetWatchers_.append(watcher); targetCancels_.append(cancel);
+    activeCancel_ = cancel;
+    // The finished handler must survive dialog teardown: guard every widget
+    // access with a QPointer. QFutureWatcher::cancel() cannot stop an already
+    // running QtConcurrent task, so a late completion after dialog close must
+    // do nothing instead of touching dead widgets.
+    QPointer<SaveOptionsDialog> guard(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [guard, watcher, cancel] {
         watcher->deleteLater();
+        if (!guard)
+            return;
+        guard->targetWatchers_.removeAll(watcher);
+        guard->targetCancels_.removeAll(cancel);
         targetProgress_->setVisible(false);
         targetCancel_->setVisible(false);
         const auto result = watcher->future().takeResult();
@@ -385,7 +430,7 @@ void SaveOptionsDialog::runTargetOptimization() {
         }
         if (!result.quality) {
             targetResult_->setText(result.error);
-            QMessageBox::warning(this, IX_TEXT("Zieldateigröße"), result.error);
+            QMessageBox::warning(guard, IX_TEXT("Zieldateigröße"), result.error);
             return;
         }
         options_.autoQuality = *result.quality;
@@ -393,28 +438,40 @@ void SaveOptionsDialog::runTargetOptimization() {
         const QSignalBlocker blockSpin(qualitySpin_);
         qualitySlider_->setValue(*result.quality);
         qualitySpin_->setValue(*result.quality);
-        targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).")
-                                   .arg(*result.quality)
-                                   .arg(result.bytes / 1024));
+        // IrfanView-style honesty: when even quality 1 exceeds the target,
+        // say so but still save the smallest reachable file.
+        if (result.bytes > options_.targetBytes)
+            targetResult_->setText(IX_TEXT("Ziel nicht erreichbar — kleinstmöglich: Qualität 1 (ca. %1 KB).")
+                                       .arg(result.bytes / 1024));
+        else
+            targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).")
+                                       .arg(*result.quality)
+                                       .arg(result.bytes / 1024));
         storeSaveOptions(options_);
         emit optionsChanged(options_);
     });
-    const auto document = document_;
-    const auto options = options_;
-    const auto *registry = registry_;
     watcher->setFuture(QtConcurrent::run([document, options, registry, cancel] {
         const std::atomic_bool &stop = *cancel;
         return optimizeForTargetSize(document, options, *registry, {}, stop);
     }));
     // Progress pulses while the worker runs; the bounded probe count keeps
     // this short. Cancellation flows through the shared flag.
-    QTimer *pulse = new QTimer(this);
-    connect(pulse, &QTimer::timeout, this, [this, pulse, watcher] {
-        if (!watcher->isRunning()) {
+    QTimer *pulse = new QTimer(this); targetTimers_.append(pulse);
+    QPointer<QFutureWatcher<TargetSizeResult>> watchGuard(watcher);
+    QPointer<SaveOptionsDialog> pulseGuard(this);
+    connect(pulse, &QTimer::timeout, this, [pulseGuard, pulse, watchGuard] {
+        if (!pulseGuard || !watchGuard) {
             pulse->deleteLater();
+            if (pulseGuard)
+                pulseGuard->targetTimers_.removeAll(pulse);
             return;
         }
-        targetProgress_->setValue((targetProgress_->value() + 1) % 11);
+        if (!watchGuard->isRunning()) {
+            pulse->deleteLater();
+            pulseGuard->targetTimers_.removeAll(pulse);
+            return;
+        }
+        pulseGuard->targetProgress_->setValue((pulseGuard->targetProgress_->value() + 1) % 11);
     });
     pulse->start(120);
 }
@@ -473,6 +530,42 @@ void SaveOptionsDialog::deleteProfile() {
     refreshProfileCombo();
 }
 void SaveOptionsDialog::closeEvent(QCloseEvent *event) {
-    QDialog::closeEvent(event);
+    // The X only hides the companion for this save; the file dialog keeps
+    // running with the last options. Never accept-and-close the save flow.
+    hide();
+    event->ignore();
+}
+
+void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
+    QDialog::moveEvent(event);
+    // Only report user drags: programmatic move() calls happen before show()
+    // or from remembered placement, isVisible() filters those out.
+    if (isVisible())
+        emit movedByUser(pos());
+}
+
+SaveOptionsDialog::~SaveOptionsDialog() {
+    // Note: QFutureWatcher::cancel() cannot stop an already running
+    // QtConcurrent task — the shared atomic flags are what actually abort
+    // the bounded probe loop. Set them here so no worker keeps encoding
+    // after the dialog is gone.
+    for (const auto &cancel : std::as_const(targetCancels_)) {
+        if (cancel)
+            cancel->store(true);
+    }
+    // Drop all queued finished/timeout calls before children are torn down;
+    // the handlers guard with QPointer, this is the second safety net.
+    for (const auto &watcher : targetWatchers_) {
+        if (!watcher)
+            continue;
+        watcher->disconnect(this);
+        watcher->cancel();
+    }
+    for (const auto &timer : targetTimers_) {
+        if (!timer)
+            continue;
+        timer->disconnect(this);
+        timer->stop();
+    }
 }
 } // namespace ix

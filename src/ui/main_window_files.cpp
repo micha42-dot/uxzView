@@ -84,13 +84,23 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         companion.setProfiles(loadSaveProfiles());
         companion.setFormat(target.format.id);
         saveOptions = companion.options();
+        // Position once beside the chooser (or at the remembered spot) and
+        // then leave the companion alone: the user can move it freely, it
+        // never snaps back. No follow timer, no move/resize event filter —
+        // both fought the user's own dragging (visible jump-back).
         auto placeCompanion = [&] {
-            if (!companion.isVisible())
-                return;
-            const auto frame = chooser.frameGeometry();
-            const auto screen = chooser.screen() ? chooser.screen()->availableGeometry()
-                                                 : QApplication::primaryScreen()->availableGeometry();
             companion.adjustSize();
+            const QPoint remembered =
+                settings.value(QStringLiteral("save/companionPos")).toPoint();
+            if (!remembered.isNull()) {
+                companion.move(remembered);
+                return;
+            }
+            // The chooser has no valid frame geometry before it is shown;
+            // defer the first placement until it is visible.
+            const auto frame = chooser.frameGeometry();
+            if (!frame.isValid())
+                return;
             QPoint pos = frame.topRight() + QPoint(8, 0);
             if (pos.x() + companion.width() > screen.right()) // Fall back to the left side.
                 pos = {frame.left() - companion.width() - 8, frame.top()};
@@ -149,46 +159,29 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                             chooser.selectNameFilter(match->filter());
                     }
                 });
-        struct CompanionPlacer final : QObject {
-            QFileDialog *chooser = nullptr;
-            std::function<void()> place;
-            bool eventFilter(QObject *watched, QEvent *event) override {
-                if (watched == chooser &&
-                    (event->type() == QEvent::Move || event->type() == QEvent::Resize ||
-                     event->type() == QEvent::Show || event->type() == QEvent::WindowActivate))
-                    place();
-                return QObject::eventFilter(watched, event);
-            }
-        };
-        auto *placer = new CompanionPlacer;
-        placer->chooser = &chooser;
-        placer->place = placeCompanion;
-        chooser.installEventFilter(placer);
-        auto placerGuard = qScopeGuard([&] {
-            chooser.removeEventFilter(placer);
-            placer->deleteLater();
-        });
-        // Follow the native dialog while it is open; the companion closes
-        // with it (child widget) and never outlives the save flow.
-        auto *followTimer = new QTimer(&chooser);
-        followTimer->setInterval(250);
-        connect(followTimer, &QTimer::timeout, &chooser, [&] {
-            if (chooser.isVisible())
+        // No placer event filter and no follow timer: both re-moved the window
+        // while the user was dragging it. Remember a user-moved position for
+        // the next save instead.
+        connect(&companion, &SaveOptionsDialog::movedByUser, &chooser,
+                [&](const QPoint &p) { QSettings().setValue(QStringLiteral("save/companionPos"), p); });
+        // The companion is shown alongside the chooser when enabled; closing
+        // it via its own close button only hides it for this save, the file
+        // dialog keeps running with the last options.
+        // When the companion is disabled, the stored options apply silently.
+        if (saveCompanionEnabled())
+            companion.show();
+        else
+            companion.hide();
+        // Place once the chooser is visible (valid frame geometry). After
+        // that the companion is never re-moved programmatically.
+        QTimer::singleShot(0, &chooser, [&] {
+            if (companion.isVisible() &&
+                settings.value(QStringLiteral("save/companionPos")).toPoint().isNull())
                 placeCompanion();
-            else
-                companion.close();
         });
-        followTimer->start();
-        // The companion is always shown (compact tool window); closing it via
-        // its own close button only hides it for this save, the file dialog
-        // keeps running with the last options.
-        connect(&companion, &QDialog::rejected, &companion, [&] { companion.hide(); });
-        companion.show();
-        placeCompanion();
         // The native dialog runs its own modal loop; the companion is a child
         // tool window and stays interactive while it is open.
         const bool accepted = chooser.exec() == QDialog::Accepted;
-        followTimer->stop();
         if (!accepted) return false;
         saveOptions = companion.options();
         storeSaveOptions(saveOptions);

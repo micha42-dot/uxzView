@@ -28,9 +28,13 @@ class SaveOptionsDialog final : public QDialog {
     void setProfiles(const QJsonObject &profiles);
   signals:
     void optionsChanged(const SaveOptions &options);
+    // Emitted when the user drags the companion (not on programmatic move).
+    void movedByUser(const QPoint &position);
 
   protected:
     void closeEvent(QCloseEvent *event) override;
+    void moveEvent(QMoveEvent *event) override;
+    ~SaveOptionsDialog() override;
 
   private:
     const ImageDocument &document_;
@@ -57,6 +61,13 @@ class SaveOptionsDialog final : public QDialog {
     QRadioButton *alphaWhite_ = nullptr, *alphaKeep_ = nullptr, *alphaAsk_ = nullptr;
     QWidget *alphaBox_ = nullptr;
     QTimer *optimizeTimer_ = nullptr;
+    // Target-size workers outlive UI events: every watcher/timer pair is
+    // tracked here so the destructor can cancel + disconnect before Qt
+    // tears down children (a finished lambda must never touch a dead this).
+    QList<QPointer<QFutureWatcher<TargetSizeResult>>> targetWatchers_;
+    QList<QPointer<QTimer>> targetTimers_;
+    QList<std::shared_ptr<std::atomic_bool>> targetCancels_;
+    std::shared_ptr<std::atomic_bool> activeCancel_; // Set by targetCancel_.
     QSpinBox *pngLevel_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,

@@ -165,12 +165,16 @@ format limits in [large images](LARGE_IMAGES.md).
 ## Kompressionsoptionen beim Speichern
 
 **Datei → Speichern unter** öffnet den gewohnten nativen Dateidialog; daneben
-erscheint ein kompaktes Begleitfenster mit den Kompressionseinstellungen des
-gewählten Formats (z. B. „JPEG-Optionen speichern"). Beide Fenster bleiben vor
-dem Speichern bedienbar; das Begleitfenster folgt dem Dateidialog und weicht bei
-Platzmangel auf die linke Seite aus. Das Schließen des Begleitfensters bricht
-den Speichervorgang nicht ab — gespeichert wird mit den zuletzt gewählten
-Einstellungen. Die Dateiformatliste des nativen Dialogs wird kanonisch
+erscheint — wenn unter Einstellungen → Speichern aktiviert
+(„Kompressionsoptionen beim Speichern anzeigen", Standard: an) — ein kompaktes
+Begleitfenster mit den Kompressionseinstellungen des gewählten Formats
+(z. B. „JPEG-Optionen speichern"). Es wird einmal neben dem Dialog platziert
+(oder an der zuletzt vom Benutzer gewählten Position) und bleibt danach frei
+positionierbar — es folgt dem Dateidialog nicht mehr und springt nicht zurück.
+Das Schließen über das normale Fenstersymbol blendet es nur für diesen
+Speichervorgang aus — gespeichert wird mit den zuletzt gewählten
+Einstellungen; bei deaktivierter Option gelten die gespeicherten Einstellungen
+stillschweigend. Die Dateiformatliste des nativen Dialogs wird kanonisch
 gematcht, sodass z. B. ein als JFIF geführter JPEG-Eintrag weiterhin das
 JPEG-Format wählt.
 
@@ -178,8 +182,9 @@ JPEG-Format wählt.
   PNG nutzt stattdessen eine verlustfreie Stufe 0–9.
 - **Zieldateigröße (KB/MB):** ermittelt per begrenzter Suche über den echten
   Encoder die höchste passende Qualität; bei aktivierter Option ist der manuelle
-  Regler gesperrt und zeigt das Ergebnis. Unerreichbare Ziele melden einen
-  Fehler; die Auflösung wird nie verändert.
+  Regler gesperrt und zeigt das Ergebnis. Unerreichbare Ziele liefern wie in
+  IrfanView einfach die kleinstmögliche Datei (Qualität 1) statt eines
+  Fehlers; die Auflösung wird nie verändert.
 - **Formatoptionen:** JPEG progressiv und Chroma-Subsampling; WebP/AVIF verlustfrei
   und Aufwand; GIF interlaced. Nur unterstützte Schalter werden angezeigt.
 - **Metadaten:** EXIF/IPTC/XMP und ICC-Profil einzeln abwählbar; die

@@ -4,6 +4,7 @@
 #include <QColorSpace>
 #include <algorithm>
 #include <cmath>
+#include <optional>
 namespace ix {
 double ImageDocument::dpiX() const {
     return pixels.dotsPerMeterX() > 0 ? pixels.dotsPerMeterX() * 0.0254 : 96.0;
@@ -25,6 +26,10 @@ bool imageHasRealTransparency(const QImage &image) {
     // Format-only alpha (e.g. a fully opaque ARGB32 PNG) loses nothing on
     // export. Scan for a pixel that is actually non-opaque; sample huge
     // images on a coarse grid so gigapixel originals stay interactive.
+    // Cost matters: this runs synchronously in the UI thread before the
+    // save dialog appears. Convert lazily — sample convertible formats
+    // directly on their scanlines and only fall back to a full conversion
+    // for exotic layouts (never convert the whole image just to sample it).
     const int width = image.width(), height = image.height();
     const qint64 pixels = qint64(width) * height;
     const int step = pixels > 16 * 1024 * 1024 ? 7 : 1;
@@ -35,13 +40,35 @@ bool imageHasRealTransparency(const QImage &image) {
                     return true;
         return false;
     }
-    const QImage flat = (image.format() == QImage::Format_ARGB32_Premultiplied ||
-                         image.format() == QImage::Format_RGBA8888_Premultiplied)
-                            ? image.convertToFormat(QImage::Format_ARGB32)
-                            : image;
-    const QImage view = flat.format() == QImage::Format_ARGB32 || flat.format() == QImage::Format_RGBA8888
-                            ? flat
-                            : flat.convertToFormat(QImage::Format_ARGB32);
+    // Direct scanline sampling for the common unpremultiplied layouts.
+    // Note: RGBA8888 stores bytes as R,G,B,A (not QRgb order), so alpha is
+    // the 4th byte of each pixel rather than qAlpha() of a QRgb word.
+    const auto sampleDirect = [&]() -> std::optional<bool> {
+        if (image.format() == QImage::Format_ARGB32) {
+            for (int y = 0; y < height; y += step) {
+                const auto *row = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+                for (int x = 0; x < width; x += step)
+                    if (qAlpha(row[x]) < 255)
+                        return true;
+            }
+            return false;
+        }
+        if (image.format() == QImage::Format_RGBA8888) {
+            for (int y = 0; y < height; y += step) {
+                const auto *row = image.constScanLine(y);
+                const int bytesPerPixel = image.bytesPerLine() / width;
+                for (int x = 0; x < width; x += step)
+                    if (row[x * bytesPerPixel + 3] < 255)
+                        return true;
+            }
+            return false;
+        }
+        // Premultiplied values cannot prove opacity without a full
+        // unpremultiply pass; other layouts need conversion.
+        return std::nullopt;
+    if (const auto direct = sampleDirect())
+        return *direct;
+    const QImage view = image.convertToFormat(QImage::Format_ARGB32);
     if (view.isNull())
         return true; // Unconvertible: keep the warning rather than risking silent loss.
     for (int y = 0; y < height; y += step) {

@@ -399,6 +399,10 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     });
     saveFormat_->setPlaceholderText(IX_TEXT("Format nicht verfügbar"));
     storage->addRow(IX_TEXT("Format:"), saveFormat_);
+    // Companion on/off: disabled means Save/Save-As applies the stored
+    // options silently (standard compression factor).
+    check(storage, QStringLiteral("save/companion"),
+          IX_TEXT("Kompressionsoptionen beim Speichern anzeigen"), true);
     auto updateSaveFormat = [this, storage] {
         const bool enabled = !savePreference_->currentData().toBool();
         saveFormat_->setEnabled(enabled);

@@ -31,6 +31,11 @@ struct SaveCapabilities {
     bool pngLevel = false;      // PNG compression level.
 };
 SaveCapabilities saveCapabilities(const QByteArray &format);
+QByteArray defaultSaveFormat();
+// Whether the compression companion appears next to Save As (default on).
+bool saveCompanionEnabled();
+void setSaveCompanionEnabled(bool enabled);
+QByteArray defaultSaveFormat();
 // All user-facing compression settings for one export.
 struct SaveOptions {
     QByteArray format = "jpeg";
@@ -44,7 +49,9 @@ struct SaveOptions {
     enum class AlphaMode { White = 0, Keep = 1, Ask = 2 };
     AlphaMode alphaMode = AlphaMode::White; // PNG->JPEG transparency handling.
     bool keepExif = true, keepIptc = true, keepXmp = true, keepIcc = true;
-    bool fixOrientation = true;     // Correct EXIF orientation tag.
+    // Orientation is already applied to pixels on decode; the flag is stored
+    // for a future tag-normalization step and currently changes nothing.
+    bool fixOrientation = true;
     bool targetSizeEnabled = false;
     qint64 targetBytes = 150 * 1024; // Target file size in bytes.
     // Effective quality after target-size optimization (display only).

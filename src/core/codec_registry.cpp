@@ -451,6 +451,14 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
         writer.setQuality(std::clamp(encode.compressionLevel, 0, 9) * 10 - 1);
     else
         writer.setQuality(quality);
+    // Mirror the optimizer (encodeSize): lossless forces quality 100 on
+    // capable writers, effort maps to compression, interlaced to GIF
+    // progressive display. Writers without support ignore the knobs.
+    if (encode.lossless) writer.setQuality(100);
+    if (format == "webp" || format == "avif" || format == "heif" || format == "heic" ||
+        format == "jxl" || format == "png" || format == "tiff")
+        writer.setCompression(encode.effort);
+    if (encode.interlaced) writer.setInterlaced(true);
     QImage output = d.pixels;
     // alphaWhite != 0 (legacy default) flattens transparency onto white for
     // formats without alpha. alphaWhite == 0 keeps the pixels untouched; the

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "save_options.h"
 #include "codec_registry.h"
+#include "image_storage.h"
 #include "jpegli_encoder.h"
 #include "localization.h"
+#include "memory_policy.h"
 #include <QBuffer>
 #include <QImage>
 #include <QImageWriter>
@@ -17,6 +19,8 @@ qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int
     if (options.format == "jpeg") {
         // Measure with the real production encoder (jpegli), not the Qt
         // fallback writer: the optimizer must predict the actual save path.
+        // Encode errors (e.g. image too large for the memory budget) abort
+        // the search instead of throwing through the worker thread.
         QByteArray encoded;
         QBuffer buffer(&encoded);
         if (!buffer.open(QIODevice::WriteOnly)) {
@@ -26,7 +30,14 @@ qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int
         ix::JpegliOptions jpegOptions;
         jpegOptions.progressive = options.progressive;
         jpegOptions.noSubsampling = options.noSubsampling;
-        error = writeJpegli(buffer, document.pixels, quality, jpegOptions);
+        jpegOptions.flattenAlpha = true;
+        try {
+            error = writeJpegli(buffer, document.pixels, quality, jpegOptions);
+        } catch (const std::exception &ex) {
+            error = localized(QString::fromUtf8(ex.what()));
+        } catch (...) {
+            error = IX_TEXT("Speicher nicht verfügbar.");
+        }
         if (!error.isEmpty())
             return -1;
         return encoded.size();
@@ -37,17 +48,45 @@ qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int
         error = buffer.errorString();
         return -1;
     }
-    QImageWriter writer(&buffer, options.format);
-    if (options.format == "png")
-        writer.setQuality(options.pngLevel * 10 - 1); // 0-9 -> Qt 0-100 approx.
-    else
-        writer.setQuality(quality);
-    if (!writer.canWrite()) {
-        error = writer.errorString();
+    // Memory guard + exception barrier: aggressive targets on huge images
+    // can OOM inside third-party writers (libwebp/libavif). Without this,
+    // a bad_alloc escapes through the QtConcurrent worker and terminates
+    // the process. Mirror the jpegli budget check above.
+    const qint64 resident = imageIsFileBacked(document.pixels) ? 0 : document.pixels.sizeInBytes();
+    const qint64 working = qint64(document.pixels.width()) * 64 + qint64(document.pixels.height()) * 64;
+    if (resident + working > imageMemoryLimit()) {
+        error = imageSizeLimitError(document.pixels.size(), 64);
         return -1;
     }
-    if (!writer.write(document.pixels)) {
-        error = writer.errorString();
+    try {
+        QImageWriter writer(&buffer, options.format);
+        if (options.format == "png")
+            writer.setQuality(options.pngLevel * 10 - 1); // 0-9 -> Qt 0-100 approx.
+        else if (options.lossless)
+            // Lossless-capable writers (WebP/AVIF/JXL): quality 100 selects the
+            // lossless path, matching the actual save below.
+            writer.setQuality(100);
+        else
+            writer.setQuality(quality);
+        // Effort maps to QImageWriter compression (0 = fast …; writers without
+        // compression support ignore it). Mirrors the save path below.
+        if (options.format == "webp" || options.format == "avif" || options.format == "heif" ||
+            options.format == "heic" || options.format == "jxl" || options.format == "png" ||
+            options.format == "tiff")
+            writer.setCompression(options.effort);
+        if (!writer.canWrite()) {
+            error = writer.errorString();
+            return -1;
+        }
+        if (!writer.write(document.pixels)) {
+            error = writer.errorString();
+            return -1;
+        }
+    } catch (const std::exception &ex) {
+        error = localized(QString::fromUtf8(ex.what()));
+        return -1;
+    } catch (...) {
+        error = IX_TEXT("Speicher nicht verfügbar.");
         return -1;
     }
     return encoded.size();
@@ -139,6 +178,18 @@ SaveOptions SaveOptions::fromJson(const QJsonObject &object) {
         qint64(std::clamp(object.value(QStringLiteral("targetBytes")).toDouble(150 * 1024), 1024.0, 2e9));
     return options;
 }
+QByteArray defaultSaveFormat() {
+    return QSettings().value(QStringLiteral("save/format"), QStringLiteral("png")).toByteArray();
+}
+
+bool saveCompanionEnabled() {
+    return QSettings().value(QStringLiteral("save/companion"), true).toBool();
+}
+
+void setSaveCompanionEnabled(bool enabled) {
+    QSettings().setValue(QStringLiteral("save/companion"), enabled);
+}
+
 SaveOptions defaultSaveOptions(const QByteArray &format) {
     SaveOptions options;
     options.format = format;
@@ -233,9 +284,18 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
     }
     if (progress)
         progress(steps + 1, steps + 2);
+    // IrfanView-style: never fail on an aggressive target. The search always
+    // yields the smallest reachable quality (quality 1) instead of an error,
+    // so the save simply lands as close to the target as the format allows.
     if (best < 0) {
-        result.error = IX_TEXT("Die Zieldateigröße ist mit diesem Bild nicht erreichbar. "
-                               "Bitte einen größeren Wert wählen.");
+        QString error;
+        const qint64 floor = encodeSize(document, options, 1, registry, error);
+        if (floor < 0) {
+            result.error = error;
+            return result;
+        }
+        result.quality = 1;
+        result.bytes = floor;
         return result;
     }
     result.quality = best;
