@@ -108,6 +108,11 @@ class SaveOptionsDialog final : public QDialog {
     // Set by setFormat(); consumed on first show so no encode blocks paint.
     bool pendingAutoOptimize_ = false;
     void applyOptions(SaveOptions options);
+    // setFixedSize() release/freeze pair. releaseFixedSize() must use
+    // setMinimumSize(0,0)/setMaximumSize(QWIDGETSIZE_MAX,...) — passing
+    // QWIDGETSIZE_MAX as a minimum installs a ~16777 px floor.
+    void releaseFixedSize();
+    void freezeSizeToLayout();
     void rebuild();
     void collect();
     void runTargetOptimization();

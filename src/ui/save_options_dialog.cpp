@@ -31,6 +31,15 @@
 #include <memory>
 #include <utility>
 namespace ix {
+namespace {
+// Intended width band: compact like IrfanView, but wide enough for the stacked
+// caption rows. Kept in one place because the fixed-size release path must
+// restore exactly this band (QWIDGETSIZE_MAX is NOT a valid "release" value for
+// a minimum size — it would set a 16777215 px floor and silently widen the
+// dialog on every format change).
+constexpr int kCompanionMinWidth = 210;
+constexpr int kCompanionMaxWidth = 260;
+} // namespace
 SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *owner)
     : QDialog(owner), owner_(owner), registry_(registry) {
     setAttribute(Qt::WA_DeleteOnClose, false);
@@ -342,19 +351,28 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
 void SaveOptionsDialog::setFormat(const QByteArray &format) {
     // One atomic format swap; applyOptions() cancels stale workers first so no
     // late result can publish into the new format.
-    const bool wasFixed = !minimumSize().isNull() || !maximumSize().isNull();
-    if (wasFixed) {
-        setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    }
+    releaseFixedSize();
     applyOptions(loadSaveOptions(format));
-    if (wasFixed) {
-        adjustSize();
-        setFixedSize(size());
-    }
+    freezeSizeToLayout();
     // Defer the IrfanView-style auto-optimization until the dialog is
     // actually visible: starting full-res encodes here blocked first paint.
     pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
+}
+
+void SaveOptionsDialog::releaseFixedSize() {
+    // Undo setFixedSize() with the documented Qt idiom. setMinimumSize(
+    // QWIDGETSIZE_MAX, ...) is WRONG: it installs a ~16777 px minimum that
+    // survives into the next layout pass and silently widens the dialog.
+    setMinimumSize(kCompanionMinWidth, 0);
+    setMaximumSize(kCompanionMaxWidth, QWIDGETSIZE_MAX);
+}
+
+void SaveOptionsDialog::freezeSizeToLayout() {
+    // One size from the fully populated layout, then frozen. Called exactly
+    // once per session (prepare) and once per format/profile switch — never
+    // per rebuild(), so no visible re-layout pass happens after show().
+    adjustSize();
+    setFixedSize(size());
 }
 
 void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions options,
@@ -378,11 +396,9 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     // the flag has to be armed here too — otherwise the auto-optimization
     // never starts on the first open.
     pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
-    updateGeometry();
     // One fixed size from the fully populated layout; no further adjustSize()
     // passes while the dialog is visible (each one repaints empty first).
-    adjustSize();
-    setFixedSize(size());
+    freezeSizeToLayout();
 }
 
 void SaveOptionsDialog::endSession() {
@@ -463,15 +479,20 @@ void SaveOptionsDialog::applyOptions(SaveOptions options) {
     options_ = std::move(options);
     caps_ = saveCapabilities(options_.format);
     rebuild();
-    if (options_.targetSizeEnabled && caps_.targetSize && isVisible()) {
-        targetProgress_->show();
-        targetCancel_->show();
-        runTargetOptimization();
-    } else {
-        targetProgress_->hide();
-        targetCancel_->hide();
+    // Target-size widgets are decided from the options alone, NOT from
+    // isVisible(): prepare() runs while the dialog is still hidden, so an
+    // isVisible() guard left them hidden and showEvent() showed them
+    // afterwards — that second visibility change was a second layout+paint
+    // pass, i.e. the visible "window first, controls later" staging.
+    const bool wantsTarget = options_.targetSizeEnabled && caps_.targetSize;
+    targetProgress_->setVisible(wantsTarget);
+    targetCancel_->setVisible(wantsTarget);
+    if (!wantsTarget)
         targetResult_->clear();
-    }
+    // Only start encodes once the window is actually on screen; the flag is
+    // consumed by showEvent() for the very first open.
+    if (wantsTarget && isVisible())
+        runTargetOptimization();
 }
 
 void SaveOptionsDialog::rebuild() {
@@ -557,9 +578,16 @@ void SaveOptionsDialog::rebuild() {
     // Captions follow their rows: a caption without its row (or vice versa)
     // left the stale overlaps. The profile box is always visible. Bare rows
     // (null caption, e.g. lossless_) toggle the row only.
+    // IMPORTANT: use isVisibleTo(this), not isVisible(). rebuild() also runs
+    // while the dialog itself is still hidden (prepare() before the first
+    // show). isVisible() is then false for every row even when the row was
+    // explicitly shown, so isVisible() would hide ALL captions on the first
+    // open and they would only reappear on a later rebuild (format change) —
+    // exactly the "elements load in stages" effect. isVisibleTo(this) reports
+    // the explicit per-row state regardless of the dialog's own visibility.
     for (const auto &pair : std::as_const(captions_)) {
         if (pair.first)
-            pair.first->setVisible(pair.second->isVisible());
+            pair.first->setVisible(pair.second->isVisibleTo(this));
     }
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
@@ -758,18 +786,13 @@ void SaveOptionsDialog::loadProfile(int index) {
     const auto name = profileCombo_->itemText(index);
     if (!profiles_.contains(name))
         return;
-    // applyOptions() cancels workers and re-applies everything atomically,
-    // including the fixed-size re-measure when the profile changes format.
-    const bool wasFixed = !minimumSize().isNull() || !maximumSize().isNull();
-    if (wasFixed) {
-        setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    }
+    // applyOptions() cancels workers and re-applies everything atomically.
+    // Release the fixed size first (QWIDGETSIZE_MAX is not a valid release
+    // value) and freeze exactly one final size — a profile can change format,
+    // which changes the visible rows.
+    releaseFixedSize();
     applyOptions(SaveOptions::fromJson(profiles_.value(name).toObject()));
-    if (wasFixed) {
-        adjustSize();
-        setFixedSize(size());
-    }
+    freezeSizeToLayout();
     emit optionsChanged(options_);
 }
 void SaveOptionsDialog::saveProfile() {
@@ -853,8 +876,8 @@ void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
     QDialog::moveEvent(event);
     // Only report user drags: programmatic move() calls happen before show()
     // or from remembered placement, isVisible() filters those out. Moves
-    // emitted by the placeBeside() auto-dock are suppressed by the dialog
-    // itself (autoPlaced_ window), not reported as user intent.
+    // emitted by the programmatic auto-placement are suppressed by the dialog
+    // itself (autoPlaced_), not reported as user intent.
     if (isVisible() && !autoPlaced_)
         emit movedByUser(pos());
 }

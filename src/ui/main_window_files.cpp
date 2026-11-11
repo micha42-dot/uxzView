@@ -168,15 +168,11 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             if (next == formats.cend())
                 return;
             if (next->id != companion.options().format) {
-                // The dialog has a fixed size from prepare(): unfix, update
-                // the visible rows for the new format, re-freeze. Without
-                // setMinimum/MaximumSize(16777215) the fixed size would keep
-                // hidden rows' space (or clip newly shown ones).
-                companion.setMinimumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-                companion.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+                // setFormat() itself releases the fixed size with the correct
+                // Qt idiom, swaps the format atomically and freezes exactly one
+                // final size. Doing it here with QWIDGETSIZE_MAX was wrong (it
+                // installs a ~16777 px minimum instead of releasing).
                 companion.setFormat(next->id);
-                companion.adjustSize();
-                companion.setFixedSize(companion.size());
             }
             saveOptions = companion.options();
         });
