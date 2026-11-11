@@ -420,8 +420,10 @@ void SaveOptionsDialog::runTargetOptimization() {
     // running QtConcurrent task, so a late completion after dialog close must
     // do nothing instead of touching dead widgets.
     QPointer<SaveOptionsDialog> guard(this);
+    // Capture the worker's input snapshot by value: the finished handler
+    // compares it against the live dialog state to discard stale results.
     connect(watcher, &QFutureWatcherBase::finished, this,
-            [guard, watcher, cancel] {
+            [guard, watcher, cancel, options] {
                 watcher->deleteLater();
                 if (!guard)
                     return;
