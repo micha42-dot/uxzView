@@ -157,7 +157,10 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     pngLevel_ = new QSpinBox(pngRow_);
     pngLevel_->setRange(0, 9);
     pngLevel_->setObjectName(QStringLiteral("compressionPngLevel"));
-    pngLayout->addWidget(new QLabel(IX_TEXT("Stufe (0–9, verlustfrei):"), pngRow_));
+    // The stacked caption above the row already says "PNG (lossless):", so the
+    // spin box only needs a short unit hint. The previous long in-row label
+    // competed for the same 250-320 px and squeezed the row.
+    pngLayout->addWidget(new QLabel(IX_TEXT("Stufe:"), pngRow_));
     pngLayout->addWidget(pngLevel_, 1);
     auto *pngCaption = new QLabel(IX_TEXT("PNG (verlustfrei):"), this);
     rowsLayout->addWidget(pngCaption);

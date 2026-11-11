@@ -359,6 +359,7 @@
 ["Verarbeitungsschritt", "Processing step", "처리 단계", "処理手順", "Étape de traitement"],
 ["Aktion:", "Action:", "작업:", "操作:", "Action :"],
 ["Wasserzeichen", "Watermark", "워터마크", "透かし", "Filigrane"],
+["Stufe:", "Level:", "스템:", "レベル:", "Niveau :"],
 ["Qualität:", "Quality:", "품질:", "品質:", "Qualité :"],
 ["Format:", "Format:", "형식:", "形式:", "Format :"],
 ["Schärfen: %1", "Sharpen: %1", "선명도: %1", "シャープ化: %1", "Accentuation : %1"],
