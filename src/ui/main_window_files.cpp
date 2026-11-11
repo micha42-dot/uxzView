@@ -214,21 +214,15 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // users own placement on warm start.
         if (companionEnabled) {
             if (!rememberedCompanionPos.isNull()) {
+                // The user's own placement wins: show there directly, no dock.
                 companion.move(rememberedCompanionPos);
                 companion.show();
+                companion.raise();
             } else {
-                // Cold start: show first at the final dock position computed
-                // synchronously... but the native frame is not mapped yet, so
-                // fall back to the main window edge until placeBeside fires.
-                const QRect screen = QApplication::primaryScreen()
-                                         ? QApplication::primaryScreen()->availableGeometry()
-                                         : QRect(0, 0, 1024, 768);
-                const QPoint mainPos = pos();
-                companion.move(qBound(screen.left(), mainPos.x() + width() + 8,
-                                      qMax(screen.left(), screen.right() - companion.width())),
-                               qBound(screen.top(), mainPos.y(),
-                                      qMax(screen.top(), screen.bottom() - companion.height())));
-                companion.show();
+                // Cold start: do NOT show at a fallback spot first. placeBeside()
+                // waits for the native frame (polling) and performs a single,
+                // final move+show exactly beside the save dialog. That removes
+                // the visible "staged loading" jump.
                 companion.placeBeside(&chooser);
             }
         } else {

@@ -107,6 +107,10 @@ class SaveOptionsDialog final : public QDialog {
             *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;
     bool rebuilding_ = false;
     bool autoPlaced_ = false; // True only inside the placeBeside() move window.
+    // True while the placeBeside() poller is waiting for the native frame. The
+    // cold-start companion stays hidden until the dock move, so visibility
+    // cannot be used as the "still wanted" check.
+    bool docking_ = false;
     // Set by setFormat(); consumed on first show so no encode blocks paint.
     bool pendingAutoOptimize_ = false;
     void applyOptions(SaveOptions options);

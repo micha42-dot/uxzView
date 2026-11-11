@@ -373,6 +373,11 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     setUpdatesEnabled(false);
     const auto unfreeze = qScopeGuard([this] { setUpdatesEnabled(true); });
     applyOptions(options);
+    // Same IrfanView-style deferral as setFormat(): the target-size optimizer
+    // must not encode before first paint. prepare() bypasses setFormat(), so
+    // the flag has to be armed here too — otherwise the auto-optimization
+    // never starts on the first open.
+    pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
     updateGeometry();
     // One fixed size from the fully populated layout; no further adjustSize()
     // passes while the dialog is visible (each one repaints empty first).
@@ -384,6 +389,7 @@ void SaveOptionsDialog::endSession() {
     // A finished/cancelled save must not leave a stale auto result or a live
     // worker behind: the next session starts from neutral state.
     cancelTargetWorkers();
+    docking_ = false; // Stops the placeBeside() poller with this session.
     hide();
     if (parentWidget() != owner_)
         setParent(owner_, windowFlags());
@@ -412,11 +418,15 @@ void SaveOptionsDialog::showEvent(QShowEvent *event) {
 void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
     if (!nativeDialog)
         return;
-    // IrfanView docks its JPEG options window to the right of the native
-    // save dialog. The native geometry is only valid once it is mapped, so
-    // retry via a repeating timer instead of stacking on top (old behavior).
-    // NOTE: fixed size must survive the dock — never call adjustSize() here
+    docking_ = true;
+    // IrfanView docks its JPEG options window to the right of the native save
+    // dialog. The native geometry is only valid once it is mapped, so retry via
+    // a repeating timer instead of stacking on top (old behavior).
+    // NOTE 1: fixed size must survive the dock — never call adjustSize() here
     // (it would unfreeze the prepare() geometry and repaint rows mid-dock).
+    // NOTE 2: this method does not show the window. The caller decides when to
+    // show; showing early and dragging the window afterwards was the visible
+    // "staged loading" jump the user reported.
     auto *poller = new QTimer(this);
     poller->setSingleShot(false);
     poller->setInterval(50);
@@ -425,10 +435,18 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
     auto ticks = std::make_shared<int>(0);
     // The poller is a child of the companion: destroying the companion (Esc,
     // accepted save, parent teardown) deletes the timer with it, so the
-    // capture below can never fire on a dead owner.
+    // capture below can never fire on a dead owner. It keeps polling while the
+    // companion is still hidden (cold start shows only after the dock move),
+    // and stops as soon as endSession() ends the session.
     connect(poller, &QTimer::timeout, this, [dialogGuard, selfGuard, poller, ticks] {
-        if (!selfGuard || !selfGuard->isVisible()) {
-            // Hidden (Esc path or parent teardown) or destroyed: stop polling.
+        if (!selfGuard) {
+            poller->stop();
+            poller->deleteLater();
+            return;
+        }
+        if (!selfGuard->docking_) {
+            // Session ended (endSession/Esc/save): stop for good, otherwise a
+            // 50 ms timer would keep firing for the companion's whole life.
             poller->stop();
             poller->deleteLater();
             return;
@@ -440,9 +458,26 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
         }
         ++(*ticks);
         if (!dialogGuard->isVisible() || dialogGuard->geometry().isEmpty()) {
-            if (*ticks > 100) { // ~5 s: fall back to a plain show.
+            if (*ticks > 100) { // ~5 s: show at the main-window edge instead.
                 poller->stop();
                 poller->deleteLater();
+                selfGuard->docking_ = false;
+                if (selfGuard && !selfGuard->isVisible()) {
+                    const QRect screen = selfGuard->screen()
+                                             ? selfGuard->screen()->availableGeometry()
+                                             : QRect();
+                    QPoint fallback = selfGuard->parentWidget()
+                                          ? selfGuard->parentWidget()->mapToGlobal(QPoint(0, 0))
+                                          : QPoint();
+                    if (!screen.isEmpty()) {
+                        fallback.setX(qBound(screen.left(), fallback.x(),
+                                             qMax(screen.left(), screen.right() - selfGuard->width())));
+                        fallback.setY(qBound(screen.top(), fallback.y(),
+                                             qMax(screen.top(), screen.bottom() - selfGuard->height())));
+                    }
+                    selfGuard->move(fallback);
+                    selfGuard->show();
+                }
             }
             return;
         }
@@ -457,8 +492,13 @@ void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
         // Guard the auto-dock window: moveEvent must not report this
         // programmatic placement as a user drag (would overwrite a remembered
         // position with the dock position on next save).
+        selfGuard->docking_ = false;
         selfGuard->autoPlaced_ = true;
         selfGuard->move(pos);
+        // Single, final appearance: move first, then show — the window never
+        // paints at a fallback spot and jumps afterwards.
+        if (!selfGuard->isVisible())
+            selfGuard->show();
         selfGuard->autoPlaced_ = false;
     });
     poller->start();
