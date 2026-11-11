@@ -208,23 +208,14 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // The companion is shown alongside the chooser when enabled; closing
         // it only hides it for this save, the file dialog keeps running.
         // When the companion is disabled, the stored options apply silently.
-        // IrfanView shows both windows together: fully prepared first, then
-        // show + dock side-by-side, never stacked on top, never empty first.
-        // The remembered position wins: placeBeside must not override the
-        // users own placement on warm start.
+        // IrfanView shows both windows in the same frame: no polling, no
+        // post-show dock move, no staged appearance. The position is computed
+        // once up front (chooser centre + half its width + gap) and the window
+        // is moved before it is shown, so it appears once, fully formed.
         if (companionEnabled) {
-            if (!rememberedCompanionPos.isNull()) {
-                // The user's own placement wins: show there directly, no dock.
-                companion.move(rememberedCompanionPos);
-                companion.show();
-                companion.raise();
-            } else {
-                // Cold start: do NOT show at a fallback spot first. placeBeside()
-                // waits for the native frame (polling) and performs a single,
-                // final move+show exactly beside the save dialog. That removes
-                // the visible "staged loading" jump.
-                companion.placeBeside(&chooser);
-            }
+            companion.preparePlacement(&chooser, rememberedCompanionPos);
+            companion.show();
+            companion.raise();
         } else {
             companion.hide();
         }

@@ -389,7 +389,6 @@ void SaveOptionsDialog::endSession() {
     // A finished/cancelled save must not leave a stale auto result or a live
     // worker behind: the next session starts from neutral state.
     cancelTargetWorkers();
-    docking_ = false; // Stops the placeBeside() poller with this session.
     hide();
     if (parentWidget() != owner_)
         setParent(owner_, windowFlags());
@@ -415,93 +414,46 @@ void SaveOptionsDialog::showEvent(QShowEvent *event) {
     }
 }
 
-void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
-    if (!nativeDialog)
+void SaveOptionsDialog::preparePlacement(QWidget *nativeDialog, const QPoint &remembered) {
+    // IrfanView shows its JPEG options window in the same frame as the save
+    // dialog: no polling for the native frame (it is not mapped yet when the
+    // modal loop has not started), no post-show dock move, no staged paint.
+    // The position is therefore derived from the geometry we DO have: the main
+    // window. The native save dialog opens centred on its parent, so its right
+    // edge is predictable: parent centre + half a typical dialog width.
+    if (!remembered.isNull()) {
+        // The user's own placement wins.
+        autoPlaced_ = true;
+        move(remembered);
+        autoPlaced_ = false;
         return;
-    docking_ = true;
-    // IrfanView docks its JPEG options window to the right of the native save
-    // dialog. The native geometry is only valid once it is mapped, so retry via
-    // a repeating timer instead of stacking on top (old behavior).
-    // NOTE 1: fixed size must survive the dock — never call adjustSize() here
-    // (it would unfreeze the prepare() geometry and repaint rows mid-dock).
-    // NOTE 2: this method does not show the window. The caller decides when to
-    // show; showing early and dragging the window afterwards was the visible
-    // "staged loading" jump the user reported.
-    auto *poller = new QTimer(this);
-    poller->setSingleShot(false);
-    poller->setInterval(50);
-    QPointer<QWidget> dialogGuard(nativeDialog);
-    QPointer<SaveOptionsDialog> selfGuard(this);
-    auto ticks = std::make_shared<int>(0);
-    // The poller is a child of the companion: destroying the companion (Esc,
-    // accepted save, parent teardown) deletes the timer with it, so the
-    // capture below can never fire on a dead owner. It keeps polling while the
-    // companion is still hidden (cold start shows only after the dock move),
-    // and stops as soon as endSession() ends the session.
-    connect(poller, &QTimer::timeout, this, [dialogGuard, selfGuard, poller, ticks] {
-        if (!selfGuard) {
-            poller->stop();
-            poller->deleteLater();
-            return;
-        }
-        if (!selfGuard->docking_) {
-            // Session ended (endSession/Esc/save): stop for good, otherwise a
-            // 50 ms timer would keep firing for the companion's whole life.
-            poller->stop();
-            poller->deleteLater();
-            return;
-        }
-        if (!dialogGuard) {
-            poller->stop();
-            poller->deleteLater();
-            return;
-        }
-        ++(*ticks);
-        if (!dialogGuard->isVisible() || dialogGuard->geometry().isEmpty()) {
-            if (*ticks > 100) { // ~5 s: show at the main-window edge instead.
-                poller->stop();
-                poller->deleteLater();
-                selfGuard->docking_ = false;
-                if (selfGuard && !selfGuard->isVisible()) {
-                    const QRect screen = selfGuard->screen()
-                                             ? selfGuard->screen()->availableGeometry()
-                                             : QRect();
-                    QPoint fallback = selfGuard->parentWidget()
-                                          ? selfGuard->parentWidget()->mapToGlobal(QPoint(0, 0))
-                                          : QPoint();
-                    if (!screen.isEmpty()) {
-                        fallback.setX(qBound(screen.left(), fallback.x(),
-                                             qMax(screen.left(), screen.right() - selfGuard->width())));
-                        fallback.setY(qBound(screen.top(), fallback.y(),
-                                             qMax(screen.top(), screen.bottom() - selfGuard->height())));
-                    }
-                    selfGuard->move(fallback);
-                    selfGuard->show();
-                }
-            }
-            return;
-        }
-        poller->stop();
-        poller->deleteLater();
-        const QRect frame = dialogGuard->frameGeometry();
-        const QRect screen = dialogGuard->screen() ? dialogGuard->screen()->availableGeometry() : frame;
-        QPoint pos(frame.right() + 8, frame.top());
-        if (pos.x() + selfGuard->width() > screen.right())
-            pos.setX(qMax(screen.left(), frame.left() - selfGuard->width() - 8));
-        pos.setY(qBound(screen.top(), pos.y(), qMax(screen.top(), screen.bottom() - selfGuard->height())));
-        // Guard the auto-dock window: moveEvent must not report this
-        // programmatic placement as a user drag (would overwrite a remembered
-        // position with the dock position on next save).
-        selfGuard->docking_ = false;
-        selfGuard->autoPlaced_ = true;
-        selfGuard->move(pos);
-        // Single, final appearance: move first, then show — the window never
-        // paints at a fallback spot and jumps afterwards.
-        if (!selfGuard->isVisible())
-            selfGuard->show();
-        selfGuard->autoPlaced_ = false;
-    });
-    poller->start();
+    }
+    adjustSize();
+    const QRect screen = this->screen() ? this->screen()->availableGeometry() : QRect();
+    // Native save dialogs are ~ 0.9 * screen width but never wider than 1100 px;
+    // the companion sits right of its right edge, or left of it when tight.
+    const QRect parentFrame = parentWidget() ? parentWidget()->frameGeometry() : frameGeometry();
+    const int dialogWidth = qMin(1100, qMax(640, int(screen.width() * 0.72)));
+    const int dialogHeight = qMin(760, qMax(420, int(screen.height() * 0.72)));
+    QPoint dialogTopLeft = parentFrame.center() - QPoint(dialogWidth / 2, dialogHeight / 2);
+    if (screen.isValid()) {
+        dialogTopLeft.setX(qBound(screen.left(), dialogTopLeft.x(),
+                                  qMax(screen.left(), screen.right() - dialogWidth)));
+        dialogTopLeft.setY(qBound(screen.top(), dialogTopLeft.y(),
+                                  qMax(screen.top(), screen.bottom() - dialogHeight)));
+    }
+    const int dialogRight = dialogTopLeft.x() + dialogWidth;
+    QPoint pos(dialogRight + 8, dialogTopLeft.y());
+    if (screen.isValid() && pos.x() + width() > screen.right())
+        pos.setX(qMax(screen.left(), dialogTopLeft.x() - width() - 8));
+    if (screen.isValid())
+        pos.setY(qBound(screen.top(), pos.y(), qMax(screen.top(), screen.bottom() - height())));
+    // Programmatic placement: moveEvent must not report it as a user drag
+    // (would overwrite the remembered position with the dock position).
+    autoPlaced_ = true;
+    move(pos);
+    autoPlaced_ = false;
+    Q_UNUSED(nativeDialog);
 }
 
 void SaveOptionsDialog::applyOptions(SaveOptions options) {

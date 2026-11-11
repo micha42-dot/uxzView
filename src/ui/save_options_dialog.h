@@ -43,9 +43,7 @@ class SaveOptionsDialog final : public QDialog {
     // Ends the session: hide, cancel workers, clear the stale auto result and
     // give the window back to its owner so the next save can reuse it.
     void endSession();
-    // Places the companion beside the given native save dialog once it is
-    // visible (IrfanView shows both windows side-by-side, not stacked).
-    void placeBeside(QWidget *nativeDialog);
+    void preparePlacement(QWidget *nativeDialog, const QPoint &remembered);
   signals:
     void optionsChanged(const SaveOptions &options);
     // Emitted when the user drags the companion (not on programmatic move).
@@ -106,11 +104,7 @@ class SaveOptionsDialog final : public QDialog {
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,
             *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;
     bool rebuilding_ = false;
-    bool autoPlaced_ = false; // True only inside the placeBeside() move window.
-    // True while the placeBeside() poller is waiting for the native frame. The
-    // cold-start companion stays hidden until the dock move, so visibility
-    // cannot be used as the "still wanted" check.
-    bool docking_ = false;
+    bool autoPlaced_ = false; // True only inside a programmatic placement move.
     // Set by setFormat(); consumed on first show so no encode blocks paint.
     bool pendingAutoOptimize_ = false;
     void applyOptions(SaveOptions options);
