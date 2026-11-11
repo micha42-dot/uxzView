@@ -26,10 +26,7 @@ bool imageHasRealTransparency(const QImage &image) {
     // Format-only alpha (e.g. a fully opaque ARGB32 PNG) loses nothing on
     // export. Scan for a pixel that is actually non-opaque; sample huge
     // images on a coarse grid so gigapixel originals stay interactive.
-    // Cost matters: this runs synchronously in the UI thread before the
-    // save dialog appears. Convert lazily — sample convertible formats
-    // directly on their scanlines and only fall back to a full conversion
-    // for exotic layouts (never convert the whole image just to sample it).
+    // Cost matters: this runs in the save path before every export.
     const int width = image.width(), height = image.height();
     const qint64 pixels = qint64(width) * height;
     const int step = pixels > 16 * 1024 * 1024 ? 7 : 1;
@@ -54,9 +51,11 @@ bool imageHasRealTransparency(const QImage &image) {
             return false;
         }
         if (image.format() == QImage::Format_RGBA8888) {
+            // bytesPerLine() may include row padding: derive the stride once,
+            // not per row (integer division in the hot loop).
+            const int bytesPerPixel = image.bytesPerLine() / width;
             for (int y = 0; y < height; y += step) {
                 const auto *row = image.constScanLine(y);
-                const int bytesPerPixel = image.bytesPerLine() / width;
                 for (int x = 0; x < width; x += step)
                     if (row[x * bytesPerPixel + 3] < 255)
                         return true;

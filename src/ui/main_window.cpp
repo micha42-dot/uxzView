@@ -326,8 +326,9 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     busyHintDelay_.setSingleShot(true);
     busyHintDelay_.setInterval(120);
     connect(&busyHintDelay_, &QTimer::timeout, this, [this] {
-        if (activity_.busy() && !busyHintTimer_.isActive())
-            statusBar()->showMessage(busyHint(), 0);
+        if (activity_.busy() && !busyHintTimer_.isActive() &&
+            activity_.phase() != DocumentActivity::Phase::Saving)
+            statusBar()->showMessage(pendingBusyText_.isEmpty() ? busyHint() : pendingBusyText_, 0);
     });
     QSettings settings;
     if (settings.value(QStringLiteral("window/rememberGeometry"), true).toBool())
@@ -1387,19 +1388,35 @@ void MainWindow::syncBusyHint() {
         // A finished transaction must also drop a pending rejection flash.
         busyHintTimer_.stop();
         busyHintDelay_.stop();
-        statusBar()->clearMessage();
+        if (statusBar()->currentMessage() == pendingBusyText_) {
+            // Only clear our own overlay: an unrelated message (e.g. a file
+            // error shown meanwhile) must survive.
+            statusBar()->clearMessage();
+        }
+        pendingBusyText_.clear();
         return;
     }
+    // Saving reports through its own modal progress dialog ("Bild wird
+    // gespeichert …"); the status row keeps showing the image information
+    // instead (no overlay while the dialog is up).
+    if (activity_.phase() == DocumentActivity::Phase::Saving)
+        return;
     // A rejection flash owns the message area until it expires.
     if (busyHintTimer_.isActive())
         return;
     if (statusBar()->currentMessage().isEmpty()) {
-        if (!busyHintDelay_.isActive())
+        if (!busyHintDelay_.isActive()) {
+            pendingBusyText_ = busyHint();
             busyHintDelay_.start();
+        }
         return;
     }
     // Keep the text in step when the phase changes inside one transaction.
-    statusBar()->showMessage(busyHint(), 0);
+    // Never stomp an unrelated message that appeared meanwhile.
+    if (statusBar()->currentMessage() == pendingBusyText_) {
+        pendingBusyText_ = busyHint();
+        statusBar()->showMessage(pendingBusyText_, 0);
+    }
 }
 void MainWindow::showBusyHint(bool rejected) {
     if (!activity_.busy())
@@ -1409,8 +1426,13 @@ void MainWindow::showBusyHint(bool rejected) {
         return;
     }
     // A refused command is answered immediately; the transaction may be short.
+    // Saving has its own modal progress dialog — never overlay the image
+    // information in the status row for that phase.
+    if (activity_.phase() == DocumentActivity::Phase::Saving)
+        return;
     busyHintDelay_.stop();
-    statusBar()->showMessage(IX_TEXT("Bitte warten – %1").arg(busyHint()), 0);
+    pendingBusyText_ = IX_TEXT("Bitte warten – %1").arg(busyHint());
+    statusBar()->showMessage(pendingBusyText_, 0);
     busyHintTimer_.start();
 }
 void MainWindow::updateStatus() {

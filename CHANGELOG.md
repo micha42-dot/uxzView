@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Compression companion: freely positionable (no follow-back; position is
+  remembered), normal window close button, optional via Settings → Save
+  („Kompressionsoptionen beim Speichern anzeigen", default on). Unreachable
+  target sizes save the smallest reachable file (quality 1, IrfanView-style)
+  instead of failing; aggressive targets no longer crash (memory guards +
+  exception barriers in the size probes). Lossless/effort options are honored
+  by both the optimizer and the encoder; GIF interlaced stays a no-op (Qt
+  offers no switch). Save-open is faster (cached filters/options/profiles,
+  single settings batch, one persist per save).
+
 - Add a compression companion next to the native Save As dialog (compact tool
   window): per-format quality (jpegli JPEG incl. real progressive and 4:4:4
   switches, WebP, AVIF/HEIF), PNG level, per-type metadata flags and

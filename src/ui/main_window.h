@@ -165,6 +165,10 @@ class MainWindow : public QMainWindow {
     void showBusyHint(bool rejected);
     QTimer busyHintTimer_;
     QTimer busyHintDelay_;
+    // Text of our own status overlay, so we never clear or overwrite an
+    // unrelated message (and never overlay the image info while saving —
+    // the modal progress dialog already reports that phase).
+    QString pendingBusyText_;
     void refreshFiles(bool force = false);
     void navigate(int direction);
     void page(int direction);

@@ -94,30 +94,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         companion.setProfiles(loadSaveProfiles());
         companion.setFormat(target.format.id);
         saveOptions = companion.options();
-        // Position once beside the chooser (or at the remembered spot) and
-        // then leave the companion alone: the user can move it freely, it
-        // never snaps back. No follow timer, no move/resize event filter —
-        // both fought the user's own dragging (visible jump-back).
-        auto placeCompanion = [&] {
-            companion.adjustSize();
-            if (!rememberedCompanionPos.isNull()) {
-                companion.move(rememberedCompanionPos);
-                return;
-            }
-            // The chooser has no valid frame geometry before it is shown;
-            // defer the first placement until it is visible.
-            const auto frame = chooser.frameGeometry();
-            if (!frame.isValid())
-                return;
-            QScreen *screen = chooser.screen() ? chooser.screen() : QApplication::primaryScreen();
-            const QRect available = screen ? screen->availableGeometry() : QRect();
-            QPoint pos = frame.topRight() + QPoint(8, 0);
-            if (pos.x() + companion.width() > available.right()) // Fall back to the left side.
-                pos = {frame.left() - companion.width() - 8, frame.top()};
-            pos.setY(std::clamp(pos.y(), available.top(), std::max(available.top(), available.bottom() - companion.height())));
-            pos.setX(std::clamp(pos.x(), available.left(), std::max(available.left(), available.right() - companion.width())));
-            companion.move(pos);
-        };
         auto previous = target.format;
         const auto formatForFilter = [&](const QString &filter) -> QList<SaveFormat>::const_iterator {
             // Match by canonical id: Qt may list the same codec under a
@@ -171,26 +147,50 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                 });
         // No placer event filter and no follow timer: both re-moved the window
         // while the user was dragging it. Remember a user-moved position for
-        // the next save instead.
+        // the next save instead (coalesced: QSettings syncs on flush, not on
+        // every dragged pixel, so dragging stays instant).
+        QPoint pendingCompanionPos;
+        QTimer companionPosTimer;
+        companionPosTimer.setSingleShot(true);
+        companionPosTimer.setInterval(800);
+        connect(&companionPosTimer, &QTimer::timeout, &chooser,
+                [&] { QSettings().setValue(QStringLiteral("save/companionPos"), pendingCompanionPos); });
         connect(&companion, &SaveOptionsDialog::movedByUser, &chooser,
-                [&](const QPoint &p) { QSettings().setValue(QStringLiteral("save/companionPos"), p); });
+                [&](const QPoint &p) {
+                    pendingCompanionPos = p;
+                    companionPosTimer.start();
+                });
         // The companion is shown alongside the chooser when enabled; closing
-        // it via its own close button only hides it for this save, the file
-        // dialog keeps running with the last options.
+        // it only hides it for this save, the file dialog keeps running.
         // When the companion is disabled, the stored options apply silently.
-        if (companionEnabled)
+        // IrfanView shows both windows together: show + dock side-by-side
+        // (placeBeside polls for the native frame), never stacked on top.
+        // The remembered position wins: placeBeside must not override the
+        // users own placement on warm start.
+        if (companionEnabled) {
             companion.show();
-        else
+            // Raise above the native chooser (Qt::Tool child of a native
+            // modal dialog otherwise stays buried behind it).
+            companion.raise();
+            if (rememberedCompanionPos.isNull())
+                companion.placeBeside(&chooser);
+            else
+                companion.move(rememberedCompanionPos);
+        } else {
             companion.hide();
-        // Place once the chooser is visible (valid frame geometry). After
-        // that the companion is never re-moved programmatically.
-        QTimer::singleShot(0, &chooser, [&] {
-            if (companion.isVisible() && rememberedCompanionPos.isNull())
-                placeCompanion();
-        });
+        }
         // The native dialog runs its own modal loop; the companion is a child
         // tool window and stays interactive while it is open.
         const bool accepted = chooser.exec() == QDialog::Accepted;
+        // Esc (in either window) closes both: the companions reject() forwards
+        // to the chooser, and the chooser's own Esc/reject path lands here —
+        // always hide the companion so no orphaned window stays on screen.
+        companion.hide();
+        // Flush a still-pending companion position before the locals die.
+        if (companionPosTimer.isActive()) {
+            companionPosTimer.stop();
+            QSettings().setValue(QStringLiteral("save/companionPos"), pendingCompanionPos);
+        }
         if (!accepted) return false;
         saveOptions = companion.options();
         target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);

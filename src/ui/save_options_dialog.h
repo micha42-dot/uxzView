@@ -31,6 +31,9 @@ class SaveOptionsDialog final : public QDialog {
     void setFormat(const QByteArray &format);
     void setRegistry(const CodecRegistry *registry);
     void setProfiles(const QJsonObject &profiles);
+    // Places the companion beside the given native save dialog once it is
+    // visible (IrfanView shows both windows side-by-side, not stacked).
+    void placeBeside(QWidget *nativeDialog);
   signals:
     void optionsChanged(const SaveOptions &options);
     // Emitted when the user drags the companion (not on programmatic move).
@@ -39,6 +42,11 @@ class SaveOptionsDialog final : public QDialog {
   protected:
     void closeEvent(QCloseEvent *event) override;
     void moveEvent(QMoveEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    // Esc must close both windows, not just the companion: forward rejection
+    // to the native save dialog (its own Esc already hides us, see below).
+    void reject() override;
 
   public:
     ~SaveOptionsDialog() override;
@@ -80,6 +88,9 @@ class SaveOptionsDialog final : public QDialog {
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,
             *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;
     bool rebuilding_ = false;
+    bool autoPlaced_ = false; // True only inside the placeBeside() move window.
+    // Set by setFormat(); consumed on first show so no encode blocks paint.
+    bool pendingAutoOptimize_ = false;
     void rebuild();
     void collect();
     void runTargetOptimization();

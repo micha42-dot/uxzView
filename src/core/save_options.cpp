@@ -210,7 +210,6 @@ void storeSaveOptions(const SaveOptions &options) {
     QSettings settings;
     settings.setValue(QStringLiteral("save/options/") + QString::fromLatin1(options.format),
                       options.toJson());
-    settings.setValue(QStringLiteral("save/lastOptions"), options.toJson());
     settings.sync();
 }
 void storeSaveProfiles(const QJsonObject &profiles) {

@@ -12,6 +12,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMessageBox>
 #include <QMoveEvent>
@@ -20,25 +21,30 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScopeGuard>
+#include <QShowEvent>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
 #include <QTimer>
 #include <QtConcurrent>
 #include <atomic>
+#include <memory>
 #include <utility>
 namespace ix {
 SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *parent)
     : QDialog(parent), document_(document) {
     setAttribute(Qt::WA_DeleteOnClose, false);
-    // Compact window beside the file dialog: a normal title bar with the
-    // platform close button (no frameless red-X styling), freely movable.
-    setWindowFlags(Qt::Tool | Qt::WindowTitleHint | Qt::WindowSystemMenuHint |
-                   Qt::WindowCloseButtonHint);
+    // Side-by-side companion: a small tool window with title text only —
+    // no close/min/max buttons (IrfanView's JPEG dialog also has no red-X
+    // affordance). Never modal, never a child that the native dialog covers.
+    setWindowFlags(Qt::Tool | Qt::WindowTitleHint | Qt::WindowStaysOnTopHint);
     setWindowModality(Qt::NonModal);
-    setAttribute(Qt::WA_DeleteOnClose, false);
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 10, 10, 10);
-    layout->setSpacing(6);
+    // Compact: ~25% narrower than before.
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(4);
+    setMinimumWidth(210);
+    setMaximumWidth(260);
     title_ = new QLabel(this);
     QFont titleFont = title_->font();
     titleFont.setBold(true);
@@ -47,27 +53,28 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     layout->addWidget(title_);
     auto *form = new QFormLayout;
     form->setContentsMargins(0, 0, 0, 0);
-    form->setHorizontalSpacing(8);
+    form->setHorizontalSpacing(6);
     form->setVerticalSpacing(2);
-    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-    form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    form->setRowWrapPolicy(QFormLayout::DontWrapRows);
     layout->addLayout(form);
     qualityRow_ = new QWidget(this);
     auto *qualityLayout = new QHBoxLayout(qualityRow_);
     qualityLayout->setContentsMargins(0, 0, 0, 0);
-    auto *low = new QLabel(IX_TEXT("Niedrig"), this);
-    qualitySlider_ = new QSlider(Qt::Horizontal, this);
+    auto *low = new QLabel(IX_TEXT("Niedrig"), qualityRow_);
+    qualitySlider_ = new QSlider(Qt::Horizontal, qualityRow_);
     qualitySlider_->setRange(0, 100);
+    qualitySlider_->setFixedWidth(100);
     qualitySlider_->setObjectName(QStringLiteral("compressionQuality"));
-    auto *high = new QLabel(IX_TEXT("Hoch"), this);
-    qualitySpin_ = new QSpinBox(this);
+    qualitySpin_ = new QSpinBox(qualityRow_);
     qualitySpin_->setRange(0, 100);
     qualitySpin_->setObjectName(QStringLiteral("compressionQualityValue"));
-    qualitySpin_->setMinimumWidth(64);
+    qualitySpin_->setMinimumWidth(48);
+    qualitySpin_->setMaximumWidth(56);
     qualityLayout->addWidget(low);
     qualityLayout->addWidget(qualitySlider_, 1);
-    qualityLayout->addWidget(high);
     qualityLayout->addWidget(qualitySpin_);
+    // No "Komprimierung:" row: the title bar already names the dialog.
     form->addRow(IX_TEXT("Qualität:"), qualityRow_);
     connect(qualitySlider_, &QSlider::valueChanged, this, [this](int value) {
         if (qualitySpin_->value() != value)
@@ -84,9 +91,9 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     auto *jpegLayout = new QVBoxLayout(jpegRow_);
     jpegLayout->setContentsMargins(0, 0, 0, 0);
     jpegLayout->setSpacing(2);
-    progressive_ = new QCheckBox(IX_TEXT("Als progressives JPEG speichern"), this);
+    progressive_ = new QCheckBox(IX_TEXT("Als progressives JPEG speichern"), jpegRow_);
     progressive_->setObjectName(QStringLiteral("compressionProgressive"));
-    subsampling_ = new QCheckBox(IX_TEXT("Chroma-Subsampling deaktivieren"), this);
+    subsampling_ = new QCheckBox(IX_TEXT("Chroma-Subsampling deaktivieren"), jpegRow_);
     subsampling_->setObjectName(QStringLiteral("compressionNoSubsampling"));
     jpegLayout->addWidget(progressive_);
     jpegLayout->addWidget(subsampling_);
@@ -100,16 +107,19 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     effortRow_ = new QWidget(this);
     auto *effortLayout = new QHBoxLayout(effortRow_);
     effortLayout->setContentsMargins(0, 0, 0, 0);
-    effortLabel_ = new QLabel(this);
-    effortSlider_ = new QSlider(Qt::Horizontal, this);
+    effortLabel_ = new QLabel(effortRow_);
+    effortLabel_->setMaximumWidth(90);
+    effortSlider_ = new QSlider(Qt::Horizontal, effortRow_);
+    effortSlider_->setFixedWidth(90);
     effortSlider_->setObjectName(QStringLiteral("compressionEffort"));
-    effortSpin_ = new QSpinBox(this);
+    effortSpin_ = new QSpinBox(effortRow_);
     effortSpin_->setObjectName(QStringLiteral("compressionEffortValue"));
-    effortSpin_->setMinimumWidth(64);
+    effortSpin_->setMinimumWidth(48);
+    effortSpin_->setMaximumWidth(56);
     effortLayout->addWidget(effortLabel_);
     effortLayout->addWidget(effortSlider_, 1);
     effortLayout->addWidget(effortSpin_);
-    form->addRow(IX_TEXT("Komprimierung:"), effortRow_);
+    form->addRow(effortRow_);
     connect(effortSlider_, &QSlider::valueChanged, this, [this](int value) {
         if (effortSpin_->value() != value)
             effortSpin_->setValue(value);
@@ -124,17 +134,17 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     pngRow_ = new QWidget(this);
     auto *pngLayout = new QHBoxLayout(pngRow_);
     pngLayout->setContentsMargins(0, 0, 0, 0);
-    pngLevel_ = new QSpinBox(this);
+    pngLevel_ = new QSpinBox(pngRow_);
     pngLevel_->setRange(0, 9);
     pngLevel_->setObjectName(QStringLiteral("compressionPngLevel"));
-    pngLayout->addWidget(new QLabel(IX_TEXT("Stufe (0–9, verlustfrei):"), this));
+    pngLayout->addWidget(new QLabel(IX_TEXT("Stufe (0–9, verlustfrei):"), pngRow_));
     pngLayout->addWidget(pngLevel_, 1);
     form->addRow(pngRow_);
     connect(pngLevel_, &QSpinBox::valueChanged, this, [this] { collect(); });
     gifRow_ = new QWidget(this);
     auto *gifLayout = new QVBoxLayout(gifRow_);
     gifLayout->setContentsMargins(0, 0, 0, 0);
-    interlaced_ = new QCheckBox(IX_TEXT("Interlaced speichern"), this);
+    interlaced_ = new QCheckBox(IX_TEXT("Interlaced speichern"), gifRow_);
     interlaced_->setObjectName(QStringLiteral("compressionInterlaced"));
     gifLayout->addWidget(interlaced_);
     form->addRow(gifRow_);
@@ -146,11 +156,11 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     auto *alphaLayout = new QVBoxLayout(alphaBox_);
     alphaLayout->setContentsMargins(0, 0, 0, 0);
     alphaLayout->setSpacing(2);
-    alphaWhite_ = new QRadioButton(IX_TEXT("Auf Weiß reduzieren"), this);
+    alphaWhite_ = new QRadioButton(IX_TEXT("Auf Weiß reduzieren"), alphaBox_);
     alphaWhite_->setObjectName(QStringLiteral("compressionAlphaWhite"));
-    alphaKeep_ = new QRadioButton(IX_TEXT("Pixel behalten"), this);
+    alphaKeep_ = new QRadioButton(IX_TEXT("Pixel behalten"), alphaBox_);
     alphaKeep_->setObjectName(QStringLiteral("compressionAlphaKeep"));
-    alphaAsk_ = new QRadioButton(IX_TEXT("Bei jedem Speichern fragen"), this);
+    alphaAsk_ = new QRadioButton(IX_TEXT("Bei jedem Speichern fragen"), alphaBox_);
     alphaAsk_->setObjectName(QStringLiteral("compressionAlphaAsk"));
     alphaLayout->addWidget(alphaWhite_);
     alphaLayout->addWidget(alphaKeep_);
@@ -165,16 +175,21 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     auto *metaLayout = new QVBoxLayout(metaBox_);
     metaLayout->setContentsMargins(0, 0, 0, 0);
     metaLayout->setSpacing(2);
-    keepExif_ = new QCheckBox(IX_TEXT("EXIF-Metadaten erhalten"), this);
+    keepExif_ = new QCheckBox(IX_TEXT("EXIF-Metadaten erhalten"), metaBox_);
     keepExif_->setObjectName(QStringLiteral("compressionKeepExif"));
-    keepIptc_ = new QCheckBox(IX_TEXT("IPTC-Metadaten erhalten"), this);
+    keepIptc_ = new QCheckBox(IX_TEXT("IPTC-Metadaten erhalten"), metaBox_);
     keepIptc_->setObjectName(QStringLiteral("compressionKeepIptc"));
-    keepXmp_ = new QCheckBox(IX_TEXT("XMP-Metadaten erhalten"), this);
+    keepXmp_ = new QCheckBox(IX_TEXT("XMP-Metadaten erhalten"), metaBox_);
     keepXmp_->setObjectName(QStringLiteral("compressionKeepXmp"));
-    keepIcc_ = new QCheckBox(IX_TEXT("ICC-Farbprofil erhalten"), this);
+    keepIcc_ = new QCheckBox(IX_TEXT("ICC-Farbprofil erhalten"), metaBox_);
     keepIcc_->setObjectName(QStringLiteral("compressionKeepIcc"));
-    fixOrientation_ = new QCheckBox(IX_TEXT("EXIF-Ausrichtung korrigieren"), this);
+    fixOrientation_ = new QCheckBox(IX_TEXT("EXIF-Ausrichtung korrigieren"), metaBox_);
     fixOrientation_->setObjectName(QStringLiteral("compressionFixOrientation"));
+    // No encoder honors this yet (orientation is already baked into pixels on
+    // decode; a future tag-normalization step will use the flag). Show it
+    // disabled rather than silently ignoring a user click.
+    fixOrientation_->setEnabled(false);
+    fixOrientation_->setToolTip(IX_TEXT("Derzeit ohne Wirkung — die Ausrichtung ist bereits in den Pixeln enthalten."));
     metaLayout->addWidget(keepExif_);
     metaLayout->addWidget(keepIptc_);
     metaLayout->addWidget(keepXmp_);
@@ -196,11 +211,13 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     targetValue_->setDecimals(2);
     targetValue_->setValue(150.0);
     targetValue_->setObjectName(QStringLiteral("compressionTargetValue"));
-    targetValue_->setMinimumWidth(90);
+    targetValue_->setMinimumWidth(64);
+    targetValue_->setMaximumWidth(80);
     targetUnit_ = new QComboBox(this);
     targetUnit_->addItem(QStringLiteral("KB"), 1024);
     targetUnit_->addItem(QStringLiteral("MB"), 1024 * 1024);
     targetUnit_->setObjectName(QStringLiteral("compressionTargetUnit"));
+    targetUnit_->setMaximumWidth(56);
     targetTopLayout->addWidget(targetEnabled_);
     targetTopLayout->addWidget(targetValue_, 1);
     targetTopLayout->addWidget(targetUnit_);
@@ -225,7 +242,7 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
     targetBarLayout->addWidget(targetProgress_, 1);
     targetBarLayout->addWidget(targetCancel_);
     targetLayout->addWidget(targetBar);
-    form->addRow(targetRow_);
+    form->addRow(IX_TEXT("Ziel:"), targetRow_);
     optimizeTimer_ = new QTimer(this);
     optimizeTimer_->setSingleShot(true);
     optimizeTimer_->setInterval(600);
@@ -252,20 +269,30 @@ SaveOptionsDialog::SaveOptionsDialog(const ImageDocument &document, QWidget *par
         if (targetEnabled_->isChecked())
             optimizeTimer_->start();
     });
-    auto *profileRow = new QWidget(this);
+    auto *profileBox = new QWidget(this);
+    auto *profileBoxLayout = new QVBoxLayout(profileBox);
+    profileBoxLayout->setContentsMargins(0, 0, 0, 0);
+    profileBoxLayout->setSpacing(2);
+    profileBoxLayout->addWidget(new QLabel(IX_TEXT("Profile:"), profileBox));
+    auto *profileRow = new QWidget(profileBox);
     auto *profileLayout = new QHBoxLayout(profileRow);
     profileLayout->setContentsMargins(0, 0, 0, 0);
-    profileCombo_ = new QComboBox(this);
+    profileLayout->setSpacing(4);
+    profileCombo_ = new QComboBox(profileRow);
     profileCombo_->setObjectName(QStringLiteral("compressionProfile"));
-    profileCombo_->setMinimumWidth(120);
-    auto *loadButton = new QPushButton(IX_TEXT("Laden"), this);
-    auto *deleteButton = new QPushButton(IX_TEXT("Löschen"), this);
-    auto *saveButton = new QPushButton(IX_TEXT("Speichern"), this);
+    profileCombo_->setMinimumWidth(80);
+    auto *loadButton = new QPushButton(IX_TEXT("Laden"), profileRow);
+    auto *deleteButton = new QPushButton(IX_TEXT("Löschen"), profileRow);
+    auto *saveButton = new QPushButton(IX_TEXT("Speichern"), profileRow);
+    loadButton->setMaximumWidth(62);
+    deleteButton->setMaximumWidth(62);
+    saveButton->setMaximumWidth(74);
     profileLayout->addWidget(profileCombo_, 1);
     profileLayout->addWidget(loadButton);
     profileLayout->addWidget(deleteButton);
     profileLayout->addWidget(saveButton);
-    form->addRow(IX_TEXT("Profile:"), profileRow);
+    profileBoxLayout->addWidget(profileRow);
+    form->addRow(profileBox);
     connect(loadButton, &QPushButton::clicked, this, [this] { loadProfile(profileCombo_->currentIndex()); });
     connect(deleteButton, &QPushButton::clicked, this, [this] { deleteProfile(); });
     connect(saveButton, &QPushButton::clicked, this, [this] { saveProfile(); });
@@ -281,22 +308,111 @@ void SaveOptionsDialog::setFormat(const QByteArray &format) {
     options_ = loadSaveOptions(format);
     caps_ = saveCapabilities(format);
     rebuild();
+    // Defer the IrfanView-style auto-optimization until the dialog is
+    // actually visible: starting full-res encodes here blocked first paint.
+    pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
 }
+
+void SaveOptionsDialog::showEvent(QShowEvent *event) {
+    QDialog::showEvent(event);
+    // Consume the pending auto-optimization even after the first show: a
+    // re-show (e.g. save -> cancel -> save again on the same instance) must
+    // not replay a stale pending flag into a worker storm.
+    if (pendingAutoOptimize_) {
+        pendingAutoOptimize_ = false;
+        if (isVisible())
+            runTargetOptimization();
+    }
+}
+
+void SaveOptionsDialog::placeBeside(QWidget *nativeDialog) {
+    if (!nativeDialog)
+        return;
+    // IrfanView docks its JPEG options window to the right of the native
+    // save dialog. The native geometry is only valid once it is mapped, so
+    // retry via a one-shot timer instead of stacking on top (old behavior).
+    auto *poller = new QTimer(this);
+    poller->setSingleShot(false);
+    poller->setInterval(50);
+    QPointer<QWidget> dialogGuard(nativeDialog);
+    QPointer<SaveOptionsDialog> selfGuard(this);
+    auto ticks = std::make_shared<int>(0);
+    // The poller is a child of the companion: destroying the companion (Esc,
+    // accepted save, parent teardown) deletes the timer with it, so the
+    // capture below can never fire on a dead owner.
+    connect(poller, &QTimer::timeout, this, [dialogGuard, selfGuard, poller, ticks] {
+        if (!selfGuard || !selfGuard->isVisible()) {
+            // Hidden (Esc path or parent teardown) or destroyed: stop polling.
+            poller->stop();
+            poller->deleteLater();
+            return;
+        }
+        if (!dialogGuard) {
+            poller->stop();
+            poller->deleteLater();
+            return;
+        }
+        ++(*ticks);
+        if (!dialogGuard->isVisible() || dialogGuard->geometry().isEmpty()) {
+            if (*ticks > 100) { // ~5 s: fall back to a plain show.
+                poller->stop();
+                poller->deleteLater();
+            }
+            return;
+        }
+        poller->stop();
+        poller->deleteLater();
+        const QRect frame = dialogGuard->frameGeometry();
+        const QRect screen = dialogGuard->screen() ? dialogGuard->screen()->availableGeometry() : frame;
+        selfGuard->adjustSize();
+        QPoint pos(frame.right() + 8, frame.top());
+        if (pos.x() + selfGuard->width() > screen.right())
+            pos.setX(qMax(screen.left(), frame.left() - selfGuard->width() - 8));
+        pos.setY(qBound(screen.top(), pos.y(), qMax(screen.top(), screen.bottom() - selfGuard->height())));
+        // Guard the auto-dock window: moveEvent must not report this
+        // programmatic placement as a user drag (would overwrite a remembered
+        // position with the dock position on next save).
+        selfGuard->autoPlaced_ = true;
+        selfGuard->move(pos);
+        selfGuard->autoPlaced_ = false;
+        selfGuard->raise();
+    });
+    poller->start();
+}
+
 void SaveOptionsDialog::rebuild() {
     // Block every widget signal while the controls are populated: an early
-    // collect() would read a half-built dialog and persist that corrupt state.
+    // collect() or toggled()/valueChanged() handler would otherwise read a
+    // half-built dialog, persist corrupt state, or kick off a target-size
+    // optimization before first paint (the old first-open stall).
     rebuilding_ = true;
     const auto done = qScopeGuard([this] { rebuilding_ = false; });
     const QSignalBlocker blockQuality(qualitySlider_);
     const QSignalBlocker blockSpin(qualitySpin_);
+    const QSignalBlocker blockProgressive(progressive_);
+    const QSignalBlocker blockSubsampling(subsampling_);
+    const QSignalBlocker blockLossless(lossless_);
+    const QSignalBlocker blockPng(pngLevel_);
+    const QSignalBlocker blockInterlaced(interlaced_);
+    const QSignalBlocker blockExif(keepExif_);
+    const QSignalBlocker blockIptc(keepIptc_);
+    const QSignalBlocker blockXmp(keepXmp_);
+    const QSignalBlocker blockIcc(keepIcc_);
+    const QSignalBlocker blockFix(fixOrientation_);
+    const QSignalBlocker blockAlphaWhite(alphaWhite_);
+    const QSignalBlocker blockAlphaKeep(alphaKeep_);
+    const QSignalBlocker blockAlphaAsk(alphaAsk_);
+    const QSignalBlocker blockTargetEnabled(targetEnabled_);
+    const QSignalBlocker blockTargetValue(targetValue_);
+    const QSignalBlocker blockTargetUnit(targetUnit_);
+    const QSignalBlocker blockEffortSlider(effortSlider_);
+    const QSignalBlocker blockEffortSpin(effortSpin_);
     title_->setText(QString::fromLatin1(options_.format).toUpper() + IX_TEXT("-Optionen speichern"));
     qualitySlider_->setValue(options_.quality);
     qualitySpin_->setValue(options_.quality);
     progressive_->setChecked(options_.progressive);
     subsampling_->setChecked(options_.noSubsampling);
     lossless_->setChecked(options_.lossless);
-    const QSignalBlocker blockEffort(effortSlider_);
-    const QSignalBlocker blockEffortSpin(effortSpin_);
     effortSlider_->setRange(caps_.minEffort, caps_.maxEffort);
     effortSpin_->setRange(caps_.minEffort, caps_.maxEffort);
     effortLabel_->setText(caps_.effortLabel.isEmpty() ? IX_TEXT("Aufwand:") : caps_.effortLabel + QStringLiteral(":"));
@@ -375,6 +491,9 @@ void SaveOptionsDialog::collect() {
     options_.autoQuality = -1;
     if (!options_.targetSizeEnabled)
         targetResult_->clear();
+    // Instant: only update in memory + notify. The caller persists once on
+    // dialog accept — the old storeSaveOptions() here flushed the INI file
+    // synchronously on every slider tick and made dragging stutter.
     emit optionsChanged(options_);
 }
 void SaveOptionsDialog::runTargetOptimization() {
@@ -464,7 +583,8 @@ void SaveOptionsDialog::runTargetOptimization() {
                     guard->targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).")
                                                       .arg(*result.quality)
                                                       .arg(result.bytes / 1024));
-                storeSaveOptions(guard->options_);
+                // No disk write here: the result lives in memory and is
+                // persisted once on dialog accept (keeps the UI instant).
                 emit guard->optionsChanged(guard->options_);
             });
     watcher->setFuture(QtConcurrent::run([document, options, registry, cancel] {
@@ -548,17 +668,56 @@ void SaveOptionsDialog::deleteProfile() {
     refreshProfileCombo();
 }
 void SaveOptionsDialog::closeEvent(QCloseEvent *event) {
-    // The X only hides the companion for this save; the file dialog keeps
-    // running with the last options. Never accept-and-close the save flow.
+    // No close button is shown (tool window without close hint); this only
+    // covers programmatic closes or Alt+F4. Never accept-and-close the save.
     hide();
     event->ignore();
+}
+
+void SaveOptionsDialog::keyPressEvent(QKeyEvent *event) {
+    // Route Esc through reject() so it also dismisses the native save dialog
+    // (QDialog's default would only close the companion). Non-Esc keys keep
+    // their default behavior (e.g. Enter still activates focused controls).
+    if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier) {
+        reject();
+        event->accept();
+        return;
+    }
+    QDialog::keyPressEvent(event);
+}
+
+void SaveOptionsDialog::reject() {
+    // Esc in the companion must behave like Esc in the native dialog: close
+    // both. Guard against re-entrancy (the parent chooser finishing can
+    // re-enter our close path while the first reject is still unwinding).
+    static thread_local bool rejecting = false;
+    if (rejecting)
+        return;
+    rejecting = true;
+    const auto reset = qScopeGuard([&] { rejecting = false; });
+    // QDialog::reject() first so any accepted-state drains and our own
+    // finished handlers can't re-show a stale result afterwards; forwarding
+    // to the parent chooser ends its modal loop (its own Esc/reject path
+    // hides us as well, see MainWindow::saveImage). A parent-less instance
+    // (unit tests) simply rejects itself.
+    cancelTargetWorkers();
+    QDialog::reject();
+    hide();
+    if (QWidget *owner = parentWidget()) {
+        if (auto *dialog = qobject_cast<QDialog *>(owner))
+            dialog->reject();
+        else
+            owner->close();
+    }
 }
 
 void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
     QDialog::moveEvent(event);
     // Only report user drags: programmatic move() calls happen before show()
-    // or from remembered placement, isVisible() filters those out.
-    if (isVisible())
+    // or from remembered placement, isVisible() filters those out. Moves
+    // emitted by the placeBeside() auto-dock are suppressed by the dialog
+    // itself (autoPlaced_ window), not reported as user intent.
+    if (isVisible() && !autoPlaced_)
         emit movedByUser(pos());
 }
 

@@ -119,6 +119,9 @@ QString writeJpegli(QIODevice &destination, const QImage &image, int quality,
             jpegli_write_marker(&state, JPEG_COM, reinterpret_cast<const JOCTET *>(comment.constData()), unsigned(comment.size()));
         }
         QImage whiteRow;
+        // White-flatten in the destination layout directly: a single
+        // RGB888 conversion per row instead of convert-to-premultiplied +
+        // manual unpremultiply. Same pixels, one pass, no QRgb temporaries.
         if (image.hasAlphaChannel() && options.flattenAlpha) {
             whiteRow = QImage(image.width(), 1, QImage::Format_RGB888);
             if (whiteRow.isNull()) throw std::bad_alloc();

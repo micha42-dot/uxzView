@@ -186,7 +186,9 @@ JPEG-Format wählt.
   IrfanView einfach die kleinstmögliche Datei (Qualität 1) statt eines
   Fehlers; die Auflösung wird nie verändert.
 - **Formatoptionen:** JPEG progressiv und Chroma-Subsampling; WebP/AVIF verlustfrei
-  und Aufwand; GIF interlaced. Nur unterstützte Schalter werden angezeigt.
+  und Aufwand. GIF-interlaced wird angeboten, aber derzeit nicht umgesetzt
+  (Qt bietet keinen entsprechenden Schalter) — die Option bleibt wirkungslos,
+  bis der Encoder sie unterstützt. Nur unterstützte Schalter werden angezeigt.
 - **Metadaten:** EXIF/IPTC/XMP und ICC-Profil einzeln abwählbar; die
   EXIF-Ausrichtung wird auf die Pixel angewendet.
 - **Transparenz:** Für Formate ohne Alphakanal wählbar — auf Weiß reduzieren

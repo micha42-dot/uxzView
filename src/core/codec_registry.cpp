@@ -371,31 +371,39 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
                                        bool allowLoss, const std::optional<QString> &expectedTarget,
                                        const std::function<QString()> &beforeCommit) const {
     const int quality = std::clamp(encode.quality, 0, 100);
-    // Per-type metadata masking: only the retained kinds reach the muxer.
+    // Per-type metadata masking: only the kinds the user deselected are
+    // dropped. Fast path: when everything is kept (the default), skip the
+    // deep copy entirely — no allocation, no warning.
     ImageDocument d = document;
-    QStringList dropped;
     if (d.metadata && d.metadata->data) {
-        auto kept = std::make_shared<Metadata>(*d.metadata);
-        if (!encode.keepExif && kept->hasExif) {
-            kept->hasExif = false;
-            dropped.append(QStringLiteral("EXIF"));
+        const bool dropExif = !encode.keepExif && d.metadata->hasExif;
+        const bool dropIptc = !encode.keepIptc && d.metadata->hasIptc;
+        const bool dropXmp = !encode.keepXmp && d.metadata->hasXmp;
+        const bool dropIcc = !encode.keepIcc;
+        if (dropExif || dropIptc || dropXmp || dropIcc) {
+            auto kept = std::make_shared<Metadata>(*d.metadata);
+            QStringList dropped;
+            if (dropExif) {
+                kept->hasExif = false;
+                dropped.append(QStringLiteral("EXIF"));
+            }
+            if (dropIptc) {
+                kept->hasIptc = false;
+                dropped.append(QStringLiteral("IPTC"));
+            }
+            if (dropXmp) {
+                kept->hasXmp = false;
+                dropped.append(QStringLiteral("XMP"));
+            }
+            if (dropIcc)
+                d.pixels.setColorSpace(QColorSpace());
+            if (!kept->hasExif && !kept->hasIptc && !kept->hasXmp)
+                kept->data.reset();
+            d.metadata = kept;
+            if (!dropped.isEmpty())
+                d.metadataWarning =
+                    IX_TEXT("Entfernt: %1.").arg(dropped.join(QStringLiteral(", ")));
         }
-        if (!encode.keepIptc && kept->hasIptc) {
-            kept->hasIptc = false;
-            dropped.append(QStringLiteral("IPTC"));
-        }
-        if (!encode.keepXmp && kept->hasXmp) {
-            kept->hasXmp = false;
-            dropped.append(QStringLiteral("XMP"));
-        }
-        if (!encode.keepIcc)
-            d.pixels.setColorSpace(QColorSpace());
-        if (!kept->hasExif && !kept->hasIptc && !kept->hasXmp)
-            kept->data.reset();
-        d.metadata = kept;
-        if (!dropped.isEmpty())
-            d.metadataWarning =
-                IX_TEXT("Entfernt: %1.").arg(dropped.join(QStringLiteral(", ")));
     }
     Q_UNUSED(document);
     QByteArray format = normalized(requested.isEmpty() ? QFileInfo(path).suffix().toLatin1() : requested);
