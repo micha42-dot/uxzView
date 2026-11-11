@@ -326,6 +326,8 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     busyHintDelay_.setSingleShot(true);
     busyHintDelay_.setInterval(120);
     connect(&busyHintDelay_, &QTimer::timeout, this, [this] {
+        // Passive overlay for all phases except Saving: while saving, the
+        // image information stays put (only an explicit refusal may flash).
         if (activity_.busy() && !busyHintTimer_.isActive() &&
             activity_.phase() != DocumentActivity::Phase::Saving)
             statusBar()->showMessage(pendingBusyText_.isEmpty() ? busyHint() : pendingBusyText_, 0);
@@ -1396,11 +1398,16 @@ void MainWindow::syncBusyHint() {
         pendingBusyText_.clear();
         return;
     }
-    // Saving reports through its own modal progress dialog ("Bild wird
-    // gespeichert …"); the status row keeps showing the image information
-    // instead (no overlay while the dialog is up).
-    if (activity_.phase() == DocumentActivity::Phase::Saving)
+    // No passive overlay during Saving: the image information stays put and
+    // the modal progress dialog already reports the phase. Only an explicit
+    // refusal (showBusyHint(true)) may flash the reason; see below.
+    if (activity_.phase() == DocumentActivity::Phase::Saving) {
+        // Keep our own queued text in step so a later refusal flash still
+        // names the right phase — but never paint it unprompted.
+        if (!busyHintDelay_.isActive() && statusBar()->currentMessage().isEmpty())
+            pendingBusyText_ = busyHint();
         return;
+    }
     // A rejection flash owns the message area until it expires.
     if (busyHintTimer_.isActive())
         return;
@@ -1426,10 +1433,8 @@ void MainWindow::showBusyHint(bool rejected) {
         return;
     }
     // A refused command is answered immediately; the transaction may be short.
-    // Saving has its own modal progress dialog — never overlay the image
-    // information in the status row for that phase.
-    if (activity_.phase() == DocumentActivity::Phase::Saving)
-        return;
+    // This is the one deliberate overlay during Saving: the image information
+    // stays put the rest of the time, but a blocked command must say why.
     busyHintDelay_.stop();
     pendingBusyText_ = IX_TEXT("Bitte warten – %1").arg(busyHint());
     statusBar()->showMessage(pendingBusyText_, 0);

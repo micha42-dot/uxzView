@@ -4449,7 +4449,7 @@ class IxTests : public QObject {
         auto restore =
             qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
         bool submitted = false, dispatched = false;
-        QString persistent, rejected;
+        QString rejected;
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
             auto *modal = QApplication::activeModalWidget();
@@ -4460,8 +4460,11 @@ class IxTests : public QObject {
                     box->reject();
             } else if (qobject_cast<QProgressDialog *>(modal) && !dispatched) {
                 dispatched = true;
-                // The transaction announces itself for its whole duration ...
-                persistent = window.statusBar()->currentMessage();
+                // The transaction announces itself through the progress dialog;
+                // the status row keeps showing the image information, so no
+                // passive overlay may be up ...
+                QVERIFY2(window.statusBar()->currentMessage().isEmpty(),
+                         qPrintable(window.statusBar()->currentMessage()));
                 window.dispatch(QStringLiteral("zoomIn")); // blocked while saving
                 // ... and a refused command says why instead of being dropped.
                 rejected = window.statusBar()->currentMessage();
@@ -4475,7 +4478,6 @@ class IxTests : public QObject {
         window.dispatch(QStringLiteral("saveAs"));
         timer.stop();
         QVERIFY2(dispatched, "the save never became observable");
-        QCOMPARE(persistent, ix::localized(QStringLiteral("Bild wird gespeichert …")));
         QCOMPARE(rejected, ix::localized(QStringLiteral("Bitte warten – %1"))
                                .arg(ix::localized(QStringLiteral("Bild wird gespeichert …"))));
         // The hint must not outlive the transaction.
