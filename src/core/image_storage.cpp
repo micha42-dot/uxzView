@@ -130,9 +130,12 @@ struct Mapping {
             // Deleting a multi-gigabyte backing file can take a noticeable amount
             // of time. Offload it from the GUI thread so replacing a large image
             // or clearing history does not stall the window.
+            // The returned QFuture is deliberately unused: start() is the
+            // documented Qt API for fire-and-forget work and avoids the
+            // nodiscard warning that QtConcurrent::run() produces here.
             const auto path = file.fileName();
             if (bytes >= kAsyncRemoveThreshold && onMainThread())
-                QtConcurrent::run(&deletePool(), [path] { QFile::remove(path); });
+                deletePool().start([path] { QFile::remove(path); });
             else
                 QFile::remove(path);
         }
