@@ -59,28 +59,30 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     const QRect selectedArea = view_->selection();
     QString path = output.path;
     const auto formats = writableSaveFormats(registry_);
+    // One QSettings instance per save: each construction stats the registry /
+    // INI file, so batch the handful of reads instead of one instance per key.
     const QSettings settings;
-    auto target = preferredSaveTarget(path, output.format, formats,
-        settings.value(QStringLiteral("save/preferOriginal"), true).toBool(),
-        settings.value(QStringLiteral("save/format"), QStringLiteral("png")).toByteArray());
+    const bool preferOriginal = settings.value(QStringLiteral("save/preferOriginal"), true).toBool();
+    const QByteArray fixedFormat =
+        settings.value(QStringLiteral("save/format"), QStringLiteral("png")).toByteArray();
+    const QString lastDirectory =
+        settings.value(QStringLiteral("files/directory"), QDir::homePath()).toString();
+    const bool companionEnabled = settings.value(QStringLiteral("save/companion"), true).toBool();
+    const QPoint rememberedCompanionPos =
+        settings.value(QStringLiteral("save/companionPos")).toPoint();
+    auto target = preferredSaveTarget(path, output.format, formats, preferOriginal, fixedFormat);
     if (target.format.id.isEmpty()) { showError(IX_TEXT("Kein schreibbares Bildformat verfügbar.")); return false; }
     QString selected = target.format.filter();
     bool dialog = forceDialog || target.needsDialog;
     SaveOptions saveOptions = loadSaveOptions(target.format.id);
     if (dialog) {
         QString suggested = target.suggestedPath;
-        if (suggested.isEmpty()) suggested = QDir(settings.value(QStringLiteral("files/directory"), QDir::homePath()).toString())
+        if (suggested.isEmpty()) suggested = QDir(lastDirectory)
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
-        // Native file dialog (unchanged standard behavior). The compression
-        // companion is a separate tool window tracked next to it.
-        // Fast path: reuse the already computed format list for the filter
-        // string instead of scanning all codec capabilities a second time
-        // inside saveFilter().
-        QStringList allFilters;
-        allFilters.reserve(formats.size());
-        for (const auto &f : formats)
-            allFilters.append(f.filter());
-        QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, allFilters.join(QStringLiteral(";;")));
+        // Native file dialog (unchanged standard behavior). The filter string
+        // is cached in the registry: building it walks every codec capability,
+        // and Save As must not rescan on every open.
+        QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, registry_.cachedSaveFilter());
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
         chooser.setOption(QFileDialog::DontConfirmOverwrite);
@@ -97,10 +99,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // both fought the user's own dragging (visible jump-back).
         auto placeCompanion = [&] {
             companion.adjustSize();
-            const QPoint remembered =
-                settings.value(QStringLiteral("save/companionPos")).toPoint();
-            if (!remembered.isNull()) {
-                companion.move(remembered);
+            if (!rememberedCompanionPos.isNull()) {
+                companion.move(rememberedCompanionPos);
                 return;
             }
             // The chooser has no valid frame geometry before it is shown;
@@ -175,15 +175,14 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // it via its own close button only hides it for this save, the file
         // dialog keeps running with the last options.
         // When the companion is disabled, the stored options apply silently.
-        if (saveCompanionEnabled())
+        if (companionEnabled)
             companion.show();
         else
             companion.hide();
         // Place once the chooser is visible (valid frame geometry). After
         // that the companion is never re-moved programmatically.
         QTimer::singleShot(0, &chooser, [&] {
-            if (companion.isVisible() &&
-                settings.value(QStringLiteral("save/companionPos")).toPoint().isNull())
+            if (companion.isVisible() && rememberedCompanionPos.isNull())
                 placeCompanion();
         });
         // The native dialog runs its own modal loop; the companion is a child

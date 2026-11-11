@@ -183,17 +183,6 @@ SaveOptions SaveOptions::fromJson(const QJsonObject &object) {
         qint64(std::clamp(object.value(QStringLiteral("targetBytes")).toDouble(150 * 1024), 1024.0, 2e9));
     return options;
 }
-QByteArray defaultSaveFormat() {
-    return QSettings().value(QStringLiteral("save/format"), QStringLiteral("png")).toByteArray();
-}
-
-bool saveCompanionEnabled() {
-    return QSettings().value(QStringLiteral("save/companion"), true).toBool();
-}
-
-void setSaveCompanionEnabled(bool enabled) {
-    QSettings().setValue(QStringLiteral("save/companion"), enabled);
-}
 
 SaveOptions defaultSaveOptions(const QByteArray &format) {
     SaveOptions options;

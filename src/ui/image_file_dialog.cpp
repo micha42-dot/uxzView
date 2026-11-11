@@ -14,7 +14,7 @@ QString openImageFile(QWidget *parent, const QString &caption, const QString &di
     picker.setAcceptMode(QFileDialog::AcceptOpen);
     picker.setFileMode(QFileDialog::ExistingFile);
     if (!directory.isEmpty()) picker.setDirectory(directory);
-    picker.setNameFilters(registry.openFilter().split(QStringLiteral(";;")));
+    picker.setNameFilters(registry.cachedOpenFilter().split(QStringLiteral(";;")));
     // Native dialogs retain their OS geometry. Prepare the Qt fallback before
     // its first Show event instead of resizing an already visible browser.
     picker.ensurePolished();

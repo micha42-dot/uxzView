@@ -65,6 +65,12 @@ class CodecRegistry {
     QStringList extensions() const;
     QString openFilter() const;
     QString saveFilter() const;
+    // Cached filter strings: building the save/open filter walks every codec
+    // capability and joins dozens of patterns. The set is fixed at startup,
+    // so compute once and reuse on every Save As (IrfanView shows its dialog
+    // instantly for the same reason — no per-open scans).
+    const QString &cachedSaveFilter() const;
+    const QString &cachedOpenFilter() const;
     static bool canWrite(const QByteArray &format);
     // encode == nullptr: warn about every loss (legacy callers, batch review).
     // With options: types the user explicitly deselected are not warned about.
@@ -73,5 +79,6 @@ class CodecRegistry {
 
   private:
     QList<std::shared_ptr<ImageCodec>> codecs_;
+    mutable QString cachedSaveFilter_, cachedOpenFilter_;
 };
 } // namespace ix

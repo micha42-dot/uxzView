@@ -31,10 +31,6 @@ struct SaveCapabilities {
     bool pngLevel = false;      // PNG compression level.
 };
 SaveCapabilities saveCapabilities(const QByteArray &format);
-// Whether the compression companion appears next to Save As (default on).
-bool saveCompanionEnabled();
-void setSaveCompanionEnabled(bool enabled);
-QByteArray defaultSaveFormat();
 // All user-facing compression settings for one export.
 struct SaveOptions {
     QByteArray format = "jpeg";

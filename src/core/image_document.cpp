@@ -66,6 +66,7 @@ bool imageHasRealTransparency(const QImage &image) {
         // Premultiplied values cannot prove opacity without a full
         // unpremultiply pass; other layouts need conversion.
         return std::nullopt;
+    };
     if (const auto direct = sampleDirect())
         return *direct;
     const QImage view = image.convertToFormat(QImage::Format_ARGB32);

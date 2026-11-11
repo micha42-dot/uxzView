@@ -555,4 +555,14 @@ QString CodecRegistry::saveFilter() const {
     for (const auto &f : writableSaveFormats(*this)) filters.append(f.filter());
     return filters.join(QStringLiteral(";;"));
 }
+const QString &CodecRegistry::cachedSaveFilter() const {
+    if (cachedSaveFilter_.isEmpty())
+        cachedSaveFilter_ = saveFilter();
+    return cachedSaveFilter_;
+}
+const QString &CodecRegistry::cachedOpenFilter() const {
+    if (cachedOpenFilter_.isEmpty())
+        cachedOpenFilter_ = openFilter();
+    return cachedOpenFilter_;
+}
 } // namespace ix
