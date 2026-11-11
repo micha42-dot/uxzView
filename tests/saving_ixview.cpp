@@ -395,8 +395,12 @@ void SavingTests::targetSizeOptimizationRespectsBudget() {
     QVERIFY(probe(*reachable.quality) <= options.targetBytes);
     options.targetBytes = 1;
     auto unreachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
-    QVERIFY(!unreachable.quality.has_value());
-    QVERIFY(!unreachable.error.isEmpty());
+    // IrfanView-style: an unreachable target yields the smallest reachable
+    // output (quality 1) instead of an error.
+    QVERIFY(unreachable.quality.has_value());
+    QCOMPARE(*unreachable.quality, 1);
+    QVERIFY(unreachable.error.isEmpty());
+    QVERIFY(unreachable.bytes > options.targetBytes);
     options.targetBytes = probe(95);
     cancel = true;
     auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
