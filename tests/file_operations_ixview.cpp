@@ -35,6 +35,10 @@ class FileOperationTests : public QObject {
         QVERIFY(temporary_.isValid());
         QCoreApplication::setOrganizationName(QStringLiteral("IxViewFileOperationTests"));
         QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
+        // Keep the suite off the real user profile: without an explicit path
+        // QSettings writes to HKCU on Windows and leaves test keys behind.
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary_.path());
         qApp->setProperty("ixStorageData", temporary_.filePath(QStringLiteral("data")));
     }
     void operationsDoNotCreateHistory_data() {
