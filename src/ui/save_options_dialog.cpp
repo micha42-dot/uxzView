@@ -51,6 +51,15 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     // Top-most relative to the native save dialog comes from parenting.
     setWindowFlags(Qt::Tool | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
     setWindowModality(Qt::NonModal);
+    // The application font is deliberately small (referenceFont(9)); compact
+    // dialogs with many rows need the same readable-font guard that
+    // SettingsDialog applies, otherwise captions render at ~9 pt and become
+    // hard to read. Only raises, never lowers.
+    auto readableFont = font();
+    if (readableFont.pointSizeF() > 0 && readableFont.pointSizeF() < 10) {
+        readableFont.setPointSizeF(10);
+        setFont(readableFont);
+    }
     auto *layout = new QVBoxLayout(this);
     // As compact as the widest row allows: the width is defined by the profile
     // button row (combo + three buttons), everything else adapts.
