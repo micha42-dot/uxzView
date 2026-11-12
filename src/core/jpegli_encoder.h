@@ -4,6 +4,11 @@
 #include <QString>
 class QIODevice;
 namespace ix {
+// Experimental and therefore opt-in: the key is absent on a fresh profile, so
+// JPEG is written by Qt's built-in writer until the user ticks the box in
+// Settings > Experimentell. Read live (no cache) so toggling applies to the
+// very next save without a restart.
+bool jpegliEnabled();
 qint64 jpegliWorkingBytes(int width);
 struct JpegliOptions {
     bool progressive = false;

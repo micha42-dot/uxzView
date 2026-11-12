@@ -21,7 +21,7 @@ bool gProfilesCached = false;
 qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int quality,
                   const CodecRegistry &registry, QString &error) {
     Q_UNUSED(registry);
-    if (options.format == "jpeg") {
+    if (options.format == "jpeg" && jpegliEnabled()) {
         // Measure with the real production encoder (jpegli), not the Qt
         // fallback writer: the optimizer must predict the actual save path.
         // Encode errors (e.g. image too large for the memory budget) abort
@@ -103,8 +103,13 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
     if (format == "jpeg") {
         caps.quality = true;
         caps.defaultQuality = 95;
-        caps.progressive = true;
-        caps.subsampling = true;
+        // Progressive and chroma-subsampling control are jpegli-only. Qt's
+        // built-in writer has no subsampling switch, so neither option is
+        // offered while the experimental encoder is off (Settings >
+        // Experimentell). This is what makes the JPEG row appear only after
+        // the user explicitly activates jpegli.
+        caps.progressive = jpegliEnabled();
+        caps.subsampling = jpegliEnabled();
         caps.targetSize = true;
         caps.metadataExif = caps.metadataIptc = caps.metadataXmp = true;
         caps.metadataIcc = caps.orientation = true;

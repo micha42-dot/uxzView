@@ -5,12 +5,18 @@
 #include <QBuffer>
 #include <QColorSpace>
 #include <QIODevice>
+#include <QSettings>
 #include <lib/jpegli/encode.h>
 #include <algorithm>
 #include <array>
 #include <stdexcept>
 
 namespace ix {
+bool jpegliEnabled() {
+    // Absent key means disabled: a new user gets the boring, predictable Qt
+    // JPEG writer and has to opt in to the experimental encoder explicitly.
+    return QSettings().value(QStringLiteral("experimental/jpegli"), false).toBool();
+}
 namespace {
 void failed(j_common_ptr state) {
     char message[JMSG_LENGTH_MAX]{};

@@ -617,6 +617,19 @@ void SaveOptionsDialog::rebuild() {
     jpegRow_->setVisible(caps_.progressive || caps_.subsampling);
     progressive_->setVisible(caps_.progressive);
     subsampling_->setVisible(caps_.subsampling);
+    // A stored profile may still carry jpegli-only flags while the
+    // experimental encoder is off. Drop them here so the checkbox state, the
+    // options handed to the encoder and the persisted profile all agree —
+    // a hidden, still-checked box would otherwise keep writing progressive
+    // JPEG after the user disabled jpegli. Signals are blocked above.
+    if (!caps_.progressive) {
+        options_.progressive = false;
+        progressive_->setChecked(false);
+    }
+    if (!caps_.subsampling) {
+        options_.noSubsampling = false;
+        subsampling_->setChecked(false);
+    }
     lossless_->setVisible(caps_.lossless);
     effortRow_->setVisible(caps_.effort);
     pngRow_->setVisible(caps_.pngLevel);

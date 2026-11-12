@@ -62,6 +62,10 @@ class SavingTests : public QObject {
         QSettings().clear();
         QSettings().setValue(QStringLiteral("view/previewStrip"),false);
         QSettings().setValue(QStringLiteral("performance/swapEnabled"),false);
+        // This suite asserts the jpegli save path (byte-identical output to
+        // writeJpegli). The experimental encoder is off by default, so opt in
+        // explicitly here; the default-off behaviour has its own test.
+        QSettings().setValue(QStringLiteral("experimental/jpegli"),true);
     }
     void centralJpegIsJpegliAndPreservesProperties() {
         ix::ImageDocument document; document.pixels=sample();
@@ -88,6 +92,41 @@ class SavingTests : public QObject {
         const auto decodedDensity=QImage::fromData(noDpi);QVERIFY(!decodedDensity.isNull());
         QVERIFY(std::abs(decodedDensity.dotsPerMeterX()-unknownDensity.dotsPerMeterX())<40);
         QVERIFY(std::abs(decodedDensity.dotsPerMeterY()-unknownDensity.dotsPerMeterY())<40);
+    }
+    void jpegliIsOptInAndQtWriterIsTheDefault() {
+        // Default: no key at all on a fresh profile -> experimental off.
+        QSettings().remove(QStringLiteral("experimental/jpegli"));
+        QVERIFY(!ix::jpegliEnabled());
+        // The jpegli-only controls must not be offered while it is off.
+        const auto caps = ix::saveCapabilities("jpeg");
+        QVERIFY(!caps.progressive);
+        QVERIFY(!caps.subsampling);
+        QVERIFY(caps.quality); // plain quality stays available.
+        // Saving must now go through Qt's built-in writer, not jpegli.
+        ix::ImageDocument document;
+        document.pixels = sample();
+        const auto path = temp_.filePath(QStringLiteral("default-writer.jpg"));
+        const auto result = ix::CodecRegistry().save(document, path, "jpeg", 95, true);
+        QVERIFY2(result.isEmpty(), qPrintable(result));
+        QByteArray reference;
+        QBuffer buffer(&reference);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QImageWriter writer(&buffer, "jpeg");
+        writer.setQuality(95);
+        QVERIFY(writer.write(document.pixels));
+        QCOMPARE(contents(path), reference);
+        QByteArray viaJpegli;
+        QBuffer jpegliBuffer(&viaJpegli);
+        QVERIFY(jpegliBuffer.open(QIODevice::WriteOnly));
+        QVERIFY(ix::writeJpegli(jpegliBuffer, document.pixels, 95).isEmpty());
+        QVERIFY(contents(path) != viaJpegli);
+        // Enabling it switches back to the jpegli encoder immediately.
+        QSettings().setValue(QStringLiteral("experimental/jpegli"), true);
+        QVERIFY(ix::jpegliEnabled());
+        QVERIFY(ix::saveCapabilities("jpeg").progressive);
+        const auto optedIn = temp_.filePath(QStringLiteral("optin.jpg"));
+        QVERIFY2(ix::CodecRegistry().save(document, optedIn, "jpeg", 95, true).isEmpty(), "opt-in save failed");
+        QCOMPARE(contents(optedIn), viaJpegli);
     }
     void qualityChangesTheEncodedImage() {
         const auto image=sample(); QByteArray low,high;

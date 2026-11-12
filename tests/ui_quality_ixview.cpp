@@ -431,7 +431,7 @@ class UiQualityTests : public QObject {
         QVERIFY(dialog.width() <= 800); QVERIFY(dialog.height() <= 500);
         auto *categories=dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
         auto *pages=dialog.findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
-        QVERIFY(categories && pages); QCOMPARE(categories->count(),11);
+        QVERIFY(categories && pages); QCOMPARE(categories->count(),12);
         const auto size=dialog.size();
         for(int i=0;i<categories->count();++i) {
             categories->setCurrentRow(i); QCoreApplication::processEvents();

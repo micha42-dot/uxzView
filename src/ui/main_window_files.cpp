@@ -61,8 +61,10 @@ void MainWindow::scheduleSaveUiWarmup() {
         // thread. Without it the FIRST PNG->JPEG export paid all of this
         // inside the modal progress dialog and visibly stalled; every later
         // save was instant. That is exactly the "first save slow, then
-        // suddenly instant" behaviour.
-        (void)warmJpegEncoder();
+        // suddenly instant" behaviour. Only relevant when the experimental
+        // jpegli encoder is active — Qt's writer needs no such warmup.
+        if (jpegliEnabled())
+            (void)warmJpegEncoder();
     });
     // Build the hidden companion after the first image has had time to paint:
     // by the time the user hits Save As, the widgets already exist.
@@ -302,8 +304,12 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     encode.quality = saveOptions.targetSizeEnabled && saveOptions.autoQuality >= 0
                          ? saveOptions.autoQuality
                          : saveOptions.quality;
-    encode.progressive = saveOptions.progressive;
-    encode.noSubsampling = saveOptions.noSubsampling;
+    // Progressive and chroma subsampling are jpegli-only options; while the
+    // experimental encoder is off the stored values must not leak into the
+    // Qt writer path (and the dialog hides the controls anyway).
+    const bool jpegli = jpegliEnabled();
+    encode.progressive = jpegli && saveOptions.progressive;
+    encode.noSubsampling = jpegli && saveOptions.noSubsampling;
     encode.interlaced = saveOptions.interlaced;
     encode.lossless = saveOptions.lossless;
     encode.effort = saveOptions.effort;

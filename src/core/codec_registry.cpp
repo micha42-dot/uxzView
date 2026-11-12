@@ -61,7 +61,8 @@ QString backend(const QByteArray &f) {
     if (f == "cbz" || f == "zip")
         return QStringLiteral("üxzView / KArchive");
     if (f == "jpeg" || f == "jfif")
-        return QStringLiteral("libjpeg-turbo / jpegli (encoder)");
+        return jpegliEnabled() ? QStringLiteral("libjpeg-turbo / jpegli (encoder)")
+                               : QStringLiteral("libjpeg-turbo / Qt (encoder)");
     if (f == "png")
         return QStringLiteral("Qt / libpng");
     if (f == "tiff")
@@ -416,12 +417,20 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     if (!allowLoss && !exportLosses(d, format).isEmpty())
         return exportLosses(d, format).join(QLatin1Char('\n'));
     const bool large = exportNeedsStreaming(d.pixels);
+    // Experimental switch: jpegli writes JPEG unless the user opted out (the
+    // default). Everything below must then behave like every other format and
+    // go through Qt's QImageWriter.
+    const bool jpegli = format == "jpeg" && jpegliEnabled();
     if (format == "jpeg" && (d.pixels.width()>65500 || d.pixels.height()>65500))
         return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
     if (large && qint64(d.pixels.width())*64 + qint64(d.pixels.height())*qint64(sizeof(void *)) > imageMemoryLimit())
         return imageSizeLimitError({d.pixels.width(),1},64);
     if (large && format != "png" && format != "jpeg")
         return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
+    // Only jpegli streams MCU rows; Qt's writer needs the whole image resident.
+    // Refuse instead of risking an allocation failure deep in the plugin.
+    if (large && format == "jpeg" && !jpegli)
+        return IX_TEXT("Für dieses große Bild ist der JPEG-Export nur mit aktiviertem Jpegli-Encoder möglich.");
     const auto targetRevision = [&] {
         return QFileInfo::exists(path) ? imageFileKey(path) : QString();
     };
@@ -474,8 +483,9 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     // alphaWhite != 0 (legacy default) flattens transparency onto white for
     // formats without alpha. alphaWhite == 0 keeps the pixels untouched; the
     // Ask mode is resolved by the caller before encoding (see saveImage) and
-    // never reaches this point with alpha present.
-    if (format != "jpeg" && encode.alphaWhite != 0 && output.hasAlphaChannel() &&
+    // never reaches this point with alpha present. jpegli flattens internally,
+    // so JPEG only needs this pass when the Qt writer is selected.
+    if (!jpegli && encode.alphaWhite != 0 && output.hasAlphaChannel() &&
         !alphaWritable(format) && imageHasRealTransparency(output)) {
         QImage flat;
         try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
@@ -495,12 +505,19 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
         inheritImageProperties(output, flat);
         output = flat;
     }
-    const QString encodeError =
-        format == "jpeg"
-            ? writeJpegli(*destination, output, quality,
-                          JpegliOptions{encode.progressive, encode.noSubsampling,
-                                        encode.alphaWhite != 0})
-            : writer.write(output) ? QString() : writer.errorString();
+    QString encodeError;
+    if (jpegli) {
+        encodeError = writeJpegli(*destination, output, quality,
+                                  JpegliOptions{encode.progressive, encode.noSubsampling,
+                                                encode.alphaWhite != 0});
+    } else {
+        // Qt's JPEG plugin has no subsampling switch; the progressive flag is
+        // still honoured so a profile written while jpegli was enabled does
+        // not silently lose it.
+        if (format == "jpeg")
+            writer.setProgressiveScanWrite(encode.progressive);
+        encodeError = writer.write(output) ? QString() : writer.errorString();
+    }
     if (!encodeError.isEmpty()) {
         file.cancelWriting();
         return encodeError;

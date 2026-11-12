@@ -928,5 +928,10 @@
 ["Auf Weiß reduzieren", "Flatten onto white", "흰색으로 합치기", "白で合成", "Aplatir sur blanc"],
 ["Pixel behalten", "Keep pixels", "픽셀 유지", "ピクセルを保持", "Conserver les pixels"],
 ["Bei jedem Speichern fragen", "Ask on every save", "저장할 때마다 묻기", "保存のたびに確認", "Demander à chaque enregistrement"],
-["Transparenz:", "Transparency:", "투명도:", "透明度：", "Transparence :"]
+["Transparenz:", "Transparency:", "투명도:", "透明度：", "Transparence :"],
+["Experimentell", "Experimental", "실험적 기능", "実験的", "Expérimental"],
+["Neue und experimentelle Funktionen sind hier gebündelt und standardmäßig deaktiviert.", "New and experimental features are collected here and disabled by default.", "새로운 실험적 기능이 여기에 모여 있으며 기본적으로 비활성화되어 있습니다.", "新しい実験的機能はここにまとめられており、既定では無効になっています。", "Les nouvelles fonctions expérimentales sont regroupées ici et désactivées par défaut."],
+["Jpegli-Encoder verwenden (experimentell)", "Use the jpegli encoder (experimental)", "jpegli 인코더 사용 (실험적)", "jpegli エンコーダーを使用する (実験的)", "Utiliser l’encodeur jpegli (expérimental)"],
+["Jpegli ist eine erweiterte JPEG-Kodierungs- und Dekodierungsbibliothek, die höhere Kompression ermöglicht, kann aber noch zu kurzen Verzögerungen beim Speichern usw. führen.", "Jpegli is an advanced JPEG encoding and decoding library that allows higher compression, but it may still cause short delays when saving, etc.", "jpegli는 더 높은 압축을 가능하게 하는 고급 JPEG 인코딩 및 디코딩 라이브러리이지만, 저장할 때 짧은 지연이 발생할 수 있습니다.", "jpegli はより高い圧縮を可能にする高度な JPEG エンコード／デコードライブラリですが、保存時などに短い遅延が発生する場合があります。", "Jpegli est une bibliothèque avancée d’encodage et de décodage JPEG offrant une meilleure compression, mais elle peut encore provoquer de brefs délais lors de l’enregistrement, etc."],
+["Für dieses große Bild ist der JPEG-Export nur mit aktiviertem Jpegli-Encoder möglich.", "For this large image, JPEG export is only possible with the jpegli encoder enabled.", "이 큰 이미지의 JPEG 내보내기는 jpegli 인코더가 활성화된 경우에만 가능합니다.", "この大きな画像の JPEG 書き出しは、jpegli エンコーダーが有効な場合にのみ可能です。", "Pour cette grande image, l’export JPEG n’est possible qu’avec l’encodeur jpegli activé."]
 ]

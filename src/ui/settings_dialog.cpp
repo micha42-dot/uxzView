@@ -438,6 +438,21 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         QDir().mkpath(AppStorage::dataRoot());
         QDesktopServices::openUrl(QUrl::fromLocalFile(AppStorage::dataRoot()));
     });
+    // Experimental features live in their own section and are off unless the
+    // user explicitly opts in. New unstable features go here first.
+    auto *experimental = page(IX_TEXT("Experimentell"));
+    experimental->parentWidget()->setObjectName(QStringLiteral("experimentalSettingsPage"));
+    auto *experimentalIntro =
+        new QLabel(IX_TEXT("Neue und experimentelle Funktionen sind hier gebündelt und standardmäßig deaktiviert."));
+    experimentalIntro->setWordWrap(true);
+    experimental->addRow(experimentalIntro);
+    check(experimental, QStringLiteral("experimental/jpegli"),
+          IX_TEXT("Jpegli-Encoder verwenden (experimentell)"), false);
+    auto *jpegliHint = new QLabel(
+        IX_TEXT("Jpegli ist eine erweiterte JPEG-Kodierungs- und Dekodierungsbibliothek, die höhere Kompression "
+                "ermöglicht, kann aber noch zu kurzen Verzögerungen beim Speichern usw. führen."));
+    jpegliHint->setWordWrap(true);
+    experimental->addRow(jpegliHint);
     const int controlHeight = optionControlHeight(fontMetrics());
     for (auto *combo : findChildren<QComboBox *>()) {
         combo->setFocusPolicy(Qt::StrongFocus);

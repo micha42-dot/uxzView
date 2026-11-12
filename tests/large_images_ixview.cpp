@@ -76,12 +76,24 @@ class LargeImageTests : public QObject {
 private slots:
     void initTestCase() {
         ix::initializeImageMemoryLimit(512); QVERIFY(temp_.isValid());
+        // Isolate QSettings: without an organisation/app name and a real
+        // path, writes are silently dropped and every preference read falls
+        // back to its default (which made the jpegli opt-in invisible here).
+        QCoreApplication::setOrganizationName(QStringLiteral("IxViewLargeImageTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("Isolated"));
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temp_.path());
         const QStorageInfo disk(temp_.path());
         qInfo() << "Temporary storage:" << temp_.path() << "Qt volume:" << disk.rootPath()
             << "valid:" << disk.isValid() << "ready:" << disk.isReady()
             << "read-only:" << disk.isReadOnly() << "available bytes:" << disk.bytesAvailable();
     }
-    void init() { QCOMPARE(ix::mappedImageBytes(),0); ix::configureImageStorage({true,32*ix::MiB,temp_.path(),1}); }
+    void init() {
+        QCOMPARE(ix::mappedImageBytes(),0); ix::configureImageStorage({true,32*ix::MiB,temp_.path(),1});
+        // The jpegli save path is opt-in (Settings > Experimentell). This
+        // suite compares registry saves byte-for-byte against writeJpegli.
+        QSettings().setValue(QStringLiteral("experimental/jpegli"),true);
+    }
     void cleanup() { QCOMPARE(ix::mappedImageBytes(),0); }
     void lifetimeAndHeader() {
         QString path;
