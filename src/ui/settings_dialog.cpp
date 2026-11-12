@@ -57,7 +57,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     layout->addLayout(body, 1);
     connect(categories_, &QListWidget::currentRowChanged, pages_, &QStackedWidget::setCurrentIndex);
     int categoryRowTotal = 0;
-    auto page = [this, &categoryRowTotal](const QString &label) {
+    int categoryLabelWidth = 0;
+    auto page = [this, &categoryRowTotal, &categoryLabelWidth](const QString &label) {
         auto *widget = new QWidget;
         auto *outer = new QVBoxLayout(widget);
         outer->setContentsMargins(0, 0, 0, 0);
@@ -75,8 +76,13 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         scroll->setWidget(widget);
         pages_->addWidget(scroll);
         const int rowHeight = optionControlHeight(categories_->fontMetrics());
+        // The item width has to be tracked here: the sidebar is sized from it
+        // below, and a Japanese label is wide enough that a two-pixel shortfall
+        // clipped it (horizontal scrollbars are switched off for the list).
+        const int labelWidth = categories_->fontMetrics().horizontalAdvance(label) + 16;
+        categoryLabelWidth = std::max(categoryLabelWidth, labelWidth);
         auto *item = new QListWidgetItem(label);
-        item->setSizeHint({categories_->fontMetrics().horizontalAdvance(label) + 16, rowHeight});
+        item->setSizeHint({labelWidth, rowHeight});
         categories_->addItem(item);
         // Track the exact list content height: the dialog must be tall enough
         // to show every category without scrolling. Guessing a fixed dialog
@@ -493,7 +499,12 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     for (auto *edit : findChildren<QLineEdit *>())
         edit->setMinimumHeight(edit->isReadOnly() ? controlHeight : controlHeight - 4);
     for (auto *button : findChildren<QPushButton *>()) button->setMinimumHeight(controlHeight);
-    categories_->setFixedWidth(std::max(140, categories_->sizeHintForColumn(0) + 24));
+    // Sidebar width from the widest tracked label plus the list's own chrome
+    // (stylesheet padding, item padding and scroll indication), so a long
+    // localized category is never clipped. sizeHintForColumn() reported a
+    // smaller value than the item it then laid out, which cut off the Japanese
+    // "Screenshots" row.
+    categories_->setFixedWidth(std::max(140, categoryLabelWidth + 32));
     categories_->setCurrentRow(0);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     buttons->button(QDialogButtonBox::Cancel)->setText(IX_TEXT("Abbrechen"));

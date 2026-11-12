@@ -4663,16 +4663,11 @@ class IxTests : public QObject {
         QCOMPARE(QFileInfo(path).lastModified(QTimeZone::UTC), time);
         auto after = ix::ImageLoadCache::read(registry, path);
         QVERIFY(after.ok());
-#ifdef Q_OS_MACOS
-        // Documented trade-off of excluding ctime on macOS (see imageFileKey):
-        // a same-size in-place rewrite whose mtime is explicitly restored is
-        // indistinguishable from the old revision, so the cache keeps the
-        // previous pixels. Detecting it through ctime is exactly what made
-        // unchanged cloud files fail to open.
-        QCOMPARE(after.document.pixels.pixelColor(0, 0), before.document.pixels.pixelColor(0, 0));
-#else
+        // Qt restores the modification time at millisecond precision only, so
+        // the original nanosecond part is gone and the revision differs through
+        // mtime on every platform. (macOS leaves ctime out of imageFileKey, so
+        // a *perfectly* restored timestamp would no longer be detected there.)
         QCOMPARE(after.document.pixels.pixelColor(0, 0), QColor(Qt::blue));
-#endif
     }
     void revisionIgnoresMetadataOnlyTimestampUpdates() {
 #ifdef Q_OS_MACOS
