@@ -4659,7 +4659,49 @@ class IxTests : public QObject {
         QCOMPARE(QFileInfo(path).lastModified(QTimeZone::UTC), time);
         auto after = ix::ImageLoadCache::read(registry, path);
         QVERIFY(after.ok());
+#ifdef Q_OS_MACOS
+        // Documented trade-off of excluding ctime on macOS (see imageFileKey):
+        // a same-size in-place rewrite whose mtime is explicitly restored is
+        // indistinguishable from the old revision, so the cache keeps the
+        // previous pixels. Detecting it through ctime is exactly what made
+        // unchanged cloud files fail to open.
+        QCOMPARE(after.document.pixels.pixelColor(0, 0), before.document.pixels.pixelColor(0, 0));
+#else
         QCOMPARE(after.document.pixels.pixelColor(0, 0), QColor(Qt::blue));
+#endif
+    }
+    void revisionIgnoresMetadataOnlyTimestampUpdates() {
+#ifdef Q_OS_MACOS
+        const auto path = dir(QStringLiteral("revision-metadata.bmp"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write("pixels"), qint64(6));
+        file.close();
+        // Pin a millisecond-exact mtime first: a second identical write must
+        // not change the timestamp through rounding.
+        const auto stamp = QDateTime::fromMSecsSinceEpoch(1700000000000, QTimeZone::UTC);
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.setFileTime(stamp, QFileDevice::FileModificationTime));
+        file.close();
+        const auto key = ix::imageFileKey(path);
+        const auto beforeCtime = QFileInfo(path).metadataChangeTime();
+        // Let the clock advance so a ctime bump becomes visible at
+        // millisecond precision.
+        QTest::qWait(5);
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.setFileTime(stamp, QFileDevice::FileModificationTime));
+        file.close();
+        if (QFileInfo(path).metadataChangeTime() == beforeCtime)
+            QSKIP("The platform did not move ctime for this metadata write.");
+        // Size, mtime, device and inode are unchanged, only ctime moved. This
+        // is the state macOS produces asynchronously after an open (xattrs
+        // from LaunchServices, the open panel, File Provider volumes) and it
+        // must not change the revision, or unchanged files look modified in
+        // the middle of a read.
+        QCOMPARE(ix::imageFileKey(path), key);
+#else
+        QSKIP("ctime intentionally belongs to the revision on this platform.");
+#endif
     }
     void cacheRejectsFilesChangedDuringDecoding() {
         class ChangingCodec final : public ix::ImageCodec {

@@ -47,23 +47,44 @@ QString imageFileKey(const QString &path) {
     struct stat info{};
     if (::stat(QFile::encodeName(f.absoluteFilePath()).constData(), &info) == 0) {
 #ifdef Q_OS_MACOS
-        const auto changed = info.st_ctimespec;
         const auto modified = info.st_mtimespec;
+        // macOS excludes ctime from the revision on purpose. The system moves
+        // ctime for every metadata write, and it performs those asynchronously
+        // right around an open: LaunchServices adds com.apple.lastuseddate#PS,
+        // the open panel / drag-and-drop adds com.apple.macl, and File Provider
+        // volumes sync their own attributes (e.g. under ~/Library/CloudStorage).
+        // Including ctime therefore made untouched files look modified between
+        // the snapshot taken before decoding and the check after it, so reads
+        // failed with "Die Datei wurde während des Lesens verändert."
+        // Size, mtime (native nanoseconds), device and inode still identify the
+        // revision. Documented trade-off: a same-size in-place rewrite whose
+        // mtime is explicitly restored is no longer detected here.
+        return f.absoluteFilePath() + QLatin1Char('|') + QStringLiteral("%1/%2/%3/%4/%5")
+                       .arg(qint64(info.st_size))
+                       .arg(qint64(modified.tv_sec)).arg(qint64(modified.tv_nsec))
+                       .arg(qint64(info.st_dev))
+                       .arg(quint64(info.st_ino));
 #else
         const auto changed = info.st_ctim;
         const auto modified = info.st_mtim;
-#endif
         return f.absoluteFilePath() + QLatin1Char('|') + QStringLiteral("%1/%2/%3/%4/%5/%6/%7")
                        .arg(qint64(info.st_size))
                        .arg(qint64(modified.tv_sec)).arg(qint64(modified.tv_nsec))
                        .arg(qint64(changed.tv_sec)).arg(qint64(changed.tv_nsec))
                        .arg(qint64(info.st_dev))
                        .arg(quint64(info.st_ino));
+#endif
     }
 #endif
-    return f.absoluteFilePath() + QLatin1Char('|') + QString::number(f.size()) + QLatin1Char('|') +
-           QString::number(f.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|') +
-           QString::number(f.metadataChangeTime().toMSecsSinceEpoch()) + QLatin1Char('|') +
-           QString::number(f.birthTime().toMSecsSinceEpoch()) + QLatin1Char('|') + revision;
+    // Fallback when the native query failed. metadataChangeTime() is ctime on
+    // Unix, so it carries exactly the macOS xattr false-positive described
+    // above and is left out there as well.
+    QString fallback = f.absoluteFilePath() + QLatin1Char('|') + QString::number(f.size()) +
+                       QLatin1Char('|') + QString::number(f.lastModified().toMSecsSinceEpoch()) +
+                       QLatin1Char('|');
+#ifndef Q_OS_MACOS
+    fallback += QString::number(f.metadataChangeTime().toMSecsSinceEpoch()) + QLatin1Char('|');
+#endif
+    return fallback + QString::number(f.birthTime().toMSecsSinceEpoch()) + QLatin1Char('|') + revision;
 }
 } // namespace ix

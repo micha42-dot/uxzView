@@ -253,6 +253,17 @@ Workers receive captured value inputs and must not dereference widgets or implic
 
 `core/file_revision.*` owns native file identity and timestamp precision independently of preview caches. `CodecRegistry::save` captures or accepts an expected destination revision, validates it before encoding and again before `QSaveFile::commit`. The UI retains that revision across its output warnings. Empty expected revisions require absence; omitted expectations capture the current target. These checks narrow external-write races but are not an atomic filesystem compare-and-swap.
 
+Identity is size, native-precision mtime, device and inode (NTFS also carries its
+change time). macOS deliberately leaves **ctime** out: the system moves it for
+metadata writes it performs asynchronously around an open (LaunchServices'
+`com.apple.lastuseddate#PS`, `com.apple.macl` from the open panel or drag-and-drop,
+File Provider attributes on cloud volumes). Including it made untouched files
+look modified between the pre-decode snapshot and the post-decode check, so reads
+failed with "Die Datei wurde während des Lesens verändert" — reliably under
+`~/Library/CloudStorage`. The accepted trade-off is that on macOS a same-size
+in-place rewrite whose mtime is explicitly restored is not detected by the
+revision; `revisionIgnoresMetadataOnlyTimestampUpdates` pins the behaviour.
+
 On successful full-image save, the document and its Undo history share the
 destination's written metadata-presence flag, derived from native containers,
 EXIF/IPTC/XMP flags and the chosen format. A valid empty metadata object does
