@@ -47,8 +47,15 @@ QString imageFileKey(const QString &path) {
     struct stat info{};
     if (::stat(QFile::encodeName(f.absoluteFilePath()).constData(), &info) == 0) {
 #ifdef Q_OS_MACOS
-        const auto changed = info.st_ctimespec;
+        // macOS updates ctime whenever the system writes extended attributes
+        // such as com.apple.lastuseddate#PS or com.apple.macl, which happens
+        // asynchronously when a file is opened via Finder, Open panel or
+        // LaunchServices (and constantly on File Provider volumes like
+        // Dropbox/iCloud). Treating that as a content change makes every
+        // freshly opened image fail with "changed while reading". Use the
+        // modification time in place of ctime on macOS.
         const auto modified = info.st_mtimespec;
+        const auto changed = modified;
 #else
         const auto changed = info.st_ctim;
         const auto modified = info.st_mtim;
