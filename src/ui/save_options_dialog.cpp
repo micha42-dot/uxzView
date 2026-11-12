@@ -376,38 +376,39 @@ void SaveOptionsDialog::setFormat(const QByteArray &format) {
 }
 
 void SaveOptionsDialog::releaseFixedSize() {
-    // Undo setFixedSize() with the documented Qt idiom. Never install
-    // QWIDGETSIZE_MAX as a MINIMUM (that is a ~16777 px floor); only the
-    // maximum is unbounded, the minimum stays the compact floor.
+    // Release a frozen size with the documented Qt idiom. Never install
+    // QWIDGETSIZE_MAX as a MINIMUM (that is a ~16777 px floor).
     setMinimumSize(kCompanionMinWidth, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
 }
 
 void SaveOptionsDialog::freezeSizeToLayout() {
-    // One size from the fully populated layout, then frozen. Called exactly
-    // once per session (prepare) and once per format/profile switch — never
-    // per rebuild(), so no visible re-layout pass happens after show().
+    // Width is frozen (that is what keeps the dialog compact and stops the
+    // staged re-layout). The HEIGHT is deliberately left to the layout:
+    // freezing it caused the reported "vertically squeezed" text, because the
+    // frozen height was measured before the row layout settled and then
+    // clipped every row into a too small box.
     // ensurePolished()+layout()->activate() matter: adjustSize() on a widget
     // whose layout was never activated returns a stale sizeHint, and the
-    // correction then happens after the first on-screen paint — the visible
-    // "frame first, controls later" staging.
+    // correction then happens after the first on-screen paint.
     ensurePolished();
     if (layout())
         layout()->activate();
     adjustSize();
-    // Freeze exactly the natural size: never larger than the available screen
-    // width (a very long translation must not open a window wider than the
-    // desktop). Never smaller than the layout's own minimum, so text is never
-    // clipped — compactness comes from the layout, not from a clamp.
     QSize finalSize = size();
+    // Never wider than the available screen (a long translation must not open
+    // a window wider than the desktop), never narrower than the compact floor.
     if (const QScreen *screen = this->screen()) {
         const int available = screen->availableGeometry().width() - 2 * 8;
         finalSize.setWidth(qMin(finalSize.width(), available));
     }
-    const QSize floor = minimumSizeHint();
-    finalSize.setWidth(qMax(finalSize.width(), floor.width()));
-    finalSize.setHeight(qMax(finalSize.height(), floor.height()));
-    setFixedSize(finalSize);
+    finalSize.setWidth(qMax(finalSize.width(), kCompanionMinWidth));
+    // Freeze the width only; the height follows sizeHint so every row keeps
+    // its natural height at any UI font or translation.
+    setFixedWidth(finalSize.width());
+    setMinimumHeight(0);
+    setMaximumHeight(QWIDGETSIZE_MAX);
+    adjustSize();
 }
 
 void SaveOptionsDialog::preCreateSurface() {
