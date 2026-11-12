@@ -128,6 +128,14 @@ open build/native/uxzView.app
 
 `macos-arm64` und `macos-x86_64` sind getrennte Presets. Alle Bibliotheken müssen zur gewählten Architektur passen; diese Presets allein machen aus einer Homebrew-Installation kein Universal-Binary. Das Ergebnis ist `build/native/uxzView.app`. Das Bundle deklariert Bilddokumente und empfängt Finder-Dateiöffnungen über `QFileOpenEvent`. Die systemweite Standardzuordnung wird nicht ungefragt geändert.
 
+### Qt-Version auf neueren macOS-SDKs
+
+Qt 6.8.3 ist die Version der Unix-CI und funktioniert nur mit einem SDK, das noch das **AGL**-Framework enthält. Apple hat AGL aus neueren SDKs entfernt; Qt < 6.9 verweist in seinem eigenen `FindWrapOpenGL.cmake` darauf, weshalb der Build dann mit einem Linker-Fehler **innerhalb von Qt** abbricht. Das lässt sich nicht in uxzView beheben — die Referenz liegt nicht in diesem Repository. Auf einem solchen SDK Qt 6.9 oder neuer verwenden (auf einem aktuellen SDK wurde 6.11.3 mit erfolgreichem `ctest` geprüft) oder ein älteres SDK auswählen. Der CMake-Lauf erkennt die Kombination und bricht mit einer entsprechenden Meldung ab; `-DIX_ALLOW_MISSING_AGL=ON` überspringt die Prüfung, wenn das verwendete Qt ohne AGL gebaut wurde.
+
+### Deployment mit Nicht-ASCII-Pfaden
+
+`cmake --install` mit `-DIX_DEPLOY_QT=ON` ruft Qt's Deployment auf, das intern `macdeployqt` verwendet. Enthält das Installationsziel Nicht-ASCII-Zeichen (z. B. `~/Projekte/üxz`), schreibt `macdeployqt` defekte, absolute `@loader_path`-Namen in das Programm; die App startet nach dem Verschieben nicht mehr. Installiere deshalb in einen ASCII-Pfad (etwa `build/deploy`) und verschiebe das fertige `uxzView.app` anschließend: Ein korrekt deploytes Bundle ist verschiebbar, weil seine Installationsnamen relativ sind. Der Installationslauf prüft das Ziel und bricht mit einer klaren Meldung ab, statt ein unbrauchbares Bundle zu erzeugen. Ein normaler Entwicklungsbuild ohne `IX_DEPLOY_QT` ist von dieser Einschränkung nicht betroffen.
+
 ## Build-Varianten und Fehlerbehebung
 
 Ohne Tests sind Qt Test und libtiff als direkte Testabhängigkeit nicht erforderlich:
