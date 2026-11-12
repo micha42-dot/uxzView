@@ -3578,7 +3578,11 @@ class IxTests : public QObject {
                 QCOMPARE(ix::ApngCodec::cacheStats().framesComposited - after.framesComposited, quint64(5));
                 const auto stamp = QFileInfo(path).lastModified();
                 QVERIFY(file.open(QIODevice::WriteOnly));
-                file.write(ix::test::apngFixture(count, {128, 128}, 1, 1));
+                // Rewrite with a different frame size while restoring the
+                // mtime. Size is part of the revision on every platform, so the
+                // invalidation below does not depend on ctime — which macOS
+                // deliberately leaves out of imageFileKey (see file_revision.cpp).
+                file.write(ix::test::apngFixture(count, {96, 96}, 1, 1));
                 QVERIFY(file.setFileTime(stamp, QFileDevice::FileModificationTime));
                 file.close();
                 const auto changed = ix::ImageLoadCache::read(registry, path);

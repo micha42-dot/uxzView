@@ -439,10 +439,25 @@ class UiQualityTests : public QObject {
         const auto size=dialog.size();
         for(int i=0;i<categories->count();++i) {
             categories->setCurrentRow(i); QCoreApplication::processEvents();
-            QCOMPARE(dialog.size(),size);
-            QVERIFY(categories->viewport()->rect().contains(categories->visualItemRect(categories->item(i))));
             auto *scroll=qobject_cast<QScrollArea *>(pages->currentWidget()); QVERIFY(scroll);
-            QCOMPARE(scroll->horizontalScrollBar()->maximum(),0);
+            // Report the measured geometry on failure. Without this the ctest
+            // output only says "compared values are not the same", which left
+            // the macOS-only page overflow undiagnosable from CI logs.
+            const auto itemRect = categories->visualItemRect(categories->item(i));
+            QString context = QStringLiteral("page %1 (%2/%3): dialog=%4x%5 (was %6x%7), hbar=%8, "
+                                             "categoryRect=%9,%10 %11x%12, viewport=%13x%14")
+                                  .arg(i).arg(theme, language)
+                                  .arg(dialog.width()).arg(dialog.height())
+                                  .arg(size.width()).arg(size.height())
+                                  .arg(scroll->horizontalScrollBar()->maximum())
+                                  .arg(itemRect.x()).arg(itemRect.y())
+                                  .arg(itemRect.width()).arg(itemRect.height())
+                                  .arg(categories->viewport()->width())
+                                  .arg(categories->viewport()->height());
+            const auto reported = context.toUtf8();
+            QVERIFY2(dialog.size() == size, reported.constData());
+            QVERIFY2(categories->viewport()->rect().contains(itemRect), reported.constData());
+            QVERIFY2(scroll->horizontalScrollBar()->maximum() == 0, reported.constData());
             for(auto *number:scroll->findChildren<QSpinBox *>()) QVERIFY(number->width() <= 200);
             for(auto *number:scroll->findChildren<QDoubleSpinBox *>()) QVERIFY(number->width() <= 200);
             if(i==0 || i==2 || i==4 || i==5 || i==7 || i==9) capture(&dialog,QStringLiteral("settings-compact-%1-%2-%3").arg(theme,language).arg(i));
