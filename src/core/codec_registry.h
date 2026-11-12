@@ -5,6 +5,7 @@
 #include "image_document.h"
 #include <memory>
 #include <optional>
+class QIODevice;
 namespace ix {
 bool isRawFormat(const QByteArray &format);
 bool alphaWritable(const QByteArray &format);
@@ -66,6 +67,9 @@ class CodecRegistry {
                             bool allowLoss = false,
                             const std::optional<QString> &expectedTarget = std::nullopt,
                             const std::function<QString()> &beforeCommit = {}) const;
+    // Shared encoding path for staged file output and target-size measurement.
+    QString encodeImage(const ImageDocument &document, QIODevice &destination,
+                        const QByteArray &format, const EncodeOptions &encode) const;
     QList<FormatCapability> capabilities() const;
     QStringList extensions() const;
     QString openFilter() const;

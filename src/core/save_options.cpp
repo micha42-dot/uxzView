@@ -1,100 +1,49 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "save_options.h"
 #include "codec_registry.h"
-#include "image_storage.h"
 #include "jpegli_encoder.h"
 #include "localization.h"
-#include "memory_policy.h"
-#include <QBuffer>
+#include "metadata.h"
+#include <QIODevice>
 #include <QHash>
 #include <QImage>
-#include <QImageWriter>
 #include <QJsonObject>
 #include <QSettings>
 #include <algorithm>
-#include <cmath>
+#include <array>
 namespace ix {
 namespace {
 QHash<QByteArray, SaveOptions> gOptionsCache;
 QJsonObject gProfilesCache;
 bool gProfilesCached = false;
-qint64 encodeSize(const ImageDocument &document, const SaveOptions &options, int quality,
-                  const CodecRegistry &registry, QString &error) {
-    Q_UNUSED(registry);
-    if (options.format == "jpeg" && jpegliEnabled()) {
-        // Measure with the real production encoder (jpegli), not the Qt
-        // fallback writer: the optimizer must predict the actual save path.
-        // Encode errors (e.g. image too large for the memory budget) abort
-        // the search instead of throwing through the worker thread.
-        QByteArray encoded;
-        QBuffer buffer(&encoded);
-        if (!buffer.open(QIODevice::WriteOnly)) {
-            error = buffer.errorString();
-            return -1;
-        }
-        ix::JpegliOptions jpegOptions;
-        jpegOptions.progressive = options.progressive;
-        jpegOptions.noSubsampling = options.noSubsampling;
-        jpegOptions.flattenAlpha = true;
-        try {
-            error = writeJpegli(buffer, document.pixels, quality, jpegOptions);
-        } catch (const std::exception &ex) {
-            error = localized(QString::fromUtf8(ex.what()));
-        } catch (...) {
-            error = IX_TEXT("Speicher nicht verfügbar.");
-        }
-        if (!error.isEmpty())
-            return -1;
-        return encoded.size();
+// Encoders write sequentially for the formats with a target-size option.
+// Count their output without holding an extra copy of the compressed image.
+class SizeCounter final : public QIODevice {
+public:
+    qint64 bytes = 0;
+    bool isSequential() const override { return true; }
+protected:
+    qint64 readData(char *, qint64) override { return -1; }
+    qint64 writeData(const char *, qint64 size) override {
+        bytes += size;
+        return size;
     }
-    QByteArray encoded;
-    QBuffer buffer(&encoded);
-    if (!buffer.open(QIODevice::WriteOnly)) {
-        error = buffer.errorString();
-        return -1;
-    }
-    // Memory guard + exception barrier: aggressive targets on huge images
-    // can OOM inside third-party writers (libwebp/libavif). Without this,
-    // a bad_alloc escapes through the QtConcurrent worker and terminates
-    // the process. Mirror the jpegli budget check above.
-    const qint64 resident = imageIsFileBacked(document.pixels) ? 0 : document.pixels.sizeInBytes();
-    const qint64 working = qint64(document.pixels.width()) * 64 + qint64(document.pixels.height()) * 64;
-    if (resident + working > imageMemoryLimit()) {
-        error = imageSizeLimitError(document.pixels.size(), 64);
-        return -1;
-    }
+};
+
+qint64 encodeSize(const ImageDocument &document, const SaveOptions &options,
+                  const CodecRegistry &registry, CodecRegistry::EncodeOptions encode,
+                  int quality, QString &error) {
+    SizeCounter counter;
+    counter.open(QIODevice::WriteOnly);
+    encode.quality = quality;
     try {
-        QImageWriter writer(&buffer, options.format);
-        if (options.format == "png")
-            writer.setQuality(options.pngLevel * 10 - 1); // 0-9 -> Qt 0-100 approx.
-        else if (options.lossless)
-            // Lossless-capable writers (WebP/AVIF/JXL): quality 100 selects the
-            // lossless path, matching the actual save below.
-            writer.setQuality(100);
-        else
-            writer.setQuality(quality);
-        // Effort maps to QImageWriter compression (0 = fast …; writers without
-        // compression support ignore it). Mirrors the save path below.
-        if (options.format == "webp" || options.format == "avif" || options.format == "heif" ||
-            options.format == "heic" || options.format == "jxl" || options.format == "png" ||
-            options.format == "tiff")
-            writer.setCompression(options.effort);
-        if (!writer.canWrite()) {
-            error = writer.errorString();
-            return -1;
-        }
-        if (!writer.write(document.pixels)) {
-            error = writer.errorString();
-            return -1;
-        }
+        error = registry.encodeImage(document, counter, options.format, encode);
     } catch (const std::exception &ex) {
         error = localized(QString::fromUtf8(ex.what()));
-        return -1;
     } catch (...) {
         error = IX_TEXT("Speicher nicht verfügbar.");
-        return -1;
     }
-    return encoded.size();
+    return error.isEmpty() ? counter.bytes : -1;
 }
 } // namespace
 SaveCapabilities saveCapabilities(const QByteArray &format) {
@@ -108,10 +57,8 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
         // offered while the experimental encoder is off (Settings >
         // Experimentell). This is what makes the JPEG row appear only after
         // the user explicitly activates jpegli.
-        caps.progressive = jpegliEnabled();
-        caps.subsampling = jpegliEnabled();
+        caps.progressive = caps.subsampling = jpegliEnabled();
         caps.targetSize = true;
-        caps.metadataExif = caps.metadataIptc = caps.metadataXmp = true;
         caps.metadataIcc = caps.orientation = true;
     } else if (format == "webp") {
         caps.quality = true;
@@ -121,9 +68,7 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
         caps.minEffort = 0;
         caps.maxEffort = 100;
         caps.defaultEffort = 50;
-        caps.effortLabel = QStringLiteral("Aufwand");
         caps.targetSize = true;
-        caps.metadataExif = caps.metadataIptc = caps.metadataXmp = true;
         caps.metadataIcc = true;
     } else if (format == "avif" || format == "heif" || format == "heic") {
         caps.quality = true;
@@ -133,19 +78,17 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
         caps.minEffort = 0;
         caps.maxEffort = 100;
         caps.defaultEffort = 50;
-        caps.effortLabel = QStringLiteral("Aufwand");
         caps.targetSize = true;
-        caps.metadataExif = caps.metadataIptc = caps.metadataXmp = true;
         caps.metadataIcc = true;
     } else if (format == "png") {
         caps.pngLevel = true;
-        caps.metadataExif = caps.metadataIptc = caps.metadataXmp = true;
         caps.metadataIcc = true;
     } else if (format == "gif") {
         caps.interlaced = true;
-    } else if (format == "tiff" || format == "bmp") {
-        caps.metadataExif = caps.metadataIptc = caps.metadataXmp = caps.metadataIcc = true;
+    } else if (format == "tiff") {
+        caps.metadataIcc = true;
     }
+    caps.metadataExif = caps.metadataIptc = caps.metadataXmp = metadataWritable(format);
     return caps;
 }
 QJsonObject SaveOptions::toJson() const {
@@ -207,11 +150,14 @@ SaveOptions loadSaveOptions(const QByteArray &format) {
     SaveOptions options = settings.contains(key)
         ? SaveOptions::fromJson(settings.value(key).toJsonObject())
         : defaultSaveOptions(format);
+    options.format = format;
     gOptionsCache.insert(format, options);
     return options;
 }
 void storeSaveOptions(const SaveOptions &options) {
-    gOptionsCache.insert(options.format, options);
+    auto preferences = options;
+    preferences.autoQuality = -1;
+    gOptionsCache.insert(options.format, preferences);
     QSettings settings;
     settings.setValue(QStringLiteral("save/options/") + QString::fromLatin1(options.format),
                       options.toJson());
@@ -238,6 +184,25 @@ QString saveProfileError(const QString &name, const QJsonObject &profiles, bool 
         return IX_TEXT("Ein Profil mit diesem Namen existiert bereits.");
     return {};
 }
+CodecRegistry::EncodeOptions saveEncodeOptions(const SaveOptions &options) {
+    CodecRegistry::EncodeOptions encode;
+    encode.quality = options.targetSizeEnabled && options.autoQuality >= 0 ? options.autoQuality : options.quality;
+    if (options.format == "jpeg" && jpegliEnabled()) {
+        encode.progressive = options.progressive;
+        encode.noSubsampling = options.noSubsampling;
+    }
+    encode.interlaced = options.format == "gif" && options.interlaced;
+    encode.lossless = options.lossless && (options.format == "webp" || options.format == "avif" ||
+                                           options.format == "heif" || options.format == "heic");
+    encode.effort = options.effort;
+    encode.compressionLevel = options.format == "png" ? options.pngLevel : -1;
+    encode.keepExif = options.keepExif;
+    encode.keepIptc = options.keepIptc;
+    encode.keepXmp = options.keepXmp;
+    encode.keepIcc = options.keepIcc;
+    encode.alphaWhite = options.alphaMode == SaveOptions::AlphaMode::Keep ? 0 : 1;
+    return encode;
+}
 TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const SaveOptions &options,
                                        const CodecRegistry &registry,
                                        const std::function<bool(int, int)> &progress,
@@ -248,69 +213,67 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
         result.error = IX_TEXT("Zieldateigröße wird für dieses Format nicht unterstützt.");
         return result;
     }
-    // Bounded binary search (<= 8 probes) plus local refinement. File size is
-    // not strictly monotonic in quality, so verify each candidate and prefer
-    // the highest quality that fits rather than the first fit found.
-    int low = 1, high = 100, best = -1;
-    qint64 bestBytes = -1;
-    QString error;
-    const int steps = 8;
-    for (int step = 0; step < steps; ++step) {
-        if (cancel.load())
-            return result;
-        if (progress && !progress(step, steps + 2))
-            return result;
-        const int quality = (low + high) / 2;
-        const qint64 bytes = encodeSize(document, options, quality, registry, error);
-        if (bytes < 0) {
-            result.error = error;
-            return result;
+    const auto encode = saveEncodeOptions(options);
+    std::array<std::optional<qint64>, 101> measured;
+    int completed = 0;
+    const int maxProbes = encode.lossless ? 1 : 13;
+    const auto measure = [&](int quality) -> qint64 {
+        if (cancel.load()) {
+            result.error = IX_TEXT("Abgebrochen.");
+            return -1;
         }
+        if (measured[quality])
+            return *measured[quality];
+        if (progress && !progress(completed, maxProbes)) {
+            result.error = IX_TEXT("Abgebrochen.");
+            return -1;
+        }
+        const auto bytes = encodeSize(document, options, registry, encode, quality, result.error);
+        if (cancel.load()) {
+            result.error = IX_TEXT("Abgebrochen.");
+            return -1;
+        }
+        measured[quality] = bytes;
+        ++completed;
+        return bytes;
+    };
+    const auto finish = [&](int quality, qint64 bytes) -> TargetSizeResult {
+        if (bytes < 0)
+            return result;
+        if (cancel.load() || (progress && !progress(maxProbes, maxProbes)))
+            return {{}, -1, IX_TEXT("Abgebrochen.")};
+        return {quality, bytes, {}};
+    };
+    if (encode.lossless)
+        return finish(100, measure(100));
+
+    // Encoded size can dip as quality increases. Check the next few levels
+    // after the binary search and reuse sizes already measured there.
+    int low = 1, high = 100, best = 0;
+    qint64 bestBytes = -1;
+    while (low <= high) {
+        const int quality = (low + high) / 2;
+        const auto bytes = measure(quality);
+        if (bytes < 0)
+            return result;
         if (bytes <= options.targetBytes) {
             best = quality;
             bestBytes = bytes;
-            low = quality + 1; // Try higher quality while staying within budget.
+            low = quality + 1;
         } else {
             high = quality - 1;
         }
-        if (low > high)
-            break;
     }
-    if (best >= 0) {
-        for (int quality = best + 1; quality <= std::min(100, best + 5); ++quality) {
-            if (cancel.load())
-                return result;
-            const qint64 bytes = encodeSize(document, options, quality, registry, error);
-            if (bytes < 0) {
-                result.error = error;
-                return result;
-            }
-            if (bytes <= options.targetBytes) {
-                best = quality;
-                bestBytes = bytes;
-            } else {
-                break;
-            }
-        }
-    }
-    if (progress)
-        progress(steps + 1, steps + 2);
-    // IrfanView-style: never fail on an aggressive target. The search always
-    // yields the smallest reachable quality (quality 1) instead of an error,
-    // so the save simply lands as close to the target as the format allows.
-    if (best < 0) {
-        QString error;
-        const qint64 floor = encodeSize(document, options, 1, registry, error);
-        if (floor < 0) {
-            result.error = error;
+    const int upper = std::min(100, best + 5);
+    for (int quality = best + 1; quality <= upper; ++quality) {
+        const auto bytes = measure(quality);
+        if (bytes < 0)
             return result;
+        if (bytes <= options.targetBytes) {
+            best = quality;
+            bestBytes = bytes;
         }
-        result.quality = 1;
-        result.bytes = floor;
-        return result;
     }
-    result.quality = best;
-    result.bytes = bestBytes;
-    return result;
+    return best > 0 ? finish(best, bestBytes) : finish(1, measure(1));
 }
 } // namespace ix

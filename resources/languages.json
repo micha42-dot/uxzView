@@ -881,7 +881,7 @@
 ["Links/Rechts und Hoch/Runter", "Left/Right and Up/Down", "왼쪽/오른쪽 및 위/아래", "左/右と上/下", "Gauche/Droite et Haut/Bas"],
 ["Kompressionsoptionen anzeigen", "Show compression options", "압축 옵션 표시", "圧縮オプションを表示", "Afficher les options de compression"],
 ["Kompressionsoptionen beim Speichern anzeigen", "Show compression options when saving", "저장 시 압축 옵션 표시", "保存時に圧縮オプションを表示", "Afficher les options de compression lors de l’enregistrement"],
-["Ziel nicht erreichbar — kleinstmöglich: Qualität 1 (ca. %1 KB).", "Target unreachable — smallest possible: quality 1 (approx. %1 KB).", "대상에 도달할 수 없음 — 최소 가능: 품질 1 (약 %1KB).", "目標に到達できません — 最小: 品質1（約%1 KB）。", "Cible inaccessible — plus petit possible : qualité 1 (env. %1 Ko)."],
+["Ziel nicht erreichbar (ca. %1 KB).", "Target unreachable (approx. %1 KB).", "목표 크기에 도달할 수 없습니다(약 %1KB).", "目標サイズに達しません（約%1 KB）。", "Taille cible inaccessible (env. %1 Ko)."],
 ["Niedrig", "Low", "낮음", "低", "Basse"],
 ["Hoch", "High", "높음", "高", "Haute"],
 ["Als progressives JPEG speichern", "Save as progressive JPEG", "프로그레시브 JPEG로 저장", "プログレッシブJPEGとして保存", "Enregistrer en JPEG progressif"],

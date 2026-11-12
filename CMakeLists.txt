@@ -295,6 +295,7 @@ if(BUILD_TESTING)
     qt_add_executable(ixview_saving_tests tests/saving_ixview.cpp resources/app.qrc)
     target_link_libraries(ixview_saving_tests PRIVATE ixui Qt6::Test)
     if(TARGET IxView::Exiv2)
+        target_link_libraries(ixview_saving_tests PRIVATE IxView::Exiv2)
         target_compile_definitions(ixview_saving_tests PRIVATE IX_TEST_EXIV2)
     endif()
     add_test(NAME ixview_saving_tests COMMAND ixview_saving_tests -v1 -platform offscreen

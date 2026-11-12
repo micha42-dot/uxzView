@@ -9,9 +9,9 @@
 #include "core/save_formats.h"
 #include "core/save_options.h"
 #include "core/localization.h"
-#include "core/metadata.h"
 #include "ui/image_view.h"
 #include "ui/main_window.h"
+#include "ui/save_options_dialog.h"
 #include "ui/settings_dialog.h"
 #include <QBuffer>
 #include <QColorSpace>
@@ -21,6 +21,9 @@
 #include <QtWidgets>
 #include <QtConcurrent>
 #include <cmath>
+#ifdef IX_TEST_EXIV2
+#include <exiv2/exiv2.hpp>
+#endif
 
 namespace {
 QImage sample() {
@@ -374,7 +377,11 @@ class SavingTests : public QObject {
         } else { QCOMPARE(window.document().path,source);QVERIFY(window.document().modified); }
     }
     void compressionOptionsAffectOutput();
+    void targetSizeOptimizationRespectsBudget_data();
     void targetSizeOptimizationRespectsBudget();
+    void companionRefreshesTargetAfterMetadataChange();
+    void companionProfilesFitBeforeFirstShow_data();
+    void companionProfilesFitBeforeFirstShow();
     void compressionProfilesRoundTrip();
     void perTypeMetadataMaskingDropsOnlyDeselected();
     void alphaModeControlsFlattening();
@@ -409,46 +416,145 @@ void SavingTests::compressionOptionsAffectOutput() {
     QVERIFY(registry.saveWithOptions(document, tight, "png", best, true).isEmpty());
     QVERIFY(QImageReader(flat).canRead() && QImageReader(tight).canRead());
 }
+void SavingTests::targetSizeOptimizationRespectsBudget_data() {
+    QTest::addColumn<QByteArray>("format");
+    QTest::addColumn<bool>("jpegli");
+    QTest::addColumn<bool>("lossless");
+    QTest::newRow("qt-jpeg") << QByteArray("jpeg") << false << false;
+    QTest::newRow("jpegli") << QByteArray("jpeg") << true << false;
+    QTest::newRow("webp") << QByteArray("webp") << false << false;
+    QTest::newRow("webp-lossless") << QByteArray("webp") << false << true;
+    QTest::newRow("avif") << QByteArray("avif") << false << false;
+    QTest::newRow("heic") << QByteArray("heic") << false << false;
+}
 void SavingTests::targetSizeOptimizationRespectsBudget() {
+    QFETCH(QByteArray, format);
+    QFETCH(bool, jpegli);
+    QFETCH(bool, lossless);
+    if (!ix::CodecRegistry::canWrite(format))
+        QSKIP("Writer unavailable in this build.");
+    QSettings().setValue(QStringLiteral("experimental/jpegli"), jpegli);
     ix::ImageDocument document;
-    document.pixels = sample();
+    document.pixels = sample().convertToFormat(QImage::Format_ARGB32);
+    document.pixels.setPixelColor(0, 0, QColor(20, 120, 230, 10));
     ix::CodecRegistry registry;
-    ix::SaveOptions options;
-    options.format = "jpeg";
+    auto options = ix::defaultSaveOptions(format);
+    options.keepIcc = false;
+    options.lossless = lossless;
     options.targetSizeEnabled = true;
     std::atomic_bool cancel = false;
-    const auto probe = [&](int quality) -> qint64 {
-        QByteArray encoded;
-        QBuffer buffer(&encoded);
-        if (!buffer.open(QIODevice::WriteOnly))
-            return -1;
-        if (!ix::writeJpegli(buffer, document.pixels, quality).isEmpty())
-            return -1;
-        return encoded.size();
-    };
-    options.targetBytes = probe(95);
+    const auto path = temp_.filePath(QStringLiteral("target-size.%1").arg(QString::fromLatin1(format)));
+    auto manual = ix::saveEncodeOptions(options);
+    manual.quality = 90;
+    auto error = registry.saveWithOptions(document, path, format, manual, true);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    options.targetBytes = QFileInfo(path).size();
     QVERIFY(options.targetBytes > 0);
-    auto reachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    const auto reachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
     QVERIFY2(reachable.error.isEmpty(), qPrintable(reachable.error));
     QVERIFY(reachable.quality.has_value());
-    QVERIFY(probe(*reachable.quality) <= options.targetBytes);
+    QVERIFY(reachable.bytes <= options.targetBytes);
+    options.autoQuality = *reachable.quality;
+    error = registry.saveWithOptions(document, path, format, ix::saveEncodeOptions(options), true);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(reachable.bytes, QFileInfo(path).size());
+    const QImage decoded(path);
+    QVERIFY(!decoded.isNull());
+    if (format == "jpeg" || format == "webp")
+        QVERIFY(!decoded.colorSpace().isValid());
+
     options.targetBytes = 1;
-    auto unreachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
-    // IrfanView-style: an unreachable target yields the smallest reachable
-    // output (quality 1) instead of an error.
+    const auto unreachable = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    QVERIFY2(unreachable.error.isEmpty(), qPrintable(unreachable.error));
     QVERIFY(unreachable.quality.has_value());
-    QCOMPARE(*unreachable.quality, 1);
-    QVERIFY(unreachable.error.isEmpty());
+    QCOMPARE(*unreachable.quality, lossless ? 100 : 1);
     QVERIFY(unreachable.bytes > options.targetBytes);
-    options.targetBytes = probe(95);
     cancel = true;
-    auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    const auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
     QVERIFY(!cancelled.quality.has_value());
+    QVERIFY(!cancelled.error.isEmpty());
+}
+void SavingTests::companionRefreshesTargetAfterMetadataChange() {
+    ix::CodecRegistry registry;
+    ix::ImageDocument document;
+    document.pixels = sample();
+    auto options = ix::defaultSaveOptions("jpeg");
+    options.quality = 77;
+    options.targetBytes = 4096;
+    options.targetSizeEnabled = true;
+
+    QWidget owner;
+    QDialog chooser(&owner);
+    ix::SaveOptionsDialog companion(registry, &owner);
+    companion.prepare(document, options, {}, chooser);
+    companion.show();
+    QTRY_VERIFY(companion.options().autoQuality >= 0);
+    QCOMPARE(companion.options().quality, 77);
+    auto *icc = companion.findChild<QCheckBox *>(QStringLiteral("compressionKeepIcc"));
+    QVERIFY(icc);
+    icc->setChecked(false);
+    QCOMPARE(companion.options().autoQuality, -1);
+    QTRY_VERIFY(companion.options().autoQuality >= 0);
+    const std::atomic_bool cancel = false;
+    const auto expected = ix::optimizeForTargetSize(document, companion.options(), registry, {}, cancel);
+    QVERIFY(expected.quality.has_value());
+    QCOMPARE(companion.options().autoQuality, *expected.quality);
+    auto *target = companion.findChild<QCheckBox *>(QStringLiteral("compressionTargetEnabled"));
+    QVERIFY(target);
+    target->setChecked(false);
+    QCOMPARE(companion.options().quality, 77);
+    QCOMPARE(companion.options().autoQuality, -1);
+    auto *quality = companion.findChild<QSpinBox *>(QStringLiteral("compressionQualityValue"));
+    QVERIFY(quality);
+    QCOMPARE(quality->value(), 77);
+    companion.endSession();
+}
+void SavingTests::companionProfilesFitBeforeFirstShow_data() {
+    QTest::addColumn<QString>("language");
+    for (const auto *language : {"de", "en", "fr", "ko", "ja"})
+        QTest::newRow(language) << QString::fromLatin1(language);
+}
+void SavingTests::companionProfilesFitBeforeFirstShow() {
+    QFETCH(QString, language);
+    const auto original = ix::uiLanguage();
+    const auto restore = qScopeGuard([original] { ix::setUiLanguage(original); });
+    QVERIFY(ix::setUiLanguage(language));
+    QWidget owner;
+    QDialog chooser(&owner);
+    ix::CodecRegistry registry;
+    ix::SaveOptionsDialog companion(registry, &owner);
+    const auto options = ix::defaultSaveOptions("jpeg");
+    const QString profile(180, QLatin1Char('W'));
+    companion.prepare({}, options, {{profile, options.toJson()}}, chooser);
+    const auto beforeShow = companion.size();
+    companion.show();
+    QCoreApplication::processEvents();
+    QCOMPARE(companion.size(), beforeShow);
+
+    const auto *combo = companion.findChild<QComboBox *>(QStringLiteral("compressionProfile"));
+    QVERIFY(combo);
+    QCOMPARE(combo->currentText(), profile);
+    int previousRight = combo->geometry().left() - 1;
+    for (const auto &name : {QStringLiteral("compressionProfileLoad"),
+                             QStringLiteral("compressionProfileSave"),
+                             QStringLiteral("compressionProfileDelete")}) {
+        const auto *button = companion.findChild<QPushButton *>(name);
+        QVERIFY(button && button->isVisible());
+        QVERIFY(button->width() >= button->minimumSizeHint().width());
+        QVERIFY(button->geometry().top() > combo->geometry().bottom());
+        QVERIFY2(button->geometry().left() > previousRight,
+                 qPrintable(QStringLiteral("%1 starts at %2, previous ends at %3")
+                                .arg(name).arg(button->geometry().left()).arg(previousRight)));
+        previousRight = button->geometry().right();
+    }
+    QVERIFY(previousRight <= combo->geometry().right());
+    companion.endSession();
 }
 void SavingTests::compressionProfilesRoundTrip() {
     ix::SaveOptions options;
     options.format = "jpeg";
     options.quality = 77;
+    options.autoQuality = 19;
     options.progressive = true;
     options.keepXmp = false;
     options.targetSizeEnabled = true;
@@ -462,6 +568,7 @@ void SavingTests::compressionProfilesRoundTrip() {
     QCOMPARE(restored.targetBytes, 200 * 1024);
     ix::storeSaveOptions(options);
     QCOMPARE(ix::loadSaveOptions("jpeg").quality, 77);
+    QCOMPARE(ix::loadSaveOptions("jpeg").autoQuality, -1);
     QJsonObject profiles;
     profiles.insert(QStringLiteral("web-photo"), json);
     ix::storeSaveProfiles(profiles);
@@ -473,23 +580,45 @@ void SavingTests::compressionProfilesRoundTrip() {
     QVERIFY(ix::saveProfileError(QStringLiteral("other"), profiles, false).isEmpty());
 }
 void SavingTests::perTypeMetadataMaskingDropsOnlyDeselected() {
-    QSettings().setValue(QStringLiteral("save/warnLosses"), false);
-    const auto source = temp_.filePath(QStringLiteral("mask-source.png"));
+#ifndef IX_TEST_EXIV2
+    QSKIP("Optional Exiv2 backend is absent.");
+#else
+    const auto source = temp_.filePath(QStringLiteral("mask-source.jpg"));
     QVERIFY(sample().save(source));
+    auto native = Exiv2::ImageFactory::open(source.toStdString());
+    QVERIFY(native.get());
+    native->readMetadata();
+    native->exifData()["Exif.Image.Artist"] = "Artist";
+    native->iptcData()["Iptc.Application2.Caption"] = "Caption";
+    native->xmpData()["Xmp.dc.description"] = "Description";
+    native->writeMetadata();
     ix::CodecRegistry registry;
-    auto read = registry.read(source);
-    if (!read.ok() || !read.document.metadata || !read.document.metadata->data)
-        QSKIP("No native metadata fixture available; masking covered by unit path");
-    ix::ImageDocument document = read.document;
-    auto metadata = std::make_shared<ix::Metadata>(*read.document.metadata);
-    metadata->hasExif = true;
-    metadata->hasXmp = true;
-    document.metadata = metadata;
-    ix::CodecRegistry::EncodeOptions keep;
-    keep.keepExif = true;
-    keep.keepXmp = false;
-    QVERIFY(registry.saveWithOptions(document, temp_.filePath(QStringLiteral("masked.png")), "png",
-                                     keep, true).isEmpty());
+    const auto read = registry.read(source);
+    QVERIFY2(read.ok(), qPrintable(read.error));
+    const auto &document = read.document;
+    QVERIFY(document.metadata && document.metadata->hasExif && document.metadata->hasIptc &&
+            document.metadata->hasXmp);
+
+    auto options = ix::defaultSaveOptions("jpeg");
+    options.keepIptc = options.keepXmp = false;
+    options.targetSizeEnabled = true;
+    std::atomic_bool cancel = false;
+    const auto optimized = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    QVERIFY2(optimized.error.isEmpty(), qPrintable(optimized.error));
+    QVERIFY(optimized.quality.has_value());
+    options.autoQuality = *optimized.quality;
+    const auto target = temp_.filePath(QStringLiteral("masked.jpg"));
+    const auto error = registry.saveWithOptions(document, target, "jpeg", ix::saveEncodeOptions(options), true);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(QFileInfo(target).size(), optimized.bytes);
+    QString warning;
+    const auto metadata = ix::readMetadata(target, warning);
+    QVERIFY2(warning.isEmpty(), qPrintable(warning));
+    QVERIFY(metadata && metadata->hasExif);
+    QCOMPARE(metadata->tags.value(QStringLiteral("Exif.Image.Artist")), QStringLiteral("Artist"));
+    QVERIFY(!metadata->hasIptc && !metadata->hasXmp);
+    QVERIFY(QImage(target).colorSpace().isValid());
+#endif
 }
 void SavingTests::alphaModeControlsFlattening() {
     // Real transparency + JPEG: White flattens, Keep preserves pixels.

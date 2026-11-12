@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "codec_registry.h"
 // Central save/compression options: per-format encoder capabilities, the
 // persisted user settings, named profiles, and the target-file-size optimizer.
 #include <QByteArray>
@@ -21,7 +22,6 @@ struct SaveCapabilities {
     bool lossless = false;      // Lossless toggle (WebP/AVIF/PNG-style).
     bool effort = false;        // Compression effort/speed control.
     int minEffort = 0, maxEffort = 100, defaultEffort = 50;
-    QString effortLabel;
     bool progressive = false;   // JPEG progressive.
     bool subsampling = false;   // JPEG chroma subsampling control.
     bool interlaced = false;    // GIF interlace.
@@ -49,13 +49,14 @@ struct SaveOptions {
     bool fixOrientation = true;
     bool targetSizeEnabled = false;
     qint64 targetBytes = 150 * 1024; // Target file size in bytes.
-    // Effective quality after target-size optimization (display only).
+    // Effective quality for this image and option set. Never persisted.
     int autoQuality = -1;
     QJsonObject toJson() const;
     static SaveOptions fromJson(const QJsonObject &object);
     bool operator==(const SaveOptions &) const = default;
 };
 SaveOptions defaultSaveOptions(const QByteArray &format);
+CodecRegistry::EncodeOptions saveEncodeOptions(const SaveOptions &options);
 // Persistence helpers (QSettings-backed, portable-compatible).
 SaveOptions loadSaveOptions(const QByteArray &format);
 void storeSaveOptions(const SaveOptions &options);
@@ -64,8 +65,8 @@ QJsonObject loadSaveProfiles();
 void storeSaveProfiles(const QJsonObject &profiles);
 QString saveProfileError(const QString &name, const QJsonObject &profiles, bool exists);
 // Target-size optimization: binary search + refinement over the real encoder.
-// Encodes to memory buffers only; never touches the destination file.
-// Returns the highest quality whose output fits, or nullopt when unreachable.
+// Measures encoded output without touching the destination file. If the
+// target cannot be reached, returns the lowest tested quality (or lossless).
 // Progress callback receives (step, steps); cancel aborts early.
 struct TargetSizeResult {
     std::optional<int> quality;

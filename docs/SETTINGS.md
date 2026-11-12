@@ -164,47 +164,25 @@ format limits in [large images](LARGE_IMAGES.md).
 
 ## Kompressionsoptionen beim Speichern
 
-**Datei → Speichern unter** öffnet den gewohnten nativen Dateidialog; daneben
-erscheint — wenn unter Einstellungen → Speichern aktiviert
-(„Kompressionsoptionen beim Speichern anzeigen", Standard: an) — ein kompaktes
-Begleitfenster mit den Kompressionseinstellungen des gewählten Formats
-(z. B. „JPEG-Optionen speichern"). Es wird einmal neben dem Dialog platziert
-(oder an der zuletzt vom Benutzer gewählten Position) und bleibt danach frei
-positionierbar — es folgt dem Dateidialog nicht mehr und springt nicht zurück.
-Das Schließen über das normale Fenstersymbol blendet es nur für diesen
-Speichervorgang aus — gespeichert wird mit den zuletzt gewählten
-Einstellungen; bei deaktivierter Option gelten die gespeicherten Einstellungen
-stillschweigend. Die Dateiformatliste des nativen Dialogs wird kanonisch
-gematcht, sodass z. B. ein als JFIF geführter JPEG-Eintrag weiterhin das
-JPEG-Format wählt.
+**Datei → Speichern unter** öffnet den nativen Dateidialog. Das Fenster für
+Kompressionsoptionen erscheint daneben oder an der zuletzt gewählten Position.
+Unter **Einstellungen → Speichern** lässt es sich ausblenden. Dann gelten die gespeicherten
+Einstellungen des Ausgabeformats. Eine Kopie in einem anderen Ordner lässt das
+ursprüngliche Bild geöffnet und behält dessen Ordner für die Navigation bei.
 
-- **Qualität (0–100, Slider + Zahl):** JPEG (jpegli-Encoder), WebP und AVIF/HEIF;
-  PNG nutzt stattdessen eine verlustfreie Stufe 0–9.
-- **Zieldateigröße (KB/MB):** ermittelt per begrenzter Suche über den echten
-  Encoder die höchste passende Qualität; bei aktivierter Option ist der manuelle
-  Regler gesperrt und zeigt das Ergebnis. Unerreichbare Ziele liefern wie in
-  IrfanView einfach die kleinstmögliche Datei (Qualität 1) statt eines
-  Fehlers; die Auflösung wird nie verändert.
-- **Formatoptionen:** JPEG progressiv und Chroma-Subsampling; WebP/AVIF verlustfrei
-  und Aufwand. GIF-interlaced wird angeboten, aber derzeit nicht umgesetzt
-  (Qt bietet keinen entsprechenden Schalter) — die Option bleibt wirkungslos,
-  bis der Encoder sie unterstützt. Nur unterstützte Schalter werden angezeigt.
-- **Metadaten:** EXIF/IPTC/XMP und ICC-Profil einzeln abwählbar; die
-  EXIF-Ausrichtung wird auf die Pixel angewendet.
-- **Transparenz:** Für Formate ohne Alphakanal wählbar — auf Weiß reduzieren
-  (bisheriges Verhalten), Originalpixel behalten oder bei jedem Speichern
-  fragen. Die Warnung vor Formatverlusten erscheint nur noch bei tatsächlich
-  vorhandener Transparenz statt bei bloßem Alphakanal und lässt sich zusätzlich
-  über `save/warnLosses` abschalten.
-- **Profile:** Kombinationen aus Format und Einstellungen lassen sich benennen,
-  laden, überschreiben (mit Nachfrage) und löschen; die letzten Einstellungen
-  werden beim nächsten Speichern wiederhergestellt.
-- **Stapelverarbeitung:** Qualität und Zieldateigröße stehen im
-  Batch-Dialog; die Zielgröße wird pro Bild einzeln optimiert.
-
-Die Warnung vor Formatverlusten lässt sich zusätzlich über `save/warnLosses`
-abschalten; sie erscheint ohnehin nur noch bei tatsächlich vorhandener
-Transparenz statt bei bloßem Alphakanal.
+- **Qualität** lässt sich für JPEG, WebP und AVIF/HEIF von 0 bis 100 einstellen.
+  PNG bietet eine verlustfreie Kompressionsstufe von 0 bis 9.
+- **Zieldateigröße** ermittelt über den Exportpfad die höchste passende
+  Qualität unter den getesteten Stufen. Falls die Suche keine passende Stufe
+  findet, speichert sie mit Qualität 1. Im verlustfreien Modus bleibt die
+  Kodierung verlustfrei. Die Auflösung bleibt erhalten.
+- **Formatoptionen** umfassen progressives JPEG und Chroma-Subsampling mit
+  aktiviertem jpegli-Encoder sowie verlustfreie Kodierung für WebP und AVIF.
+- **Metadaten** wie EXIF, IPTC, XMP und ICC lassen sich je nach Ausgabeformat
+  einzeln abwählen. Die EXIF-Ausrichtung wird auf die Pixel angewendet.
+- **Profile** speichern Format und Einstellungen unter einem Namen. Die
+  zuletzt verwendeten Einstellungen werden beim nächsten Speichern geladen.
+- **Stapelverarbeitung** berechnet die Zielgröße für jedes Bild einzeln.
 
 ## Standardformat beim Speichern
 

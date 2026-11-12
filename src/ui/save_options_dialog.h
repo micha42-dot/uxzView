@@ -90,16 +90,11 @@ class SaveOptionsDialog final : public QDialog {
     QRadioButton *alphaWhite_ = nullptr, *alphaKeep_ = nullptr, *alphaAsk_ = nullptr;
     QWidget *alphaBox_ = nullptr;
     QTimer *optimizeTimer_ = nullptr;
-    // Target-size workers outlive UI events: every watcher/timer pair is
-    // tracked here so the destructor can cancel + disconnect before Qt
-    // tears down children (a finished lambda must never touch a dead this).
-    QList<QPointer<QFutureWatcher<TargetSizeResult>>> targetWatchers_;
-    QList<QPointer<QTimer>> targetTimers_;
-    QList<std::shared_ptr<std::atomic_bool>> targetCancels_;
-    std::shared_ptr<std::atomic_bool> activeCancel_; // Set by targetCancel_.
+    QFutureWatcher<TargetSizeResult> targetWatcher_;
+    std::shared_ptr<std::atomic_bool> activeCancel_;
+    bool optimizationPending_ = false;
     QSpinBox *pngLevel_ = nullptr;
     QComboBox *profileCombo_ = nullptr;
-    QLabel *effortCaption_ = nullptr;
     // captions_ holds (caption, row) pairs so rebuild() can hide both when the
     // format does not provide the feature — stacked rows can never overlap.
     // A null caption marks a bare row (lossless_); only the row is toggled.
@@ -108,8 +103,6 @@ class SaveOptionsDialog final : public QDialog {
             *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;
     bool rebuilding_ = false;
     bool autoPlaced_ = false; // True only inside a programmatic placement move.
-    // Set by setFormat(); consumed on first show so no encode blocks paint.
-    bool pendingAutoOptimize_ = false;
     void applyOptions(SaveOptions options);
     // setFixedSize() release/freeze pair. releaseFixedSize() must use
     // setMinimumSize(0,0)/setMaximumSize(QWIDGETSIZE_MAX,...) — passing
@@ -119,10 +112,9 @@ class SaveOptionsDialog final : public QDialog {
     void rebuild();
     void collect();
     void runTargetOptimization();
-    // Stops every live target-size worker (flags + watchers + timers) so no
-    // stale finished handler can publish into the next session.
+    void targetOptimizationFinished();
     void cancelTargetOptimization();
-    void cancelTargetWorkers();
+    void scheduleTargetOptimization();
     void loadProfile(int index);
     void saveProfile();
     void deleteProfile();

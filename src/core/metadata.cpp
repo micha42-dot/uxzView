@@ -231,8 +231,8 @@ QByteArray attachMetadata(QByteArray encoded, const Metadata &md, QSize size, do
             return {};
         }
         image->readMetadata();
-        auto exif = md.data->exif;
-        auto xmp = md.data->xmp;
+        auto exif = md.hasExif ? md.data->exif : Exiv2::ExifData{};
+        auto xmp = md.hasXmp ? md.data->xmp : Exiv2::XmpData{};
         if (!exif.empty()) {
             exif["Exif.Image.Orientation"] = uint16_t(1);
             exif["Exif.Photo.PixelXDimension"] = uint32_t(size.width());
@@ -262,7 +262,7 @@ QByteArray attachMetadata(QByteArray encoded, const Metadata &md, QSize size, do
             xmp["Xmp.exif.PixelYDimension"] = uint32_t(size.height());
         }
         image->setExifData(exif);
-        image->setIptcData(md.data->iptc);
+        image->setIptcData(md.hasIptc ? md.data->iptc : Exiv2::IptcData{});
         image->setXmpData(xmp);
         image->writeMetadata();
         auto &io = image->io();

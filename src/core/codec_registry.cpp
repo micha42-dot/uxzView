@@ -60,9 +60,6 @@ class PdfCodec final : public ImageCodec {
 QString backend(const QByteArray &f) {
     if (f == "cbz" || f == "zip")
         return QStringLiteral("üxzView / KArchive");
-    if (f == "jpeg" || f == "jfif")
-        return jpegliEnabled() ? QStringLiteral("libjpeg-turbo / jpegli (encoder)")
-                               : QStringLiteral("libjpeg-turbo / Qt (encoder)");
     if (f == "png")
         return QStringLiteral("Qt / libpng");
     if (f == "tiff")
@@ -279,15 +276,19 @@ class QtCodec final : public ImageCodec {
             }
             auto &jpeg = formats[QByteArray("jpeg")];
             jpeg.name = QStringLiteral("JPEG"); jpeg.write = true;
-            jpeg.library = backend("jpeg");
             for (const auto &extension : {QStringLiteral("jpg"), QStringLiteral("jpeg"), QStringLiteral("jfif")})
                 if (!jpeg.extensions.contains(extension)) jpeg.extensions.append(extension);
             return formats.values();
         }();
         auto result = cached;
-        for (auto &cap : result)
-            if (!PluginStore::formatEnabled(normalized(cap.extensions.first().toLatin1())))
+        for (auto &cap : result) {
+            const auto key = normalized(cap.extensions.first().toLatin1());
+            if (!PluginStore::formatEnabled(key))
                 cap.read = cap.write = false;
+            if (key == "jpeg")
+                cap.library = jpegliEnabled() ? QStringLiteral("libjpeg-turbo / jpegli (encoder)")
+                                               : QStringLiteral("libjpeg-turbo / Qt (encoder)");
+        }
         return result;
     }
 };
@@ -371,66 +372,17 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
                                        const QByteArray &requested, const EncodeOptions &encode,
                                        bool allowLoss, const std::optional<QString> &expectedTarget,
                                        const std::function<QString()> &beforeCommit) const {
-    const int quality = std::clamp(encode.quality, 0, 100);
-    // Per-type metadata masking: only the kinds the user deselected are
-    // dropped. Fast path: when everything is kept (the default), skip the
-    // deep copy entirely — no allocation, no warning.
-    ImageDocument d = document;
-    if (d.metadata && d.metadata->data) {
-        const bool dropExif = !encode.keepExif && d.metadata->hasExif;
-        const bool dropIptc = !encode.keepIptc && d.metadata->hasIptc;
-        const bool dropXmp = !encode.keepXmp && d.metadata->hasXmp;
-        const bool dropIcc = !encode.keepIcc;
-        if (dropExif || dropIptc || dropXmp || dropIcc) {
-            auto kept = std::make_shared<Metadata>(*d.metadata);
-            QStringList dropped;
-            if (dropExif) {
-                kept->hasExif = false;
-                dropped.append(QStringLiteral("EXIF"));
-            }
-            if (dropIptc) {
-                kept->hasIptc = false;
-                dropped.append(QStringLiteral("IPTC"));
-            }
-            if (dropXmp) {
-                kept->hasXmp = false;
-                dropped.append(QStringLiteral("XMP"));
-            }
-            if (dropIcc)
-                d.pixels.setColorSpace(QColorSpace());
-            if (!kept->hasExif && !kept->hasIptc && !kept->hasXmp)
-                kept->data.reset();
-            d.metadata = kept;
-            if (!dropped.isEmpty())
-                d.metadataWarning =
-                    IX_TEXT("Entfernt: %1.").arg(dropped.join(QStringLiteral(", ")));
-        }
-    }
-    Q_UNUSED(document);
-    QByteArray format = normalized(requested.isEmpty() ? QFileInfo(path).suffix().toLatin1() : requested);
-    if (d.empty())
+    const auto format = normalized(requested.isEmpty() ? QFileInfo(path).suffix().toLatin1() : requested);
+    if (document.empty())
         return IX_TEXT("Kein Bild geladen.");
     if (!canWrite(format))
         return IX_TEXT("Kein Encoder für %1 verfügbar.").arg(QString::fromLatin1(format));
     if (normalized(QFileInfo(path).suffix().toLatin1()) != format)
         return IX_TEXT("Dateiendung und Ausgabeformat stimmen nicht überein.");
-    if (!allowLoss && !exportLosses(d, format).isEmpty())
-        return exportLosses(d, format).join(QLatin1Char('\n'));
-    const bool large = exportNeedsStreaming(d.pixels);
-    // Experimental switch: jpegli writes JPEG unless the user opted out (the
-    // default). Everything below must then behave like every other format and
-    // go through Qt's QImageWriter.
-    const bool jpegli = format == "jpeg" && jpegliEnabled();
-    if (format == "jpeg" && (d.pixels.width()>65500 || d.pixels.height()>65500))
-        return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
-    if (large && qint64(d.pixels.width())*64 + qint64(d.pixels.height())*qint64(sizeof(void *)) > imageMemoryLimit())
-        return imageSizeLimitError({d.pixels.width(),1},64);
-    if (large && format != "png" && format != "jpeg")
-        return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
-    // Only jpegli streams MCU rows; Qt's writer needs the whole image resident.
-    // Refuse instead of risking an allocation failure deep in the plugin.
-    if (large && format == "jpeg" && !jpegli)
-        return IX_TEXT("Für dieses große Bild ist der JPEG-Export nur mit aktiviertem Jpegli-Encoder möglich.");
+    if (!allowLoss) {
+        const auto losses = exportLosses(document, format, &encode);
+        if (!losses.isEmpty()) return losses.join(QLatin1Char('\n'));
+    }
     const auto targetRevision = [&] {
         return QFileInfo::exists(path) ? imageFileKey(path) : QString();
     };
@@ -449,15 +401,51 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly))
         return file.errorString();
+    if (const auto error = encodeImage(document, file, format, encode); !error.isEmpty()) {
+        file.cancelWriting();
+        return error;
+    }
+    if (beforeCommit) {
+        const auto error = beforeCommit();
+        if (!error.isEmpty()) { file.cancelWriting(); return error; }
+    }
+    // Encoding/metadata work can take time. Never publish over an intervening
+    // rewrite, creation or deletion. QSaveFile discards the staged output.
+    if (!regularTarget() || targetRevision() != authorized) {
+        file.cancelWriting();
+        return changedTarget();
+    }
+    if (!file.commit())
+        return file.errorString();
+    return {};
+}
+QString CodecRegistry::encodeImage(const ImageDocument &document, QIODevice &device,
+                                   const QByteArray &format, const EncodeOptions &encode) const {
+    if (document.empty())
+        return IX_TEXT("Kein Bild geladen.");
+    const int quality = std::clamp(encode.quality, 0, 100);
+    const bool large = exportNeedsStreaming(document.pixels);
+    const bool jpegli = format == "jpeg" && jpegliEnabled();
+    if (format == "jpeg" && (document.pixels.width()>65500 || document.pixels.height()>65500))
+        return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
+    if (large && qint64(document.pixels.width())*64 + qint64(document.pixels.height())*qint64(sizeof(void *)) > imageMemoryLimit())
+        return imageSizeLimitError({document.pixels.width(),1},64);
+    if (large && format != "png" && format != "jpeg")
+        return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
+    // Only jpegli streams MCU rows; Qt's writer needs the whole image resident.
+    // Refuse instead of risking an allocation failure deep in the plugin.
+    if (large && format == "jpeg" && !jpegli)
+        return IX_TEXT("Für dieses große Bild ist der JPEG-Export nur mit aktiviertem Jpegli-Encoder möglich.");
     QByteArray encoded;
     QBuffer buffer(&encoded);
     // A successful Exiv2 read can own an entirely empty metadata container.
     // Do not collect/rewrite the complete encoded file merely for that object;
     // ICC, text and density already belong to the image encoder's output.
-    const bool attach = d.metadata && d.metadata->data &&
-                        (d.metadata->hasExif || d.metadata->hasIptc || d.metadata->hasXmp) &&
-                        metadataWritable(format) && !large;
-    QIODevice *destination = &file;
+    const bool attach = document.metadata && document.metadata->data && metadataWritable(format) && !large &&
+                        ((encode.keepExif && document.metadata->hasExif) ||
+                         (encode.keepIptc && document.metadata->hasIptc) ||
+                         (encode.keepXmp && document.metadata->hasXmp));
+    QIODevice *destination = &device;
     if (attach) {
         buffer.open(QIODevice::WriteOnly);
         destination = &buffer;
@@ -469,9 +457,7 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
         writer.setQuality(std::clamp(encode.compressionLevel, 0, 9) * 10 - 1);
     else
         writer.setQuality(quality);
-    // Mirror the optimizer (encodeSize): lossless forces quality 100 on
-    // capable writers, effort maps to compression where supported.
-    // (No interlace switch exists on QImageWriter — see note below.)
+    // Lossless forces quality 100 on capable writers.
     if (encode.lossless) writer.setQuality(100);
     if (format == "webp" || format == "avif" || format == "heif" || format == "heic" ||
         format == "jxl" || format == "png" || format == "tiff")
@@ -479,22 +465,23 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     // Note: Qt's QImageWriter exposes no GIF interlace switch, so
     // encode.interlaced is accepted (UI + profiles) but currently a no-op.
     Q_UNUSED(encode.interlaced);
-    QImage output = d.pixels;
+    QImage output = document.pixels;
+    if (!encode.keepIcc && output.colorSpace().isValid())
+        output.setColorSpace(QColorSpace());
     // alphaWhite != 0 (legacy default) flattens transparency onto white for
     // formats without alpha. alphaWhite == 0 keeps the pixels untouched; the
-    // Ask mode is resolved by the caller before encoding (see saveImage) and
-    // never reaches this point with alpha present. jpegli flattens internally,
+    // The save dialog resolves Ask mode before encoding. jpegli flattens internally,
     // so JPEG only needs this pass when the Qt writer is selected.
     if (!jpegli && encode.alphaWhite != 0 && output.hasAlphaChannel() &&
         !alphaWritable(format) && imageHasRealTransparency(output)) {
         QImage flat;
         try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
-        catch (const std::exception &error) { file.cancelWriting(); return localized(QString::fromUtf8(error.what())); }
+        catch (const std::exception &error) { return localized(QString::fromUtf8(error.what())); }
         for (int y=0; y<output.height(); ++y) {
             QImage input(output.constScanLine(y),output.width(),1,output.bytesPerLine(),output.format());
             input.setColorTable(output.colorTable());
             const auto premultiplied=input.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-            if (premultiplied.isNull()) { file.cancelWriting(); return IX_TEXT("Speicher nicht verfügbar."); }
+            if (premultiplied.isNull()) { return IX_TEXT("Speicher nicht verfügbar."); }
             const auto *source=reinterpret_cast<const QRgb *>(premultiplied.constBits());
             auto *target=reinterpret_cast<QRgb *>(flat.scanLine(y));
             for (int x=0;x<flat.width();++x) {
@@ -518,35 +505,20 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
             writer.setProgressiveScanWrite(encode.progressive);
         encodeError = writer.write(output) ? QString() : writer.errorString();
     }
-    if (!encodeError.isEmpty()) {
-        file.cancelWriting();
+    if (!encodeError.isEmpty() || !attach)
         return encodeError;
-    }
-    if (attach) {
-        QString error;
-        encoded = attachMetadata(std::move(encoded), *d.metadata, output.size(), d.dpiX(), d.dpiY(),
-                                 d.modified, error);
-        if (!error.isEmpty()) {
-            file.cancelWriting();
-            return error;
-        }
-    }
-    if (attach && file.write(encoded) != encoded.size()) {
-        file.cancelWriting();
-        return file.errorString();
-    }
-    if (beforeCommit) {
-        const auto error = beforeCommit();
-        if (!error.isEmpty()) { file.cancelWriting(); return error; }
-    }
-    // Encoding/metadata work can take time. Never publish over an intervening
-    // rewrite, creation or deletion. QSaveFile discards the staged output.
-    if (!regularTarget() || targetRevision() != authorized) {
-        file.cancelWriting();
-        return changedTarget();
-    }
-    if (!file.commit())
-        return file.errorString();
+
+    auto metadata = *document.metadata;
+    metadata.hasExif &= encode.keepExif;
+    metadata.hasIptc &= encode.keepIptc;
+    metadata.hasXmp &= encode.keepXmp;
+    QString error;
+    encoded = attachMetadata(std::move(encoded), metadata, output.size(), document.dpiX(), document.dpiY(),
+                             document.modified, error);
+    if (!error.isEmpty())
+        return error;
+    if (device.write(encoded) != encoded.size())
+        return device.errorString();
     return {};
 }
 QList<FormatCapability> CodecRegistry::capabilities() const {

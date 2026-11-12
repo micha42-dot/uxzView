@@ -123,10 +123,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         settings.value(QStringLiteral("save/companionPos")).toPoint();
     auto target = preferredSaveTarget(path, output.format, formats, preferOriginal, fixedFormat);
     if (target.format.id.isEmpty()) { showError(IX_TEXT("Kein schreibbares Bildformat verfügbar.")); return false; }
-    QString selected = target.format.filter();
-    bool dialog = forceDialog || target.needsDialog;
     SaveOptions saveOptions = loadSaveOptions(target.format.id);
-    if (dialog) {
+    if (forceDialog || target.needsDialog) {
         QString suggested = target.suggestedPath;
         if (suggested.isEmpty()) suggested = QDir(lastDirectory)
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
@@ -137,13 +135,11 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
         chooser.setOption(QFileDialog::DontConfirmOverwrite);
-        chooser.selectNameFilter(selected);
+        chooser.selectNameFilter(target.format.filter());
         chooser.setDefaultSuffix(target.format.suffix());
-        SaveOptionsDialog &companion = saveCompanion();
-        // Fully populated BEFORE first show: one frozen prepare (values +
-        // profiles + fixed size), so no empty/half-built frame ever paints.
-        companion.prepare(output, saveOptions, loadSaveProfiles(), chooser);
-        saveOptions = companion.options();
+        auto *companion = companionEnabled ? &saveCompanion() : nullptr;
+        if (companion)
+            companion->prepare(output, saveOptions, loadSaveProfiles(), chooser);
         auto previous = target.format;
         const auto formatForFilter = [&](const QString &filter) -> QList<SaveFormat>::const_iterator {
             // Match by canonical id: Qt may list the same codec under a
@@ -176,30 +172,27 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                 chooser.selectFile(QFileInfo(name).dir().filePath(QFileInfo(name).completeBaseName() + QLatin1Char('.') + next->suffix()));
             chooser.setDefaultSuffix(next->suffix());
             previous = *next;
+            if (companion && next->id != companion->options().format)
+                companion->setFormat(next->id);
         });
-        connect(&chooser, &QFileDialog::filterSelected, &companion, [&](const QString &filter) {
-            const auto next = formatForFilter(filter);
-            if (next == formats.cend())
-                return;
-            if (next->id != companion.options().format) {
-                // setFormat() itself releases the fixed size with the correct
-                // Qt idiom, swaps the format atomically and freezes exactly one
-                // final size. Doing it here with QWIDGETSIZE_MAX was wrong (it
-                // installs a ~16777 px minimum instead of releasing).
-                companion.setFormat(next->id);
-            }
-            saveOptions = companion.options();
-        });
-        connect(&companion, &SaveOptionsDialog::optionsChanged, &chooser,
-                [&](const SaveOptions &updated) {
-                    saveOptions = updated;
-                    if (updated.format != target.format.id) {
+        if (companion) {
+            connect(companion, &SaveOptionsDialog::optionsChanged, &chooser,
+                    [&](const SaveOptions &updated) {
+                        if (updated.format == previous.id)
+                            return;
                         const auto match = std::find_if(formats.cbegin(), formats.cend(),
                                                         [&](const auto &f) { return f.id == updated.format; });
-                        if (match != formats.cend())
-                            chooser.selectNameFilter(match->filter());
-                    }
-                });
+                        if (match == formats.cend())
+                            return;
+                        const auto name = chooser.selectedFiles().value(0);
+                        if (!name.isEmpty() && canonicalSaveFormat(QFileInfo(name).suffix().toLatin1()) == previous.id)
+                            chooser.selectFile(QFileInfo(name).dir().filePath(
+                                QFileInfo(name).completeBaseName() + QLatin1Char('.') + match->suffix()));
+                        previous = *match;
+                        chooser.setDefaultSuffix(match->suffix());
+                        chooser.selectNameFilter(match->filter());
+                    });
+        }
         // No placer event filter and no follow timer: both re-moved the window
         // while the user was dragging it. Remember a user-moved position for
         // the next save instead (coalesced: QSettings syncs on flush, not on
@@ -210,11 +203,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         companionPosTimer.setInterval(800);
         connect(&companionPosTimer, &QTimer::timeout, &chooser,
                 [&] { QSettings().setValue(QStringLiteral("save/companionPos"), pendingCompanionPos); });
-        connect(&companion, &SaveOptionsDialog::movedByUser, &chooser,
-                [&](const QPoint &p) {
-                    pendingCompanionPos = p;
-                    companionPosTimer.start();
-                });
         // The companion is shown alongside the chooser when enabled; closing
         // it only hides it for this save, the file dialog keeps running.
         // When the companion is disabled, the stored options apply silently.
@@ -225,9 +213,14 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // the visible "empty frame, then controls" staging. Deferring the show
         // by one event-loop turn (queued, not timed) puts it after the native
         // dialog exists, so the companion is created once, in final form.
-        if (companionEnabled) {
-            companion.preparePlacement(&chooser, rememberedCompanionPos);
-            QPointer<SaveOptionsDialog> guard(&companion);
+        if (companion) {
+            connect(companion, &SaveOptionsDialog::movedByUser, &chooser,
+                    [&](const QPoint &p) {
+                        pendingCompanionPos = p;
+                        companionPosTimer.start();
+                    });
+            companion->preparePlacement(&chooser, rememberedCompanionPos);
+            QPointer<SaveOptionsDialog> guard(companion);
             QPointer<QDialog> chooserGuard(&chooser);
             QTimer::singleShot(0, &chooser, [guard, chooserGuard] {
                 if (!guard || !chooserGuard)
@@ -237,8 +230,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                     guard->raise();
                 }
             });
-        } else {
-            companion.hide();
         }
         // The native dialog runs its own modal loop; the companion is a child
         // tool window and stays interactive while it is open.
@@ -246,22 +237,23 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // Esc (in either window) closes both: the companions reject() forwards
         // to the chooser, and the chooser's own Esc/reject path lands here —
         // always end the session so no orphaned window or worker survives.
-        companion.endSession();
+        if (companion) {
+            saveOptions = companion->options();
+            companion->endSession();
+        }
         // Flush a still-pending companion position before the locals die.
         if (companionPosTimer.isActive()) {
             companionPosTimer.stop();
             QSettings().setValue(QStringLiteral("save/companionPos"), pendingCompanionPos);
         }
         if (!accepted) return false;
-        saveOptions = companion.options();
         target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
         path = target.suggestedPath;
         if (path.isEmpty()) return false;
-        saveOptions.format = target.format.id;
-        // Single persist (one fsync): the intermediate store before target
-        // resolution wrote the same payload twice.
-        storeSaveOptions(saveOptions);
-        chooser.selectNameFilter(target.format.filter());
+        if (saveOptions.format != target.format.id)
+            saveOptions = loadSaveOptions(target.format.id);
+        else if (companion)
+            storeSaveOptions(saveOptions);
     }
     const auto targetRevision = QFileInfo::exists(path) ? imageFileKey(path) : QString();
     // The chooser above never confirms overwrites, so ask exactly once here,
@@ -295,29 +287,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     }
     const auto format = target.format.id;
     auto registry = registry_;
-    CodecRegistry::EncodeOptions encode;
-    if (!dialog) {
-        // No companion shown: reuse the stored/last settings for this format.
-        saveOptions = loadSaveOptions(format);
-        saveOptions.format = format;
-    }
-    encode.quality = saveOptions.targetSizeEnabled && saveOptions.autoQuality >= 0
-                         ? saveOptions.autoQuality
-                         : saveOptions.quality;
-    // Progressive and chroma subsampling are jpegli-only options; while the
-    // experimental encoder is off the stored values must not leak into the
-    // Qt writer path (and the dialog hides the controls anyway).
-    const bool jpegli = jpegliEnabled();
-    encode.progressive = jpegli && saveOptions.progressive;
-    encode.noSubsampling = jpegli && saveOptions.noSubsampling;
-    encode.interlaced = saveOptions.interlaced;
-    encode.lossless = saveOptions.lossless;
-    encode.effort = saveOptions.effort;
-    encode.compressionLevel = format == "png" ? saveOptions.pngLevel : -1;
-    encode.keepExif = saveOptions.keepExif;
-    encode.keepIptc = saveOptions.keepIptc;
-    encode.keepXmp = saveOptions.keepXmp;
-    encode.keepIcc = saveOptions.keepIcc;
     // Ask mode: resolve transparency handling with the user before encoding.
     // White flattens (legacy default), Keep preserves pixels for formats
     // that store alpha; either choice is then applied silently.
@@ -339,9 +308,16 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             return false;
         saveOptions.alphaMode = clicked == whiteButton ? SaveOptions::AlphaMode::White
                                                        : SaveOptions::AlphaMode::Keep;
+        saveOptions.autoQuality = -1;
         storeSaveOptions(saveOptions);
     }
-    encode.alphaWhite = saveOptions.alphaMode == SaveOptions::AlphaMode::Keep ? 0 : 1;
+    const bool targetSize = saveOptions.targetSizeEnabled && saveCapabilities(format).targetSize;
+    if (!targetSize)
+        saveOptions.autoQuality = -1;
+    const auto encode = saveEncodeOptions(saveOptions);
+    const auto targetPath = QFileInfo(path).absoluteFilePath();
+    const bool adopt = !selection && (document_.path.isEmpty() ||
+        QFileInfo(targetPath).dir() == QFileInfo(document_.path).dir());
     // Losses the user explicitly opted out of (deselected metadata) are not
     // warned about; the global switch still suppresses everything.
     auto losses = CodecRegistry::exportLosses(output, format, &encode);
@@ -365,33 +341,22 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     QFutureWatcher<SaveResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QProgressDialog::accept);
     watcher.setFuture(QtConcurrent::run([=] {
-        // Target-size optimization runs first (memory buffers only, never the
-        // destination). The final save below validates the actual file size.
-        // Cancellation flows through cancelSave, shared with the progress
-        // dialog, so aborting the save also aborts the optimization.
-        // A fresh companion result is reused only for full-image saves; a
-        // selection crops different pixels, so it is always re-optimized.
-        int effectiveQuality = encode.quality;
-        if (saveOptions.targetSizeEnabled &&
-            (selection || saveOptions.autoQuality < 0)) {
-            auto optimized = optimizeForTargetSize(
-                output, saveOptions, registry, {},
-                *static_cast<const std::atomic_bool *>(cancelSave.get()));
-            if (!optimized.quality) {
-                SaveResult failed{optimized.error, {}};
-                return failed;
-            }
-            effectiveQuality = *optimized.quality;
-        }
         auto effective = encode;
-        effective.quality = effectiveQuality;
+        if (targetSize && (selection || saveOptions.autoQuality < 0)) {
+            const auto optimized = optimizeForTargetSize(output, saveOptions, registry, {}, *cancelSave);
+            if (!optimized.quality)
+                return SaveResult{optimized.error, {}};
+            effective.quality = *optimized.quality;
+        }
+        if (cancelSave->load())
+            return SaveResult{abortText, {}};
         SaveResult result{registry.saveWithOptions(output, path, format, effective, true,
                                                    targetRevision,
                                                    [cancelSave, abortText] {
                                                        return cancelSave->load() ? abortText : QString();
                                                    }),
                           {}};
-        if (result.error.isEmpty() && !selection)
+        if (result.error.isEmpty() && adopt)
             result.source = observeSource(path);
         return result;
     }));
@@ -405,47 +370,32 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         return false;
     }
     updateRecent(QStringLiteral("saved"), path);
-    if (!selection) {
+    // Exports to another directory keep the active document and folder index.
+    if (adopt) {
         const auto &metadata = output.metadata;
         const bool writtenMetadata = !exportNeedsStreaming(output.pixels) &&
-                                     metadata && metadata->data && metadataWritable(format) &&
-                                     (metadata->hasExif || metadata->hasIptc || metadata->hasXmp);
-        const auto targetPath = QFileInfo(path).absoluteFilePath();
-        // Saving into a DIFFERENT directory is an export, not a move: the
-        // original image stays the open document and keeps its working
-        // directory (IrfanView behaviour). Only a save inside the current
-        // directory adopts the new file as the document.
-        const bool keepOriginal = !document_.path.isEmpty() &&
-                                  QFileInfo(targetPath).absolutePath() !=
-                                      QFileInfo(document_.path).absolutePath();
-        if (!keepOriginal) {
-            document_.path = targetPath;
-            document_.modified = false;
-            document_.page = 0;
-            document_.pageCount = 1;
-            document_.animated = false;
-            document_.delayMs = 100;
-            document_.loopCount = 0;
-            document_.format = format;
-            document_.sourceHasExif = writtenMetadata;
-            applySource(document_, result.source);
-            history_.updateSources([&](ImageDocument &d) {
-                d.modified = true;
-                d.path = document_.path;
-                d.format = document_.format;
-                d.page = 0;
-                d.pageCount = 1;
-                d.animated = false;
-                d.delayMs = 100;
-                d.loopCount = 0;
-                applySource(d, result.source);
-                d.sourceHasExif = writtenMetadata;
-            }, true);
-        }
-        // else: the export is on disk, the open document (and its directory
-        // listing) stays untouched, so the next Ctrl+S writes the original.
+            metadata && metadata->data && metadataWritable(format) &&
+            ((encode.keepExif && metadata->hasExif) ||
+             (encode.keepIptc && metadata->hasIptc) ||
+             (encode.keepXmp && metadata->hasXmp));
+        const auto updateSource = [&](ImageDocument &document) {
+            document.path = targetPath;
+            document.page = 0;
+            document.pageCount = 1;
+            document.animated = false;
+            document.delayMs = 100;
+            document.loopCount = 0;
+            document.format = format;
+            document.sourceHasExif = writtenMetadata;
+            applySource(document, result.source);
+        };
+        updateSource(document_);
+        document_.modified = false;
+        history_.updateSources([&](ImageDocument &document) {
+            document.modified = true;
+            updateSource(document);
+        }, true);
         refreshFiles();
-        refreshState();
         updateStatus();
     }
     return true;

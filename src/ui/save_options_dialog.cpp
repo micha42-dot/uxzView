@@ -61,10 +61,8 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
         setFont(readableFont);
     }
     auto *layout = new QVBoxLayout(this);
-    // As compact as the widest row allows: the width is defined by the profile
-    // button row (combo + three buttons), everything else adapts.
-    layout->setContentsMargins(8, 6, 8, 6);
-    layout->setSpacing(3);
+    layout->setContentsMargins(12, 10, 12, 10);
+    layout->setSpacing(5);
     // Font is never shrunk here. Compact means "no wasted space", not
     // "smaller letters": the width follows the natural text metrics of the
     // active theme. Only a floor is set — an upper clamp would squeeze long
@@ -89,21 +87,19 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     qualityRow_ = new QWidget(this);
     auto *qualityLayout = new QHBoxLayout(qualityRow_);
     qualityLayout->setContentsMargins(0, 0, 0, 0);
-    auto *low = new QLabel(IX_TEXT("Niedrig"), qualityRow_);
     qualitySlider_ = new QSlider(Qt::Horizontal, qualityRow_);
     qualitySlider_->setRange(0, 100);
-    qualitySlider_->setFixedWidth(100);
     qualitySlider_->setObjectName(QStringLiteral("compressionQuality"));
     qualitySpin_ = new QSpinBox(qualityRow_);
     qualitySpin_->setRange(0, 100);
     qualitySpin_->setObjectName(QStringLiteral("compressionQualityValue"));
     qualitySpin_->setMinimumWidth(48);
     qualitySpin_->setMaximumWidth(56);
-    qualityLayout->addWidget(low);
     qualityLayout->addWidget(qualitySlider_, 1);
     qualityLayout->addWidget(qualitySpin_);
     // Stacked captions instead of a two-column label column (no overlap).
     auto *qualityCaption = new QLabel(IX_TEXT("Qualität:"), this);
+    qualityCaption->setBuddy(qualitySpin_);
     rowsLayout->addWidget(qualityCaption);
     rowsLayout->addWidget(qualityRow_);
     connect(qualitySlider_, &QSlider::valueChanged, this, [this](int value) {
@@ -149,8 +145,8 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     effortLayout->addWidget(effortSlider_, 1);
     effortLayout->addWidget(effortSpin_);
     // Stacked caption above the row (single column, never overlapping).
-    effortCaption_ = new QLabel(this);
-    rowsLayout->addWidget(effortCaption_);
+    auto *effortCaption = new QLabel(IX_TEXT("Aufwand:"), this);
+    rowsLayout->addWidget(effortCaption);
     rowsLayout->addWidget(effortRow_);
     connect(effortSlider_, &QSlider::valueChanged, this, [this](int value) {
         if (effortSpin_->value() != value)
@@ -273,14 +269,13 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     auto *targetBarLayout = new QHBoxLayout(targetBar);
     targetBarLayout->setContentsMargins(0, 0, 0, 0);
     targetProgress_ = new QProgressBar(this);
-    targetProgress_->setRange(0, 10);
-    targetProgress_->setValue(0);
+    targetProgress_->setRange(0, 0);
     targetProgress_->setVisible(false);
     targetCancel_ = new QPushButton(IX_TEXT("Abbrechen"), this);
     targetCancel_->setVisible(false);
     connect(targetCancel_, &QPushButton::clicked, this, [this] {
-        if (activeCancel_)
-            activeCancel_->store(true);
+        cancelTargetOptimization();
+        targetResult_->setText(IX_TEXT("Abgebrochen."));
     });
     targetBarLayout->addWidget(targetProgress_, 1);
     targetBarLayout->addWidget(targetCancel_);
@@ -291,53 +286,41 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     optimizeTimer_ = new QTimer(this);
     optimizeTimer_->setSingleShot(true);
     optimizeTimer_->setInterval(600);
-    connect(optimizeTimer_, &QTimer::timeout, this, [this] {
-        if (targetEnabled_->isChecked())
-            runTargetOptimization();
-    });
-    connect(targetEnabled_, &QCheckBox::toggled, this, [this](bool checked) {
-        collect();
-        optimizeTimer_->stop();
-        if (checked)
-            runTargetOptimization();
-    });
-    connect(targetValue_, &QDoubleSpinBox::valueChanged, this, [this] {
-        collect();
-        // Debounced: typing a size must not start an optimization per keystroke.
-        optimizeTimer_->stop();
-        if (targetEnabled_->isChecked())
-            optimizeTimer_->start();
-    });
-    connect(targetUnit_, &QComboBox::currentIndexChanged, this, [this] {
-        collect();
-        optimizeTimer_->stop();
-        if (targetEnabled_->isChecked())
-            optimizeTimer_->start();
-    });
-    auto *profileBox = new QWidget(this);
-    auto *profileBoxLayout = new QVBoxLayout(profileBox);
-    profileBoxLayout->setContentsMargins(0, 0, 0, 0);
-    profileBoxLayout->setSpacing(2);
-    profileBoxLayout->addWidget(new QLabel(IX_TEXT("Profile:"), profileBox));
-    auto *profileRow = new QWidget(profileBox);
-    auto *profileLayout = new QHBoxLayout(profileRow);
-    profileLayout->setContentsMargins(0, 0, 0, 0);
-    profileLayout->setSpacing(4);
-    profileCombo_ = new QComboBox(profileRow);
+    connect(optimizeTimer_, &QTimer::timeout, this, &SaveOptionsDialog::runTargetOptimization);
+    connect(&targetWatcher_, &QFutureWatcherBase::finished, this, &SaveOptionsDialog::targetOptimizationFinished);
+    connect(targetEnabled_, &QCheckBox::toggled, this, &SaveOptionsDialog::collect);
+    connect(targetValue_, &QDoubleSpinBox::valueChanged, this, &SaveOptionsDialog::collect);
+    connect(targetUnit_, &QComboBox::currentIndexChanged, this, &SaveOptionsDialog::collect);
+    rowsLayout->addSpacing(6);
+    auto *profileLabel = new QLabel(IX_TEXT("Profile:"), this);
+    profileCombo_ = new QComboBox(this);
     profileCombo_->setObjectName(QStringLiteral("compressionProfile"));
-    // No maximum widths on the buttons: a hard cap made the row narrower than
-    // the rest of the dialog, so Qt's layout squeezed the labels and they
-    // visually collided with the combo. Their sizeHint is small enough on its
-    // own, and the (slightly wider) dialog now has room for the natural sizes.
-    auto *loadButton = new QPushButton(IX_TEXT("Laden"), profileRow);
-    auto *deleteButton = new QPushButton(IX_TEXT("Löschen"), profileRow);
-    auto *saveButton = new QPushButton(IX_TEXT("Speichern"), profileRow);
-    profileLayout->addWidget(profileCombo_, 1);
-    profileLayout->addWidget(loadButton);
-    profileLayout->addWidget(deleteButton);
-    profileLayout->addWidget(saveButton);
-    profileBoxLayout->addWidget(profileRow);
-    rowsLayout->addWidget(profileBox);
+    profileCombo_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    profileCombo_->setMinimumContentsLength(12);
+    profileCombo_->setMinimumHeight(fontMetrics().height() + 10);
+    profileLabel->setBuddy(profileCombo_);
+    rowsLayout->addWidget(profileLabel);
+    rowsLayout->addWidget(profileCombo_);
+    auto *profileActions = new QHBoxLayout;
+    profileActions->setSpacing(6);
+    auto *loadButton = new QPushButton(IX_TEXT("Laden"), this);
+    auto *saveButton = new QPushButton(IX_TEXT("Speichern"), this);
+    auto *deleteButton = new QPushButton(IX_TEXT("Löschen"), this);
+    loadButton->setObjectName(QStringLiteral("compressionProfileLoad"));
+    saveButton->setObjectName(QStringLiteral("compressionProfileSave"));
+    deleteButton->setObjectName(QStringLiteral("compressionProfileDelete"));
+    for (auto *button : {loadButton, saveButton, deleteButton}) {
+        button->setMinimumHeight(fontMetrics().height() + 10);
+        button->setAutoDefault(false);
+        profileActions->addWidget(button, 1);
+    }
+    rowsLayout->addLayout(profileActions);
+    const auto updateProfileActions = [loadButton, deleteButton](int index) {
+        loadButton->setEnabled(index >= 0);
+        deleteButton->setEnabled(index >= 0);
+    };
+    connect(profileCombo_, &QComboBox::currentIndexChanged, this, updateProfileActions);
+    updateProfileActions(profileCombo_->currentIndex());
     // captions_ holds (caption, row) pairs so rebuild() can hide both when the
     // format does not provide the feature — stacked rows can never overlap.
     captions_.append({qualityCaption, qualityRow_});
@@ -346,7 +329,7 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     captions_.append({gifCaption, gifRow_});
     captions_.append({alphaCaption, alphaBox_});
     captions_.append({metaCaption, metaBox_});
-    captions_.append({effortCaption_, effortRow_});
+    captions_.append({effortCaption, effortRow_});
     captions_.append({targetCaption, targetRow_});
     // lossless_ is a bare row without a stacked caption: track it with a null
     // caption so the ctor-hide loop and rebuild() treat it like every row.
@@ -370,9 +353,6 @@ void SaveOptionsDialog::setFormat(const QByteArray &format) {
     releaseFixedSize();
     applyOptions(loadSaveOptions(format));
     freezeSizeToLayout();
-    // Defer the IrfanView-style auto-optimization until the dialog is
-    // actually visible: starting full-res encodes here blocked first paint.
-    pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
 }
 
 void SaveOptionsDialog::releaseFixedSize() {
@@ -441,12 +421,8 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     refreshProfileCombo();
     setUpdatesEnabled(false);
     const auto unfreeze = qScopeGuard([this] { setUpdatesEnabled(true); });
+    releaseFixedSize();
     applyOptions(options);
-    // Same IrfanView-style deferral as setFormat(): the target-size optimizer
-    // must not encode before first paint. prepare() bypasses setFormat(), so
-    // the flag has to be armed here too — otherwise the auto-optimization
-    // never starts on the first open.
-    pendingAutoOptimize_ = options_.targetSizeEnabled && caps_.targetSize;
     // Order matters: create the native surface FIRST, then measure. Creating
     // the surface applies the platform theme/font; measuring before that uses
     // the pre-theme font metrics, so the frozen size was too small and the real
@@ -459,30 +435,20 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
 void SaveOptionsDialog::endSession() {
     // A finished/cancelled save must not leave a stale auto result or a live
     // worker behind: the next session starts from neutral state.
-    cancelTargetWorkers();
+    cancelTargetOptimization();
     hide();
     if (parentWidget() != owner_)
         setParent(owner_, windowFlags());
     chooser_ = nullptr;
     document_ = ImageDocument();
     targetResult_->clear();
-    targetProgress_->hide();
-    targetCancel_->hide();
     options_.autoQuality = -1;
-    pendingAutoOptimize_ = false;
-    optimizeTimer_->stop();
 }
 
 void SaveOptionsDialog::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
-    // Consume the pending auto-optimization even after the first show: a
-    // re-show (e.g. save -> cancel -> save again on the same instance) must
-    // not replay a stale pending flag into a worker storm.
-    if (pendingAutoOptimize_) {
-        pendingAutoOptimize_ = false;
-        if (isVisible())
-            runTargetOptimization();
-    }
+    if (chooser_ && options_.targetSizeEnabled && caps_.targetSize)
+        optimizeTimer_->start(0);
 }
 
 void SaveOptionsDialog::preparePlacement(QWidget *nativeDialog, const QPoint &remembered) {
@@ -528,26 +494,11 @@ void SaveOptionsDialog::preparePlacement(QWidget *nativeDialog, const QPoint &re
 }
 
 void SaveOptionsDialog::applyOptions(SaveOptions options) {
-    // One atomic option swap: cancel, then apply values and visibility with all
-    // signals blocked, so nothing persists or optimizes half-way.
-    cancelTargetOptimization();
     options_ = std::move(options);
+    options_.autoQuality = -1;
     caps_ = saveCapabilities(options_.format);
     rebuild();
-    // Target-size widgets are decided from the options alone, NOT from
-    // isVisible(): prepare() runs while the dialog is still hidden, so an
-    // isVisible() guard left them hidden and showEvent() showed them
-    // afterwards — that second visibility change was a second layout+paint
-    // pass, i.e. the visible "window first, controls later" staging.
-    const bool wantsTarget = options_.targetSizeEnabled && caps_.targetSize;
-    targetProgress_->setVisible(wantsTarget);
-    targetCancel_->setVisible(wantsTarget);
-    if (!wantsTarget)
-        targetResult_->clear();
-    // Only start encodes once the window is actually on screen; the flag is
-    // consumed by showEvent() for the very first open.
-    if (wantsTarget && isVisible())
-        runTargetOptimization();
+    scheduleTargetOptimization();
 }
 
 void SaveOptionsDialog::rebuild() {
@@ -587,12 +538,6 @@ void SaveOptionsDialog::rebuild() {
     effortSpin_->setRange(caps_.minEffort, caps_.maxEffort);
     effortSlider_->setValue(options_.effort);
     effortSpin_->setValue(options_.effort);
-    // Caption lives stacked above the row (single column, no overlap).
-    if (effortCaption_) {
-        effortCaption_->setText(caps_.effortLabel.isEmpty() ? IX_TEXT("Aufwand:")
-                                                            : caps_.effortLabel + QStringLiteral(":"));
-        effortCaption_->setVisible(caps_.effort);
-    }
     pngLevel_->setValue(options_.pngLevel);
     interlaced_->setChecked(options_.interlaced);
     keepExif_->setChecked(options_.keepExif);
@@ -659,15 +604,13 @@ void SaveOptionsDialog::rebuild() {
     }
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
-    // No adjustSize() here: the single-shot prepare() path sizes once from the
-    // fully populated layout. Re-sizing per rebuild caused visible empty-frame
-    // flicker and row overlap on HiDPI.
-    emit optionsChanged(options_);
 }
 void SaveOptionsDialog::collect() {
     if (rebuilding_)
         return;
-    options_.quality = qualitySlider_->value();
+    const auto previous = options_;
+    if (!previous.targetSizeEnabled || !caps_.targetSize)
+        options_.quality = qualitySlider_->value();
     options_.progressive = progressive_->isChecked();
     options_.noSubsampling = subsampling_->isChecked();
     options_.lossless = lossless_->isChecked();
@@ -690,160 +633,83 @@ void SaveOptionsDialog::collect() {
         qint64(targetValue_->value() * targetUnit_->currentData().toInt());
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
-    // Any manual change invalidates a previous auto result; only a completed
-    // optimization run sets autoQuality again.
+    if (options_ == previous)
+        return;
     options_.autoQuality = -1;
-    if (!options_.targetSizeEnabled)
-        targetResult_->clear();
-    // Instant: only update in memory + notify. The caller persists once on
-    // dialog accept — the old storeSaveOptions() here flushed the INI file
-    // synchronously on every slider tick and made dragging stutter.
+    const QSignalBlocker blockSlider(qualitySlider_);
+    const QSignalBlocker blockSpin(qualitySpin_);
+    qualitySlider_->setValue(options_.quality);
+    qualitySpin_->setValue(options_.quality);
+    scheduleTargetOptimization();
     emit optionsChanged(options_);
 }
+
 void SaveOptionsDialog::cancelTargetOptimization() {
-    // Shared by setFormat(), applyOptions() and endSession(): stop every live
-    // worker so no stale finished-handler can publish into the next session.
-    for (const auto &watcher : std::as_const(targetWatchers_)) {
-        if (watcher) {
-            watcher->disconnect(this);
-            watcher->cancel();
-        }
-    }
-    targetWatchers_.clear();
-    for (const auto &timer : std::as_const(targetTimers_)) {
-        if (timer) {
-            timer->disconnect(this);
-            timer->stop();
-        }
-    }
-    targetTimers_.clear();
-    for (const auto &cancel : std::as_const(targetCancels_)) {
-        if (cancel)
-            cancel->store(true);
-    }
-    targetCancels_.clear();
     optimizeTimer_->stop();
+    optimizationPending_ = false;
+    if (activeCancel_)
+        activeCancel_->store(true);
     targetProgress_->hide();
     targetCancel_->hide();
 }
 
+void SaveOptionsDialog::scheduleTargetOptimization() {
+    cancelTargetOptimization();
+    const bool wanted = options_.targetSizeEnabled && caps_.targetSize;
+    targetProgress_->setVisible(wanted);
+    targetCancel_->setVisible(wanted);
+    if (wanted) {
+        targetResult_->setText(IX_TEXT("Optimiere Qualität …"));
+        if (isVisible())
+            optimizeTimer_->start();
+    } else {
+        targetResult_->clear();
+    }
+}
+
 void SaveOptionsDialog::runTargetOptimization() {
-    if (!caps_.targetSize || document_.empty())
+    if (!chooser_ || !isVisible() || !options_.targetSizeEnabled || !caps_.targetSize || document_.empty())
         return;
-    // Drop superseded runs before starting a new one: cancel + disconnect
-    // the previous worker so a stale finished-handler cannot overwrite the
-    // fresh result. Rapid quality ticks otherwise stack watchers (and their
-    // targetCancel_ connections) without bound.
-    for (const auto &old : std::as_const(targetWatchers_)) {
-        if (old) {
-            old->disconnect(this);
-            old->cancel();
-        }
+    if (activeCancel_) {
+        // Wait for the superseded probe to release its image and buffers.
+        optimizationPending_ = activeCancel_->load();
+        return;
     }
-    for (const auto &old : std::as_const(targetTimers_)) {
-        if (old) {
-            old->disconnect(this);
-            old->stop();
-        }
+    activeCancel_ = std::make_shared<std::atomic_bool>(false);
+    targetWatcher_.setFuture(QtConcurrent::run(
+        [document = document_, options = options_, registry = registry_, cancel = activeCancel_] {
+            return optimizeForTargetSize(document, options, registry, {}, *cancel);
+        }));
+}
+
+void SaveOptionsDialog::targetOptimizationFinished() {
+    const auto cancel = std::exchange(activeCancel_, {});
+    const auto result = targetWatcher_.future().takeResult();
+    if (std::exchange(optimizationPending_, false)) {
+        runTargetOptimization();
+        return;
     }
-    targetWatchers_.clear();
-    targetTimers_.clear();
-    for (const auto &old : std::as_const(targetCancels_)) {
-        if (old)
-            old->store(true);
+    if (!cancel || cancel->load() || !chooser_ || !isVisible())
+        return;
+    targetProgress_->hide();
+    targetCancel_->hide();
+    if (!result.quality) {
+        targetResult_->setText(result.error);
+        return;
     }
-    targetCancels_.clear();
-    auto cancel = std::make_shared<std::atomic_bool>(false);
-    // The worker lambda must not touch this after teardown: capture only
-    // values + the cancel flag, never the dialog or its widgets.
-    const auto document = document_;
-    const auto options = options_;
-    targetProgress_->setVisible(true);
-    targetProgress_->setValue(0);
-    targetCancel_->setVisible(true);
-    targetResult_->setText(IX_TEXT("Optimiere Qualität …"));
-    auto *watcher = new QFutureWatcher<TargetSizeResult>(this); targetWatchers_.append(watcher); targetCancels_.append(cancel);
-    activeCancel_ = cancel;
-    // The finished handler must survive dialog teardown: guard every widget
-    // access with a QPointer. QFutureWatcher::cancel() cannot stop an already
-    // running QtConcurrent task, so a late completion after dialog close must
-    // do nothing instead of touching dead widgets.
-    QPointer<SaveOptionsDialog> guard(this);
-    // Capture the worker's input snapshot by value: the finished handler
-    // compares it against the live dialog state to discard stale results.
-    connect(watcher, &QFutureWatcherBase::finished, this,
-            [guard, watcher, cancel, options] {
-                watcher->deleteLater();
-                if (!guard)
-                    return;
-                guard->targetWatchers_.removeAll(watcher);
-                guard->targetCancels_.removeAll(cancel);
-                guard->targetProgress_->setVisible(false);
-                guard->targetCancel_->setVisible(false);
-                const auto result = watcher->future().takeResult();
-                if (cancel->load()) {
-                    guard->targetResult_->setText(IX_TEXT("Abgebrochen."));
-                    return;
-                }
-                if (!result.quality) {
-                    guard->targetResult_->setText(result.error);
-                    QMessageBox::warning(guard, IX_TEXT("Zieldateigröße"), result.error);
-                    return;
-                }
-                // Any manual change while the worker ran invalidates its
-                // result: only publish when the options are untouched.
-                if (guard->options_.autoQuality >= 0 || guard->options_.quality != options.quality ||
-                    guard->options_.targetBytes != options.targetBytes ||
-                    guard->options_.format != options.format) {
-                    guard->targetResult_->setText(IX_TEXT("Verworfen — Einstellungen wurden geändert."));
-                    return;
-                }
-                guard->options_.autoQuality = *result.quality;
-                const QSignalBlocker blockSlider(guard->qualitySlider_);
-                const QSignalBlocker blockSpin(guard->qualitySpin_);
-                guard->qualitySlider_->setValue(*result.quality);
-                guard->qualitySpin_->setValue(*result.quality);
-                // IrfanView-style honesty: when even quality 1 exceeds the target,
-                // say so but still save the smallest reachable file.
-                if (result.bytes > guard->options_.targetBytes)
-                    guard->targetResult_->setText(
-                        IX_TEXT("Ziel nicht erreichbar — kleinstmöglich: Qualität 1 (ca. %1 KB).")
-                            .arg(result.bytes / 1024));
-                else
-                    guard->targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).")
-                                                      .arg(*result.quality)
-                                                      .arg(result.bytes / 1024));
-                // No disk write here: the result lives in memory and is
-                // persisted once on dialog accept (keeps the UI instant).
-                emit guard->optionsChanged(guard->options_);
-            });
-    watcher->setFuture(QtConcurrent::run([document, options, registry = registry_, cancel] {
-        const std::atomic_bool &stop = *cancel;
-        return optimizeForTargetSize(document, options, registry, {}, stop);
-    }));
-    // Progress pulses while the worker runs; the bounded probe count keeps
-    // this short. Cancellation flows through the shared flag.
-    QTimer *pulse = new QTimer(this); targetTimers_.append(pulse);
-    QPointer<QFutureWatcher<TargetSizeResult>> watchGuard(watcher);
-    QPointer<SaveOptionsDialog> pulseGuard(this);
-    connect(pulse, &QTimer::timeout, this, [pulseGuard, pulse, watchGuard] {
-        if (!pulseGuard || !watchGuard) {
-            pulse->deleteLater();
-            if (pulseGuard)
-                pulseGuard->targetTimers_.removeAll(pulse);
-            return;
-        }
-        if (!watchGuard->isRunning()) {
-            pulse->deleteLater();
-            pulseGuard->targetTimers_.removeAll(pulse);
-            return;
-        }
-        pulseGuard->targetProgress_->setValue((pulseGuard->targetProgress_->value() + 1) % 11);
-    });
-    pulse->start(120);
+    options_.autoQuality = *result.quality;
+    const QSignalBlocker blockSlider(qualitySlider_);
+    const QSignalBlocker blockSpin(qualitySpin_);
+    qualitySlider_->setValue(*result.quality);
+    qualitySpin_->setValue(*result.quality);
+    if (result.bytes > options_.targetBytes)
+        targetResult_->setText(IX_TEXT("Ziel nicht erreichbar (ca. %1 KB).")
+                                   .arg(result.bytes / 1024));
+    else
+        targetResult_->setText(IX_TEXT("Qualität %1 (ca. %2 KB).").arg(*result.quality).arg(result.bytes / 1024));
+    emit optionsChanged(options_);
 }
 void SaveOptionsDialog::refreshProfileCombo() {
-    const QSignalBlocker block(profileCombo_);
     profileCombo_->clear();
     for (auto it = profiles_.begin(); it != profiles_.end(); ++it)
         profileCombo_->addItem(it.key());
@@ -899,6 +765,7 @@ void SaveOptionsDialog::deleteProfile() {
 void SaveOptionsDialog::closeEvent(QCloseEvent *event) {
     // No close button is shown (tool window without close hint); this only
     // covers programmatic closes or Alt+F4. Never accept-and-close the save.
+    cancelTargetOptimization();
     hide();
     event->ignore();
 }
@@ -916,28 +783,11 @@ void SaveOptionsDialog::keyPressEvent(QKeyEvent *event) {
 }
 
 void SaveOptionsDialog::reject() {
-    // Esc in the companion must behave like Esc in the native dialog: close
-    // both. Guard against re-entrancy (the parent chooser finishing can
-    // re-enter our close path while the first reject is still unwinding).
-    static thread_local bool rejecting = false;
-    if (rejecting)
-        return;
-    rejecting = true;
-    const auto reset = qScopeGuard([&] { rejecting = false; });
-    // QDialog::reject() first so any accepted-state drains and our own
-    // finished handlers can't re-show a stale result afterwards; forwarding
-    // to the parent chooser ends its modal loop (its own Esc/reject path
-    // hides us as well, see MainWindow::saveImage). A parent-less instance
-    // (unit tests) simply rejects itself.
-    cancelTargetWorkers();
+    const auto chooser = chooser_;
+    cancelTargetOptimization();
     QDialog::reject();
-    hide();
-    if (QWidget *owner = parentWidget()) {
-        if (auto *dialog = qobject_cast<QDialog *>(owner))
-            dialog->reject();
-        else
-            owner->close();
-    }
+    if (chooser)
+        chooser->reject();
 }
 
 void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
@@ -950,31 +800,8 @@ void SaveOptionsDialog::moveEvent(QMoveEvent *event) {
         emit movedByUser(pos());
 }
 
-void SaveOptionsDialog::cancelTargetWorkers() {
-    // Compatibility wrapper: the full cancel (flags + watchers + timers) is
-    // cancelTargetOptimization().
-    cancelTargetOptimization();
-}
-
 SaveOptionsDialog::~SaveOptionsDialog() {
-    // Note: QFutureWatcher::cancel() cannot stop an already running
-    // QtConcurrent task — the shared atomic flags are what actually abort
-    // the bounded probe loop. Set them here so no worker keeps encoding
-    // after the dialog is gone.
-    cancelTargetWorkers();
-    // Drop all queued finished/timeout calls before children are torn down;
-    // the handlers guard with QPointer, this is the second safety net.
-    for (const auto &watcher : targetWatchers_) {
-        if (!watcher)
-            continue;
-        watcher->disconnect(this);
-        watcher->cancel();
-    }
-    for (const auto &timer : targetTimers_) {
-        if (!timer)
-            continue;
-        timer->disconnect(this);
-        timer->stop();
-    }
+    if (activeCancel_)
+        activeCancel_->store(true);
 }
 } // namespace ix
