@@ -35,6 +35,7 @@
 #include "tool_dialog.h"
 #include <QCollator>
 #include <QColorSpace>
+#include <QDebug>
 #include <QElapsedTimer>
 #include <QScopeGuard>
 #include <QtConcurrent>
@@ -113,6 +114,17 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     : QMainWindow(p), cacheRoot_(std::move(cacheRoot)),
       directoryIndex_(new DirectoryIndexService(this)), zoom_(nullptr) {
     setObjectName(QStringLiteral("mainWindow"));
+    QElapsedTimer subTimer;
+    const bool subProfile = qEnvironmentVariableIntValue("IX_PROFILE_IMAGE_LOAD") != 0;
+    if (subProfile) subTimer.start();
+    qint64 subMark = 0;
+    auto subStage = [&](const char *name) {
+        if (!subProfile) return;
+        const auto now = subTimer.nsecsElapsed();
+        qWarning("ix-sub %s %.2f ms", name, (now - subMark) / 1e6);
+        subMark = now;
+    };
+
     setLocale(uiLocale());
     setWindowTitle(QStringLiteral("üxzView"));
     setAcceptDrops(true);
@@ -124,9 +136,13 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     centerLayout->setSpacing(0);
     centerLayout->addWidget(view_, 1);
     setCentralWidget(center);
+    subStage("before-menus");
     buildMenus();
+    subStage("after-buildMenus");
     buildToolbar();
+    subStage("after-buildToolbar");
     buildExtraFeatures();
+    subStage("after-buildExtraFeatures");
     for (int i = 0; i < 6; ++i) {
         auto *label = new QLabel;
         if (i == 4)
@@ -137,6 +153,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
         status_.append(label);
     }
     statusBar()->setSizeGripEnabled(true);
+    subStage("after-statusbar");
     connect(view_, &ImageView::zoomChanged, this, [this](double value) {
         view_->setSmooth(view_->fit() == ImageView::Fit::Original ? smoothZoom_ : smoothFit_);
         QSignalBlocker blocker(zoom_);

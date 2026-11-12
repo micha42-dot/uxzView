@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Saving into another directory is now an export instead of a move: the edited
+  original stays the open document and keeps its working directory, so the next
+  Ctrl+S writes the original again (IrfanView behaviour). Only a save inside the
+  current directory adopts the new file as the document. Covered by
+  `IxTests::saveIntoAnotherDirectoryKeepsTheOpenDocument`.
+
 - Compression companion: freely positionable (no follow-back; position is
   remembered), normal window close button, optional via Settings → Save
   („Kompressionsoptionen beim Speichern anzeigen", default on). Unreachable

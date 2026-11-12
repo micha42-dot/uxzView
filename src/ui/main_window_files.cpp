@@ -396,28 +396,40 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         const bool writtenMetadata = !exportNeedsStreaming(output.pixels) &&
                                      metadata && metadata->data && metadataWritable(format) &&
                                      (metadata->hasExif || metadata->hasIptc || metadata->hasXmp);
-        document_.path = QFileInfo(path).absoluteFilePath();
-        document_.modified = false;
-        document_.page = 0;
-        document_.pageCount = 1;
-        document_.animated = false;
-        document_.delayMs = 100;
-        document_.loopCount = 0;
-        document_.format = format;
-        document_.sourceHasExif = writtenMetadata;
-        applySource(document_, result.source);
-        history_.updateSources([&](ImageDocument &d) {
-            d.modified = true;
-            d.path = document_.path;
-            d.format = document_.format;
-            d.page = 0;
-            d.pageCount = 1;
-            d.animated = false;
-            d.delayMs = 100;
-            d.loopCount = 0;
-            applySource(d, result.source);
-            d.sourceHasExif = writtenMetadata;
-        }, true);
+        const auto targetPath = QFileInfo(path).absoluteFilePath();
+        // Saving into a DIFFERENT directory is an export, not a move: the
+        // original image stays the open document and keeps its working
+        // directory (IrfanView behaviour). Only a save inside the current
+        // directory adopts the new file as the document.
+        const bool keepOriginal = !document_.path.isEmpty() &&
+                                  QFileInfo(targetPath).absolutePath() !=
+                                      QFileInfo(document_.path).absolutePath();
+        if (!keepOriginal) {
+            document_.path = targetPath;
+            document_.modified = false;
+            document_.page = 0;
+            document_.pageCount = 1;
+            document_.animated = false;
+            document_.delayMs = 100;
+            document_.loopCount = 0;
+            document_.format = format;
+            document_.sourceHasExif = writtenMetadata;
+            applySource(document_, result.source);
+            history_.updateSources([&](ImageDocument &d) {
+                d.modified = true;
+                d.path = document_.path;
+                d.format = document_.format;
+                d.page = 0;
+                d.pageCount = 1;
+                d.animated = false;
+                d.delayMs = 100;
+                d.loopCount = 0;
+                applySource(d, result.source);
+                d.sourceHasExif = writtenMetadata;
+            }, true);
+        }
+        // else: the export is on disk, the open document (and its directory
+        // listing) stays untouched, so the next Ctrl+S writes the original.
         refreshFiles();
         refreshState();
         updateStatus();

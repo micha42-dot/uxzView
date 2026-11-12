@@ -2083,7 +2083,9 @@ class IxTests : public QObject {
         timer.stop();
         window.close();
         QVERIFY(stayed);
-        QCOMPARE(window.document().path, output);
+        // Saving into another folder is an export: the original image stays
+        // the open document and keeps its working directory.
+        QCOMPARE(window.document().path, first);
         QCOMPARE(QImage(output).pixelColor(0, 0), QColor(Qt::red));
     }
     void exportedAnimationBecomesSinglePageDocument() {
@@ -4302,6 +4304,75 @@ class IxTests : public QObject {
         QCOMPARE(window.document().sourceModified, savedTime);
         QCOMPARE(window.document().sourceHasExif, saved.document.sourceHasExif);
         QCOMPARE(ix::sha256File(source), originalHash);
+    }
+    void saveIntoAnotherDirectoryKeepsTheOpenDocument() {
+        // Saving into a different directory is an export, not a move: the edited
+        // original stays the open document, so the next Ctrl+S writes it again.
+        QTemporaryDir files(dir(QStringLiteral("export-owner-XXXXXX")));
+        QVERIFY(files.isValid());
+        QTemporaryDir elsewhere(dir(QStringLiteral("export-target-XXXXXX")));
+        QVERIFY(elsewhere.isValid());
+        const auto source = files.filePath(QStringLiteral("source.png"));
+        const auto target = elsewhere.filePath(QStringLiteral("copy.png"));
+        QVERIFY(pattern().save(source));
+        const auto originalHash = ix::sha256File(source);
+        ix::MainWindow window;
+        window.openPath(source);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.document().empty(), 10000);
+        window.dispatch(QStringLiteral("right"));
+        QTRY_VERIFY_WITH_TIMEOUT(window.document().modified, 10000);
+        const bool native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        auto restore =
+            qScopeGuard([native] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native); });
+        bool submitted = false;
+        int overwriteQuestions = 0;
+        QString dialogError;
+        QElapsedTimer deadline;
+        deadline.start();
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *modal = QApplication::activeModalWidget();
+            if (deadline.elapsed() > 15000 && dialogError.isEmpty())
+                dialogError = QStringLiteral("Save workflow did not finish within 15 seconds");
+            if (auto *message = qobject_cast<QMessageBox *>(modal)) {
+                if (!dialogError.isEmpty()) {
+                    message->reject();
+                } else if (auto *yes = message->button(QMessageBox::Yes)) {
+                    ++overwriteQuestions;
+                    yes->click();
+                } else {
+                    message->reject();
+                }
+            } else if (auto *dialog = qobject_cast<QFileDialog *>(modal)) {
+                if (!submitted) {
+                    submitted = true;
+                    dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(target);
+                    QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+                }
+            } else if (auto *dialog = qobject_cast<QDialog *>(modal);
+                       dialog && !qobject_cast<QProgressDialog *>(modal)) {
+                if (dialogError.isEmpty())
+                    dialogError = QStringLiteral("Unexpected modal widget: %1").arg(dialog->windowTitle());
+                dialog->reject();
+            }
+        });
+        timer.start(20);
+        window.dispatch(QStringLiteral("saveAs"));
+        QVERIFY2(QFileInfo::exists(target), qPrintable(dialogError));
+        QCOMPARE(window.document().path, source);
+        QVERIFY(window.document().modified);
+        QCOMPARE(ix::sha256File(source), originalHash);
+        // The export must not have replaced the open file, so a plain Save now
+        // writes the edits back into the original (one overwrite confirmation).
+        window.dispatch(QStringLiteral("save"));
+        timer.stop();
+        QVERIFY2(dialogError.isEmpty(), qPrintable(dialogError));
+        QCOMPARE(overwriteQuestions, 1);
+        QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy(), 10000);
+        QCOMPARE(window.document().path, source);
+        QVERIFY(!window.document().modified);
+        QVERIFY(ix::sha256File(source) != originalHash);
     }
     void saveAsOverCurrentFileAsksOnce() {
         QTemporaryDir files(dir(QStringLiteral("save-once-XXXXXX")));
