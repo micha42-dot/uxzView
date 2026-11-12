@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QScopeGuard>
+#include <QScreen>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -32,13 +33,12 @@
 #include <utility>
 namespace ix {
 namespace {
-// Intended width band: compact like IrfanView, but wide enough for the stacked
-// caption rows. Kept in one place because the fixed-size release path must
-// restore exactly this band (QWIDGETSIZE_MAX is NOT a valid "release" value for
-// a minimum size — it would set a 16777215 px floor and silently widen the
-// dialog on every format change).
+// Compactness comes from the layout (stacked captions, tight spacing), NOT
+// from a pixel clamp. A hard maximumWidth is actively harmful: it also caps
+// adjustSize() and minimumSizeHint(), so long captions (e.g. "Als progressives
+// JPEG speichern" or long translations) get clipped/squeezed instead of
+// widening the window. The only real limit is the available screen width.
 constexpr int kCompanionMinWidth = 250;
-constexpr int kCompanionMaxWidth = 320;
 } // namespace
 SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *owner)
     : QDialog(owner), owner_(owner), registry_(registry) {
@@ -58,10 +58,9 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     layout->setSpacing(3);
     // Font is never shrunk here. Compact means "no wasted space", not
     // "smaller letters": the width follows the natural text metrics of the
-    // active theme, so the profile row (combo + three buttons) fits at the
-    // default UI font without squeezing anything.
+    // active theme. Only a floor is set — an upper clamp would squeeze long
+    // captions instead of widening the window.
     setMinimumWidth(kCompanionMinWidth);
-    setMaximumWidth(kCompanionMaxWidth);
     // Explicit header inside the dialog (there is no functional system title
     // bar anymore): format name placeholder, replaced by rebuild().
     title_ = new QLabel(this);
@@ -368,11 +367,11 @@ void SaveOptionsDialog::setFormat(const QByteArray &format) {
 }
 
 void SaveOptionsDialog::releaseFixedSize() {
-    // Undo setFixedSize() with the documented Qt idiom. setMinimumSize(
-    // QWIDGETSIZE_MAX, ...) is WRONG: it installs a ~16777 px minimum that
-    // survives into the next layout pass and silently widens the dialog.
+    // Undo setFixedSize() with the documented Qt idiom. Never install
+    // QWIDGETSIZE_MAX as a MINIMUM (that is a ~16777 px floor); only the
+    // maximum is unbounded, the minimum stays the compact floor.
     setMinimumSize(kCompanionMinWidth, 0);
-    setMaximumSize(kCompanionMaxWidth, QWIDGETSIZE_MAX);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
 }
 
 void SaveOptionsDialog::freezeSizeToLayout() {
@@ -387,15 +386,18 @@ void SaveOptionsDialog::freezeSizeToLayout() {
     if (layout())
         layout()->activate();
     adjustSize();
-    // Never freeze below the layout's own minimum: at large UI fonts or with
-    // long translations (e.g. "Als progressives JPEG speichern") the natural
-    // width exceeds kCompanionMaxWidth. Capping it there squeezed the text into
-    // a too small box — the "tiny, cramped text" report. The band is a
-    // compactness preference for the default font, not a hard clip.
-    const QSize wanted = size();
+    // Freeze exactly the natural size: never larger than the available screen
+    // width (a very long translation must not open a window wider than the
+    // desktop). Never smaller than the layout's own minimum, so text is never
+    // clipped — compactness comes from the layout, not from a clamp.
+    QSize finalSize = size();
+    if (const QScreen *screen = this->screen()) {
+        const int available = screen->availableGeometry().width() - 2 * 8;
+        finalSize.setWidth(qMin(finalSize.width(), available));
+    }
     const QSize floor = minimumSizeHint();
-    const QSize finalSize(qMax(wanted.width(), floor.width()),
-                          qMax(wanted.height(), floor.height()));
+    finalSize.setWidth(qMax(finalSize.width(), floor.width()));
+    finalSize.setHeight(qMax(finalSize.height(), floor.height()));
     setFixedSize(finalSize);
 }
 
