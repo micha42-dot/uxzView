@@ -448,15 +448,14 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     // user explicitly opts in. New unstable features go here first.
     auto *experimental = page(IX_TEXT("Experimentell"));
     experimental->parentWidget()->setObjectName(QStringLiteral("experimentalSettingsPage"));
-    // A word-wrapped QLabel still reports its unwrapped width as
-    // minimumSizeHint. Inside the scroll area that forced a horizontal
-    // scrollbar (and could widen the whole dialog), so the explanation labels
-    // must not dictate the page width at all.
+    // Wrapped explanation labels. Plain wrapping is deliberate: forcing
+    // QSizePolicy::Ignored here let a label be laid out at zero width on some
+    // platforms, which makes the wrapped height hint explode and pushes the
+    // dialog past its compact budget. These labels cannot cause a horizontal
+    // scrollbar on their own — QLabel reports the longest word as its minimum.
     const auto addHint = [](QFormLayout *form, const QString &text) {
         auto *hint = new QLabel(text);
         hint->setWordWrap(true);
-        hint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        hint->setMinimumWidth(0);
         form->addRow(hint);
     };
     addHint(experimental, IX_TEXT("Neue und experimentelle Funktionen sind hier gebündelt und standardmäßig deaktiviert."));
@@ -505,6 +504,14 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &SettingsDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    // Apply the final size once, before the dialog is shown. Letting the layout
+    // grow the window on its first show produced a visible resize step, and it
+    // made the settled size depend on when the platform applies the layout
+    // (macOS applies it later than Windows, which raced the compact-page test
+    // that compares the dialog size across category switches).
+    const QSize minimum = layout->minimumSize();
+    resize(QSize(std::max(760, minimum.width()), std::max(460, minimum.height()))
+               .boundedTo(available - QSize(32, 48)));
 }
 bool SettingsDialog::eventFilter(QObject *object, QEvent *event) {
     if (event->type() == QEvent::Wheel) {
