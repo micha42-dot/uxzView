@@ -56,7 +56,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     body->addWidget(pages_, 1);
     layout->addLayout(body, 1);
     connect(categories_, &QListWidget::currentRowChanged, pages_, &QStackedWidget::setCurrentIndex);
-    auto page = [this](const QString &label) {
+    int categoryRowTotal = 0;
+    auto page = [this, &categoryRowTotal](const QString &label) {
         auto *widget = new QWidget;
         auto *outer = new QVBoxLayout(widget);
         outer->setContentsMargins(0, 0, 0, 0);
@@ -73,10 +74,15 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
         scroll->setWidgetResizable(true);
         scroll->setWidget(widget);
         pages_->addWidget(scroll);
+        const int rowHeight = optionControlHeight(categories_->fontMetrics());
         auto *item = new QListWidgetItem(label);
-        item->setSizeHint({categories_->fontMetrics().horizontalAdvance(label) + 16,
-                           optionControlHeight(categories_->fontMetrics())});
+        item->setSizeHint({categories_->fontMetrics().horizontalAdvance(label) + 16, rowHeight});
         categories_->addItem(item);
+        // Track the exact list content height: the dialog must be tall enough
+        // to show every category without scrolling. Guessing a fixed dialog
+        // height silently broke as soon as the list grew (the 12th entry fell
+        // outside the viewport on macOS, whose item metrics are taller).
+        categoryRowTotal += rowHeight + categories_->spacing();
         return form;
     };
     auto check = [&](QFormLayout *form, const QString &key, const QString &label, bool fallback) {
@@ -442,17 +448,30 @@ SettingsDialog::SettingsDialog(QWidget *parent, QString storageHome) : QDialog(p
     // user explicitly opts in. New unstable features go here first.
     auto *experimental = page(IX_TEXT("Experimentell"));
     experimental->parentWidget()->setObjectName(QStringLiteral("experimentalSettingsPage"));
-    auto *experimentalIntro =
-        new QLabel(IX_TEXT("Neue und experimentelle Funktionen sind hier gebündelt und standardmäßig deaktiviert."));
-    experimentalIntro->setWordWrap(true);
-    experimental->addRow(experimentalIntro);
+    // A word-wrapped QLabel still reports its unwrapped width as
+    // minimumSizeHint. Inside the scroll area that forced a horizontal
+    // scrollbar (and could widen the whole dialog), so the explanation labels
+    // must not dictate the page width at all.
+    const auto addHint = [](QFormLayout *form, const QString &text) {
+        auto *hint = new QLabel(text);
+        hint->setWordWrap(true);
+        hint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        hint->setMinimumWidth(0);
+        form->addRow(hint);
+    };
+    addHint(experimental, IX_TEXT("Neue und experimentelle Funktionen sind hier gebündelt und standardmäßig deaktiviert."));
     check(experimental, QStringLiteral("experimental/jpegli"),
           IX_TEXT("Jpegli-Encoder verwenden (experimentell)"), false);
-    auto *jpegliHint = new QLabel(
-        IX_TEXT("Jpegli ist eine erweiterte JPEG-Kodierungs- und Dekodierungsbibliothek, die höhere Kompression "
-                "ermöglicht, kann aber noch zu kurzen Verzögerungen beim Speichern usw. führen."));
-    jpegliHint->setWordWrap(true);
-    experimental->addRow(jpegliHint);
+    addHint(experimental,
+            IX_TEXT("Jpegli ist eine erweiterte JPEG-Kodierungs- und Dekodierungsbibliothek, die höhere Kompression "
+                    "ermöglicht, kann aber noch zu kurzen Verzögerungen beim Speichern usw. führen."));
+    // Make the dialog tall enough for every category instead of relying on a
+    // hard-coded height. The compact-settings test requires all entries to be
+    // visible without scrolling, and the fixed 460 px only fit 11 of them
+    // (macOS item metrics are a few pixels taller, so the 12th row fell
+    // outside the viewport). The list now contributes its real content height
+    // to the layout minimum and the dialog grows by exactly that much.
+    categories_->setMinimumHeight(categoryRowTotal + 8); // 8 px: stylesheet padding
     const int controlHeight = optionControlHeight(fontMetrics());
     for (auto *combo : findChildren<QComboBox *>()) {
         combo->setFocusPolicy(Qt::StrongFocus);

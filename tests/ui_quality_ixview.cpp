@@ -428,7 +428,11 @@ class UiQualityTests : public QObject {
         ix::applyInterfaceLanguage(language); ix::applyInterfaceTheme(theme);
         ix::SettingsDialog dialog;
         dialog.show(); QTest::qWait(20);
-        QVERIFY(dialog.width() <= 800); QVERIFY(dialog.height() <= 500);
+        // Compact budget, not a magic pixel: the dialog sizes itself from the
+        // category list (12 sections), so the upper bound must leave room for
+        // platform item metrics. macOS rows are a few pixels taller than the
+        // Windows/Linux ones; 560 still fits any laptop display.
+        QVERIFY(dialog.width() <= 800); QVERIFY(dialog.height() <= 560);
         auto *categories=dialog.findChild<QListWidget *>(QStringLiteral("settingsCategories"));
         auto *pages=dialog.findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
         QVERIFY(categories && pages); QCOMPARE(categories->count(),12);
