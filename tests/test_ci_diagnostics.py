@@ -46,6 +46,25 @@ class CiDiagnosticsTests(unittest.TestCase):
             self.assertEqual(text.count('partial \ufffd'), len(names))
             self.assertNotIn('personal state', text)
 
+    def test_first_failure_is_reported_not_only_the_last_passing_case(self):
+        with tempfile.TemporaryDirectory(prefix='uxzview-ci-') as directory:
+            build = Path(directory)
+            (build / 'ui-quality-test-results.txt').write_text(
+                'PASS   : UiQualityTests::firstCase()\n'
+                'FAIL!  : UiQualityTests::compactSettingsPages(dark-fr) '
+                "dialog=760x470 hbar=0\n"
+                'PASS   : UiQualityTests::laterCase()\n', encoding='utf-8')
+            output = io.StringIO()
+            report_test_logs(build, output)
+            text = output.getvalue()
+            # The failure must be visible, not just the trailing PASS.
+            self.assertIn('ui-quality-test-results.txt: FAILED FAIL!  : '
+                          'UiQualityTests::compactSettingsPages(dark-fr)', text)
+            self.assertIn('dialog=760x470', text)
+            # The last checkpoint stays available for hang/crash triage.
+            self.assertIn('ui-quality-test-results.txt: PASS   : UiQualityTests::laterCase()', text)
+            self.assertLess(text.index('FAILED FAIL!'), text.index('laterCase()'))
+
     def test_failure_before_build_creates_no_reports_or_directories(self):
         with tempfile.TemporaryDirectory(prefix='uxzview-ci-') as directory:
             build = Path(directory) / 'not-configured'
