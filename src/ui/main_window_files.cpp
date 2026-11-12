@@ -7,6 +7,7 @@
 #include "core/save_options.h"
 #include "main_window.h"
 #include "save_options_dialog.h"
+#include "core/jpegli_encoder.h"
 #include "worker_wait.h"
 #include <QScreen>
 #include "file_navigation.h"
@@ -55,6 +56,13 @@ void MainWindow::scheduleSaveUiWarmup() {
     // every codec capability (~60-70 ms cold), and Save As must not pay it.
     saveFormatsWarmup_ = QtConcurrent::run([registry = registry_] {
         (void)writableSaveFormats(registry);
+        // Warm jpegli's lazy initialisation (SIMD dispatch tables, quant/
+        // Huffman tables, colour-transform + ICC path) on this background
+        // thread. Without it the FIRST PNG->JPEG export paid all of this
+        // inside the modal progress dialog and visibly stalled; every later
+        // save was instant. That is exactly the "first save slow, then
+        // suddenly instant" behaviour.
+        (void)warmJpegEncoder();
     });
     // Build the hidden companion after the first image has had time to paint:
     // by the time the user hits Save As, the widgets already exist.

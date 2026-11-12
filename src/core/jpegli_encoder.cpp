@@ -2,6 +2,7 @@
 #include "jpegli_encoder.h"
 #include "image_storage.h"
 #include "localization.h"
+#include <QBuffer>
 #include <QColorSpace>
 #include <QIODevice>
 #include <lib/jpegli/encode.h>
@@ -166,5 +167,19 @@ QString writeJpegli(QIODevice &destination, const QImage &image, int quality,
     } catch (const std::exception &error) {
         return QStringLiteral("jpegli: ") + localized(QString::fromUtf8(error.what()));
     }
+}
+
+QString warmJpegEncoder() {
+    // A 32x32 RGB image is enough to touch every lazy path: SIMD dispatch,
+    // quant/Huffman tables, colour-transform setup and the ICC branch.
+    // Deliberately tiny, so the warmup costs single-digit milliseconds.
+    QImage image(32, 32, QImage::Format_RGB32);
+    image.fill(Qt::white);
+    QByteArray encoded;
+    QBuffer buffer(&encoded);
+    if (!buffer.open(QIODevice::WriteOnly))
+        return QStringLiteral("jpegli warmup: buffer");
+    // Errors are irrelevant here; only the side effect (initialisation) matters.
+    return writeJpegli(buffer, image, 95, JpegliOptions{});
 }
 }
