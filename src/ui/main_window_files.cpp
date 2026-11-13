@@ -75,9 +75,10 @@ void MainWindow::scheduleSaveUiWarmup() {
             return;
         auto &companion = saveCompanion();
         companion.ensurePolished();
-        // Radical determinism: create the native surface now, while hidden.
-        // At save time only show() runs, so the window appears in one frame.
-        companion.preCreateSurface();
+        // Creating the hidden tool window during image startup can show a
+        // second title bar on Wayland. Let prepare() create it during Save As.
+        if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
+            companion.preCreateSurface();
     });
 }
 

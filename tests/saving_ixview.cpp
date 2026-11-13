@@ -379,6 +379,7 @@ class SavingTests : public QObject {
     void compressionOptionsAffectOutput();
     void targetSizeOptimizationRespectsBudget_data();
     void targetSizeOptimizationRespectsBudget();
+    void companionWarmupKeepsWaylandWindowUncreated();
     void companionRefreshesTargetAfterMetadataChange();
     void companionProfilesFitBeforeFirstShow_data();
     void companionProfilesFitBeforeFirstShow();
@@ -473,6 +474,18 @@ void SavingTests::targetSizeOptimizationRespectsBudget() {
     const auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
     QVERIFY(!cancelled.quality.has_value());
     QVERIFY(!cancelled.error.isEmpty());
+}
+void SavingTests::companionWarmupKeepsWaylandWindowUncreated() {
+    const auto source = temp_.filePath(QStringLiteral("warmup.png"));
+    QVERIFY(sample().save(source));
+    ix::MainWindow window;
+    window.show();
+    window.openPath(source);
+    QTRY_VERIFY(window.findChild<ix::SaveOptionsDialog *>());
+    const auto *companion = window.findChild<ix::SaveOptionsDialog *>();
+    QVERIFY(!companion->isVisible());
+    const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+    QCOMPARE(companion->internalWinId() == 0, wayland);
 }
 void SavingTests::companionRefreshesTargetAfterMetadataChange() {
     ix::CodecRegistry registry;
