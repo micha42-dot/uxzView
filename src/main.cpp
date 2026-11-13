@@ -20,7 +20,6 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
-#include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLibrary>
@@ -28,7 +27,6 @@
 #include <QSettings>
 #include <QMessageBox>
 #include <QScopeGuard>
-#include <QStyleFactory>
 #include <QTextStream>
 #include <exception>
 #include <initializer_list>
@@ -53,11 +51,8 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName(QStringLiteral("IxView"));
     // Keep the existing storage identity across the product rename.
     QGuiApplication::setApplicationDisplayName(QStringLiteral("üxzView"));
-    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/ixview.svg")));
     QCoreApplication::setApplicationVersion(QStringLiteral(IXVIEW_VERSION));
 
-    ix::configureDesktopAppearance();
-    startupStage("desktop-appearance");
     QGuiApplication::setDesktopFileName(QStringLiteral("org.ixview.IxView"));
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("üxzView - Image viewer"));

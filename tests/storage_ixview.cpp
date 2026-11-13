@@ -9,6 +9,7 @@
 #include "core/plugin_store.h"
 #include <QColor>
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
 #include <QJsonDocument>
 #include <QLockFile>
@@ -86,6 +87,19 @@ class StorageTests : public QObject {
         QSettings original(normal, QSettings::IniFormat);
         QCOMPARE(original.value(QStringLiteral("normalOnly")).toInt(), 77);
         QVERIFY(!original.contains(QStringLiteral("capture/shortcut")));
+    }
+    void portableStartupKeepsExistingLocationFile() {
+        const auto home = path(QStringLiteral("app"));
+        QVERIFY(ix::AppStorage::initialize(home, true).isEmpty());
+        const auto location = home + QStringLiteral("/IxView-data/location.json");
+        QFile file(location);
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.setFileTime(QDateTime::fromMSecsSinceEpoch(1700000000000), QFileDevice::FileModificationTime));
+        file.close();
+        const auto previous = QFileInfo(location).lastModified();
+        QVERIFY(previous.isValid());
+        QVERIFY(ix::AppStorage::initialize(home).isEmpty());
+        QCOMPARE(QFileInfo(location).lastModified(), previous);
     }
     void importsOwnedDataWithoutChangingOriginals() {
         const auto home = path(QStringLiteral("app")), source = path(QStringLiteral("user-data"));

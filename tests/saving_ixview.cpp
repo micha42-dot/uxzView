@@ -505,12 +505,27 @@ void SavingTests::embeddedCompressionSharesSaveWindow() {
         QVERIFY(panel);
 
         companion.prepare(document, options, {}, picker, panel);
+        auto endSession = qScopeGuard([&] { companion.endSession(); });
         QCOMPARE(companion.parentWidget(), panel->widget());
         QVERIFY(!companion.isWindow());
         QCOMPARE(companion.window(), &picker);
         QCOMPARE(companion.internalWinId(), WId(0));
         picker.show();
         QTRY_VERIFY(companion.isVisible());
+        const auto *browser = picker.findChild<QSplitter *>(QStringLiteral("splitter"));
+        QVERIFY(browser);
+        const QRect browserBounds(browser->mapTo(&picker, QPoint{}), browser->size());
+        const QRect panelBounds(panel->mapTo(&picker, QPoint{}), panel->size());
+        QCOMPARE(panelBounds.top(), browserBounds.top());
+        QCOMPARE(panelBounds.bottom(), browserBounds.bottom());
+        QVERIFY(panelBounds.left() > browserBounds.right());
+        const auto *targetToggle = companion.findChild<QCheckBox *>(QStringLiteral("compressionTargetEnabled"));
+        const auto *targetValue = companion.findChild<QDoubleSpinBox *>(QStringLiteral("compressionTargetValue"));
+        const auto *targetUnit = companion.findChild<QComboBox *>(QStringLiteral("compressionTargetUnit"));
+        QVERIFY(targetToggle && targetValue && targetUnit);
+        QCOMPARE(targetValue->geometry().top(), targetUnit->geometry().top());
+        QVERIFY(targetValue->geometry().top() > targetToggle->geometry().bottom());
+        QCOMPARE(targetValue->geometry().left(), targetToggle->geometry().left());
         auto *resize = picker.findChild<QToolButton *>(QStringLiteral("savePickerWindowSize"));
         QVERIFY(resize && resize->isVisible());
         resize->click();
@@ -525,6 +540,7 @@ void SavingTests::embeddedCompressionSharesSaveWindow() {
         QVERIFY(!picker.isVisible());
         QCOMPARE(picker.result(), int(QDialog::Rejected));
         companion.endSession();
+        endSession.dismiss();
         QCOMPARE(panel->widget()->layout()->count(), 0);
         QCOMPARE(companion.parentWidget(), &owner);
         QVERIFY(!companion.isWindow());

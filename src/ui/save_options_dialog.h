@@ -12,6 +12,7 @@
 #include <QPointer>
 #include <atomic>
 #include <memory>
+class QBoxLayout;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -78,6 +79,7 @@ class SaveOptionsDialog final : public QDialog {
     QSlider *effortSlider_ = nullptr;
     QSpinBox *effortSpin_ = nullptr;
     QCheckBox *targetEnabled_ = nullptr;
+    QBoxLayout *targetFieldsLayout_ = nullptr;
     QDoubleSpinBox *targetValue_ = nullptr;
     QComboBox *targetUnit_ = nullptr;
     QLabel *targetResult_ = nullptr;

@@ -282,26 +282,27 @@ QString AppStorage::initialize(const QString &requestedHome, bool portable) {
         if (!lock.tryLock(0))
             return QStringLiteral("Portables Profil wird gerade vorbereitet.");
         QFile location(locationFile(home));
+        QString previousHome;
         if (location.exists()) {
             if (!location.open(QIODevice::ReadOnly) || location.size() > 16384)
                 return QStringLiteral("Portable Standortdaten konnten nicht gelesen werden.");
             QJsonParseError parse;
             const auto object = QJsonDocument::fromJson(location.readAll(), &parse).object();
             location.close();
-            const auto previous = object.value(QStringLiteral("home")).toString();
+            previousHome = object.value(QStringLiteral("home")).toString();
             if (parse.error != QJsonParseError::NoError || object.value(QStringLiteral("schema")).toInt() != 1 ||
-                previous.isEmpty() || !QDir::isAbsolutePath(previous))
+                !QDir::isAbsolutePath(previousHome))
                 return QStringLiteral("Ungültige portable Standortdaten.");
-            const auto error = relocate(data, previous, home);
-            if (!error.isEmpty())
+        }
+        if (previousHome != home) {
+            if (const auto error = relocate(data, previousHome, home); !error.isEmpty())
+                return error;
+            if (const auto error = write(location.fileName(), QJsonDocument(QJsonObject{
+                    {QStringLiteral("schema"), 1}, {QStringLiteral("home"), home}}).toJson()); !error.isEmpty())
                 return error;
         }
-        auto error = write(locationFile(home), QJsonDocument(QJsonObject{
-            {QStringLiteral("schema"), 1}, {QStringLiteral("home"), home}}).toJson());
-        if (!error.isEmpty())
-            return error;
         if (!QFileInfo::exists(marker(home))) {
-            error = write(marker(home), QByteArray("IxView portable mode\n"));
+            const auto error = write(marker(home), QByteArray("IxView portable mode\n"));
             if (!error.isEmpty())
                 return error;
         }

@@ -3,11 +3,15 @@
 #include "core/codec_registry.h"
 #include "core/localization.h"
 #include <QFileDialog>
+#include <QFrame>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QScreen>
 #include <QScrollArea>
+#include <QSplitter>
 #include <QStyle>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 namespace ix {
 QScrollArea *addSavePickerControls(QFileDialog &picker, bool withCompression) {
@@ -28,25 +32,49 @@ QScrollArea *addSavePickerControls(QFileDialog &picker, bool withCompression) {
             picker.showMaximized();
     });
     auto *grid = qobject_cast<QGridLayout *>(layout);
-    const int column = grid ? grid->columnCount() : 0;
-    if (grid)
-        grid->addWidget(resize, 0, column, Qt::AlignRight);
-    else
+    if (!grid) {
         layout->addWidget(resize);
+    } else if (!withCompression) {
+        // Join the file navigation controls when there is no side panel.
+        auto *navigation = grid->itemAtPosition(0, 1);
+        if (navigation && navigation->layout())
+            navigation->layout()->addWidget(resize);
+        else
+            grid->addWidget(resize, 0, grid->columnCount(), Qt::AlignRight | Qt::AlignVCenter);
+    }
     if (!withCompression)
         return nullptr;
-    auto *panel = new QScrollArea(&picker);
+
+    auto *side = new QWidget(&picker);
+    auto *sideLayout = new QHBoxLayout(side);
+    sideLayout->setContentsMargins(0, 0, 0, 0);
+    sideLayout->setSpacing(0);
+    auto *divider = new QFrame(side);
+    divider->setFrameShape(QFrame::VLine);
+    divider->setFrameShadow(QFrame::Sunken);
+    sideLayout->addWidget(divider);
+    auto *panel = new QScrollArea(side);
     panel->setFrameShape(QFrame::NoFrame);
     panel->setWidgetResizable(true);
+    panel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    sideLayout->addWidget(panel);
     auto *content = new QWidget;
     auto *contentLayout = new QVBoxLayout(content);
     contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->setAlignment(Qt::AlignTop);
     panel->setWidget(content);
-    if (grid)
-        grid->addWidget(panel, 1, column, grid->rowCount() - 1, 1);
-    else
-        layout->addWidget(panel);
+    if (grid) {
+        const int column = grid->columnCount();
+        grid->addWidget(resize, 0, column, Qt::AlignRight | Qt::AlignVCenter);
+        auto *browser = picker.findChild<QSplitter *>(QStringLiteral("splitter"));
+        const int browserIndex = browser ? grid->indexOf(browser) : -1;
+        int row = 1, startColumn = 0, rowSpan = 1, columnSpan = 1;
+        if (browserIndex >= 0)
+            grid->getItemPosition(browserIndex, &row, &startColumn, &rowSpan, &columnSpan);
+        grid->addWidget(side, row, column, rowSpan, 1);
+    } else {
+        layout->addWidget(side);
+    }
     return panel;
 }
 

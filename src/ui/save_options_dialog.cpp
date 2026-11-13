@@ -243,8 +243,8 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     auto *targetLayout = new QVBoxLayout(targetRow_);
     targetLayout->setContentsMargins(0, 0, 0, 0);
     auto *targetTop = new QWidget(this);
-    auto *targetTopLayout = new QHBoxLayout(targetTop);
-    targetTopLayout->setContentsMargins(0, 0, 0, 0);
+    targetFieldsLayout_ = new QHBoxLayout(targetTop);
+    targetFieldsLayout_->setContentsMargins(0, 0, 0, 0);
     targetEnabled_ = new QCheckBox(IX_TEXT("Zieldateigröße:"), this);
     targetEnabled_->setObjectName(QStringLiteral("compressionTargetEnabled"));
     targetValue_ = new QDoubleSpinBox(this);
@@ -259,9 +259,11 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     targetUnit_->addItem(QStringLiteral("MB"), 1024 * 1024);
     targetUnit_->setObjectName(QStringLiteral("compressionTargetUnit"));
     targetUnit_->setMaximumWidth(56);
-    targetTopLayout->addWidget(targetEnabled_);
-    targetTopLayout->addWidget(targetValue_, 1);
-    targetTopLayout->addWidget(targetUnit_);
+    targetFieldsLayout_->addWidget(targetEnabled_);
+    auto *targetInputs = new QHBoxLayout;
+    targetInputs->addWidget(targetValue_, 1);
+    targetInputs->addWidget(targetUnit_);
+    targetFieldsLayout_->addLayout(targetInputs, 1);
     targetLayout->addWidget(targetTop);
     targetResult_ = new QLabel(this);
     targetResult_->setWordWrap(true);
@@ -431,6 +433,12 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     setUpdatesEnabled(false);
     const auto unfreeze = qScopeGuard([this] { setUpdatesEnabled(true); });
     releaseFixedSize();
+    targetFieldsLayout_->setDirection(panel_ ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    targetValue_->setMaximumWidth(panel_ ? QWIDGETSIZE_MAX : 80);
+    effortSlider_->setMinimumWidth(0);
+    effortSlider_->setMaximumWidth(panel_ ? QWIDGETSIZE_MAX : 90);
+    if (!panel_)
+        effortSlider_->setMinimumWidth(90);
     applyOptions(options);
     // Order matters: create the native surface FIRST, then measure. Creating
     // the surface applies the platform theme/font; measuring before that uses
@@ -545,7 +553,8 @@ void SaveOptionsDialog::rebuild() {
     const QSignalBlocker blockTargetUnit(targetUnit_);
     const QSignalBlocker blockEffortSlider(effortSlider_);
     const QSignalBlocker blockEffortSpin(effortSpin_);
-    title_->setText(QString::fromLatin1(options_.format).toUpper() + IX_TEXT("-Optionen speichern"));
+    const auto formatName = QString::fromLatin1(options_.format).toUpper();
+    title_->setText(panel_ ? formatName : formatName + IX_TEXT("-Optionen speichern"));
     qualitySlider_->setValue(options_.quality);
     qualitySpin_->setValue(options_.quality);
     progressive_->setChecked(options_.progressive);
@@ -617,7 +626,7 @@ void SaveOptionsDialog::rebuild() {
     // the explicit per-row state regardless of the dialog's own visibility.
     for (const auto &pair : std::as_const(captions_)) {
         if (pair.first)
-            pair.first->setVisible(pair.second->isVisibleTo(this));
+            pair.first->setVisible(pair.second->isVisibleTo(this) && (!panel_ || pair.second != targetRow_));
     }
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);

@@ -391,7 +391,8 @@ QStringList MainWindow::implementedCommands() const {
 }
 void MainWindow::buildMenus() {
     // Keep the verified reference ordering inside the window on every desktop.
-    menuBar()->setNativeMenuBar(false);
+    auto *bar = menuBar();
+    bar->setNativeMenuBar(false);
     QFile file(QStringLiteral(":/menus.de.json"));
     if (!file.open(QIODevice::ReadOnly))
         qFatal("Menu resource missing");
@@ -402,23 +403,24 @@ void MainWindow::buildMenus() {
                          QStringLiteral("optionen"), QStringLiteral("ansicht")}
                  .contains(object.value(QStringLiteral("id")).toString()))
             continue;
-        auto *menu = menuBar()->addMenu(localized(object.value(QStringLiteral("label")).toString()));
+        auto *menu = new QMenu(bar);
         bindUiText(menu, "title", object.value(QStringLiteral("label")).toString());
         menu->setObjectName(object.value(QStringLiteral("id")).toString());
         populateMenu(menu, object);
+        bar->addMenu(menu);
     }
-    auto *help = menuBar()->addMenu(IX_TEXT("&Hilfe"));
+    auto *help = new QMenu(bar);
     bindUiText(help, "title", QStringLiteral("&Hilfe"));
-    auto *formats = help->addAction(IX_TEXT("Verfügbare Bildformate..."));
+    auto *formats = help->addAction(QString());
     bindUiText(formats, "text", QStringLiteral("Verfügbare Bildformate..."));
     connect(formats, &QAction::triggered, this, [this] { formatDialog(this, registry_); });
-    auto *keys = help->addAction(IX_TEXT("Tastenkürzel..."));
+    auto *keys = help->addAction(QString());
     bindUiText(keys, "text", QStringLiteral("Tastenkürzel..."));
     keys->setObjectName(QStringLiteral("keyboardHelp"));
     keys->setShortcut(QKeySequence(Qt::Key_F1));
     addAction(keys);
     connect(keys, &QAction::triggered, this, &MainWindow::showKeyboardHelp);
-    auto *about = help->addAction(IX_TEXT("Über üxzView..."));
+    auto *about = help->addAction(QString());
     bindUiText(about, "text", QStringLiteral("Über üxzView..."));
     about->setObjectName(QStringLiteral("about"));
     about->setShortcut(QKeySequence(Qt::Key_A));
@@ -445,6 +447,7 @@ void MainWindow::buildMenus() {
         // macOS may retain a modeless About box after the static call returns.
         bindAbout();
     });
+    bar->addMenu(help);
     QFile bindings(QStringLiteral(":/shortcuts.de.json"));
     if (bindings.open(QIODevice::ReadOnly)) {
         const auto aliases =
@@ -534,28 +537,29 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
         if (separator && !menu->isEmpty())
             menu->addSeparator();
         separator = false;
-        QString label = localized(item.value(QStringLiteral("label")).toString());
         const auto source = item.value(QStringLiteral("label")).toString();
         if (!dynamic.isEmpty()) {
-            auto *child = menu->addMenu(label);
+            auto *child = new QMenu(menu);
             bindUiText(child, "title", source);
+            menu->addMenu(child);
             connect(child, &QMenu::aboutToShow, this, [this, child, dynamic] { recentMenu(child, dynamic); });
             continue;
         }
         if (!submenu.isEmpty()) {
             for (auto m : menuData_.value(QStringLiteral("menus")).toArray())
                 if (m.toObject().value(QStringLiteral("id")).toString() == submenu) {
-                    auto *child = menu->addMenu(label);
+                    auto *child = new QMenu(menu);
                     bindUiText(child, "title", source);
+                    menu->addMenu(child);
                     child->setObjectName(submenu);
                     populateMenu(child, m.toObject());
                 }
             continue;
         }
-        QAction *action = new QAction(label, this);
+        QAction *action = new QAction(this);
         bindUiText(action, "text", source, cmd == QStringLiteral("exit") ? QStringLiteral("\tEsc") : QString());
         if (cmd == QStringLiteral("cropAspect")) {
-            auto *ratios = new QMenu(label, menu);
+            auto *ratios = new QMenu(menu);
             bindUiText(ratios, "title", source);
             ratios->setObjectName(QStringLiteral("cropAspectMenu"));
             action->setMenu(ratios);
