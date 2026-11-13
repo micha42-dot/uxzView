@@ -183,7 +183,19 @@ jobs:
         shell: bash
         run: |
           df -h . "${TMPDIR:-/tmp}"
+          set +e
           ctest --test-dir build/native --output-on-failure
+          status=$?
+          # QTest writes its report to files (-o ...), so CTest has nothing on
+          # stdout to show for --output-on-failure. Surface the failing
+          # assertions here, where they belong, instead of leaving the log
+          # without a single FAIL! line.
+          if [[ $status -ne 0 ]]; then
+            echo "::group::Failing test assertions"
+            grep -H -E '^(FAIL!|QFATAL)' build/native/*-test-results.txt || echo "(no FAIL! line recorded)"
+            echo "::endgroup::"
+          fi
+          exit $status
       - name: Install runtime
         shell: bash
         run: |
