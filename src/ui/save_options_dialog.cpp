@@ -21,6 +21,7 @@
 #include <QRadioButton>
 #include <QScopeGuard>
 #include <QScreen>
+#include <QScrollArea>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -39,6 +40,7 @@ namespace {
 // JPEG speichern" or long translations) get clipped/squeezed instead of
 // widening the window. The only real limit is the available screen width.
 constexpr int kCompanionMinWidth = 250;
+constexpr auto companionFlags = Qt::Tool | Qt::CustomizeWindowHint | Qt::WindowTitleHint;
 } // namespace
 SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *owner)
     : QDialog(owner), owner_(owner), registry_(registry) {
@@ -49,7 +51,7 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     // NOTE: no WindowStaysOnTopHint anymore — it pulled the companion above
     // every unrelated window (file picker of other apps, taskbar popups).
     // Top-most relative to the native save dialog comes from parenting.
-    setWindowFlags(Qt::Tool | Qt::CustomizeWindowHint | Qt::WindowTitleHint);
+    setWindowFlags(companionFlags);
     setWindowModality(Qt::NonModal);
     // The application font is deliberately small (referenceFont(9)); compact
     // dialogs with many rows need the same readable-font guard that
@@ -352,7 +354,8 @@ void SaveOptionsDialog::setFormat(const QByteArray &format) {
     // late result can publish into the new format.
     releaseFixedSize();
     applyOptions(loadSaveOptions(format));
-    freezeSizeToLayout();
+    if (!panel_)
+        freezeSizeToLayout();
 }
 
 void SaveOptionsDialog::releaseFixedSize() {
@@ -407,14 +410,20 @@ void SaveOptionsDialog::preCreateSurface() {
 }
 
 void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions options,
-                                const QJsonObject &profiles, QDialog &chooser) {
+                                const QJsonObject &profiles, QDialog &chooser, QScrollArea *panel) {
     // Single-shot, fully-populated session start: everything (values, profile
     // list, visibility, fixed size) is applied with updates frozen, before the
     // window is shown. The old path painted empty/half-built frames first —
     // that staged loading is exactly what felt slow.
     Q_ASSERT(owner_);
-    if (parentWidget() != &chooser)
-        setParent(&chooser, windowFlags());
+    panel_ = panel;
+    if (panel_) {
+        auto *content = panel_->widget();
+        setParent(content, Qt::Widget);
+        content->layout()->addWidget(this);
+    } else if (parentWidget() != &chooser) {
+        setParent(&chooser, companionFlags);
+    }
     chooser_ = &chooser;
     document_ = document;
     profiles_ = profiles;
@@ -428,8 +437,12 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     // the pre-theme font metrics, so the frozen size was too small and the real
     // (larger) text got squeezed into it — exactly the "tiny, cramped text"
     // report. Surface first, measurement second, one fixed size.
-    preCreateSurface();
-    freezeSizeToLayout();
+    if (panel_) {
+        show();
+    } else {
+        preCreateSurface();
+        freezeSizeToLayout();
+    }
 }
 
 void SaveOptionsDialog::endSession() {
@@ -437,8 +450,12 @@ void SaveOptionsDialog::endSession() {
     // worker behind: the next session starts from neutral state.
     cancelTargetOptimization();
     hide();
-    if (parentWidget() != owner_)
-        setParent(owner_, windowFlags());
+    if (auto *panel = std::exchange(panel_, nullptr)) {
+        panel->widget()->layout()->removeWidget(this);
+        setParent(owner_, Qt::Widget);
+    } else if (parentWidget() != owner_) {
+        setParent(owner_, companionFlags);
+    }
     chooser_ = nullptr;
     document_ = ImageDocument();
     targetResult_->clear();
@@ -726,7 +743,8 @@ void SaveOptionsDialog::loadProfile(int index) {
     // which changes the visible rows.
     releaseFixedSize();
     applyOptions(SaveOptions::fromJson(profiles_.value(name).toObject()));
-    freezeSizeToLayout();
+    if (!panel_)
+        freezeSizeToLayout();
     emit optionsChanged(options_);
 }
 void SaveOptionsDialog::saveProfile() {
@@ -785,7 +803,8 @@ void SaveOptionsDialog::keyPressEvent(QKeyEvent *event) {
 void SaveOptionsDialog::reject() {
     const auto chooser = chooser_;
     cancelTargetOptimization();
-    QDialog::reject();
+    if (isWindow())
+        QDialog::reject();
     if (chooser)
         chooser->reject();
 }

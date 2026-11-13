@@ -6,6 +6,7 @@
 #include "core/save_formats.h"
 #include "core/save_options.h"
 #include "main_window.h"
+#include "image_file_dialog.h"
 #include "save_options_dialog.h"
 #include "core/jpegli_encoder.h"
 #include "worker_wait.h"
@@ -129,18 +130,41 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         QString suggested = target.suggestedPath;
         if (suggested.isEmpty()) suggested = QDir(lastDirectory)
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
-        // Native file dialog (unchanged standard behavior). The filter string
-        // is cached in the registry: building it walks every codec capability,
-        // and Save As must not rescan on every open.
-        QFileDialog chooser(this, IX_TEXT("Speichern unter"), suggested, registry_.cachedSaveFilter());
+        const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+        QFileDialog chooser(this);
+        auto pickerOptions = QFileDialog::Options(QFileDialog::DontConfirmOverwrite);
+        if (wayland) {
+            pickerOptions |= QFileDialog::DontUseNativeDialog | QFileDialog::DontUseCustomDirectoryIcons;
+            chooser.setWindowFlag(Qt::WindowMinMaxButtonsHint);
+        }
+        chooser.setOptions(pickerOptions);
+        chooser.setWindowTitle(IX_TEXT("Speichern unter"));
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
-        chooser.setOption(QFileDialog::DontConfirmOverwrite);
+        chooser.setNameFilters(registry_.cachedSaveFilter().split(QStringLiteral(";;")));
+        const QFileInfo suggestedFile(suggested);
+        chooser.setDirectory(suggestedFile.absolutePath());
+        chooser.selectFile(suggested);
         chooser.selectNameFilter(target.format.filter());
         chooser.setDefaultSuffix(target.format.suffix());
         auto *companion = companionEnabled ? &saveCompanion() : nullptr;
+        auto *panel = wayland ? addSavePickerControls(chooser, companion != nullptr) : nullptr;
         if (companion)
-            companion->prepare(output, saveOptions, loadSaveProfiles(), chooser);
+            companion->prepare(output, saveOptions, loadSaveProfiles(), chooser, panel);
+        if (wayland) {
+            chooser.ensurePolished();
+            const auto available = chooser.screen()->availableGeometry().size();
+            if (panel) {
+                const auto panelWidth = companion->sizeHint().width() +
+                    panel->style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, panel);
+                panel->setMinimumWidth(std::min(panelWidth, available.width() / 3));
+            }
+            if (auto *layout = chooser.layout())
+                layout->activate();
+            chooser.setWindowState(Qt::WindowNoState);
+            const QSize preferred = panel ? QSize(1020, 640) : QSize(800, 520);
+            chooser.resize(preferred.boundedTo(available - QSize(64, 96)));
+        }
         auto previous = target.format;
         const auto formatForFilter = [&](const QString &filter) -> QList<SaveFormat>::const_iterator {
             // Match by canonical id: Qt may list the same codec under a
@@ -214,7 +238,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // the visible "empty frame, then controls" staging. Deferring the show
         // by one event-loop turn (queued, not timed) puts it after the native
         // dialog exists, so the companion is created once, in final form.
-        if (companion) {
+        if (companion && !panel) {
             connect(companion, &SaveOptionsDialog::movedByUser, &chooser,
                     [&](const QPoint &p) {
                         pendingCompanionPos = p;

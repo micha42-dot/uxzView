@@ -10,6 +10,7 @@
 #include "core/save_options.h"
 #include "core/localization.h"
 #include "ui/image_view.h"
+#include "ui/image_file_dialog.h"
 #include "ui/main_window.h"
 #include "ui/save_options_dialog.h"
 #include "ui/settings_dialog.h"
@@ -380,6 +381,7 @@ class SavingTests : public QObject {
     void targetSizeOptimizationRespectsBudget_data();
     void targetSizeOptimizationRespectsBudget();
     void companionWarmupKeepsWaylandWindowUncreated();
+    void embeddedCompressionSharesSaveWindow();
     void companionRefreshesTargetAfterMetadataChange();
     void companionProfilesFitBeforeFirstShow_data();
     void companionProfilesFitBeforeFirstShow();
@@ -486,6 +488,48 @@ void SavingTests::companionWarmupKeepsWaylandWindowUncreated() {
     QVERIFY(!companion->isVisible());
     const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
     QCOMPARE(companion->internalWinId() == 0, wayland);
+}
+void SavingTests::embeddedCompressionSharesSaveWindow() {
+    QWidget owner;
+    ix::CodecRegistry registry;
+    ix::SaveOptionsDialog companion(registry, &owner);
+    ix::ImageDocument document;
+    document.pixels = sample();
+    auto options = ix::defaultSaveOptions("jpeg");
+    options.targetSizeEnabled = true;
+    for (int save = 0; save < 2; ++save) {
+        QFileDialog picker(&owner);
+        picker.setOption(QFileDialog::DontUseNativeDialog);
+        picker.setAcceptMode(QFileDialog::AcceptSave);
+        auto *panel = ix::addSavePickerControls(picker, true);
+        QVERIFY(panel);
+
+        companion.prepare(document, options, {}, picker, panel);
+        QCOMPARE(companion.parentWidget(), panel->widget());
+        QVERIFY(!companion.isWindow());
+        QCOMPARE(companion.window(), &picker);
+        QCOMPARE(companion.internalWinId(), WId(0));
+        picker.show();
+        QTRY_VERIFY(companion.isVisible());
+        auto *resize = picker.findChild<QToolButton *>(QStringLiteral("savePickerWindowSize"));
+        QVERIFY(resize && resize->isVisible());
+        resize->click();
+        QTRY_VERIFY(picker.isMaximized());
+        resize->click();
+        QTRY_VERIFY(!picker.isMaximized());
+        QTRY_VERIFY(companion.options().autoQuality >= 0);
+        companion.setFormat("png");
+        QCOMPARE(companion.options().format, QByteArray("png"));
+        QVERIFY(!companion.isWindow());
+        QTest::keyClick(&companion, Qt::Key_Escape);
+        QVERIFY(!picker.isVisible());
+        QCOMPARE(picker.result(), int(QDialog::Rejected));
+        companion.endSession();
+        QCOMPARE(panel->widget()->layout()->count(), 0);
+        QCOMPARE(companion.parentWidget(), &owner);
+        QVERIFY(!companion.isWindow());
+        QCOMPARE(companion.internalWinId(), WId(0));
+    }
 }
 void SavingTests::companionRefreshesTargetAfterMetadataChange() {
     ix::CodecRegistry registry;

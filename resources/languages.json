@@ -90,6 +90,7 @@
 ["Aktionssuche neben dem Über-üxzView-Symbol anzeigen", "Show action search next to About üxzView", "üxzView 정보 아이콘 옆에 기능 검색 표시", "üxzView情報の横に操作検索を表示", "Afficher la recherche d’actions près d’À propos"],
 ["Symbolgröße:", "Icon size:", "아이콘 크기:", "アイコンのサイズ:", "Taille des icônes :"],
 ["Beschriftungen unter den Symbolen anzeigen", "Show labels below icons", "아이콘 아래에 설명 표시", "アイコンの下にラベルを表示", "Afficher les libellés sous les icônes"],
+["Fenstergröße umschalten", "Toggle window size", "창 크기 전환", "ウィンドウサイズを切り替え", "Basculer la taille de la fenêtre"],
 ["Fenstergröße und Position merken", "Remember window size and position", "창 크기 및 위치 기억", "ウィンドウのサイズと位置を記憶", "Mémoriser la taille et la position de la fenêtre"],
 ["Die Kontursymbole passen sich an die Systemfarben an. Tooltips nennen die Aktion und verfügbare Tastenkürzel.", "Icons follow system colors. Tooltips describe actions and available shortcuts.", "아이콘은 시스템 색상을 따릅니다. 도구 설명에 기능과 단축키가 표시됩니다.", "アイコンはシステムの配色に従います。ツールチップには操作とショートカットを表示します。", "Les icônes suivent les couleurs du système. Les infobulles indiquent les actions et raccourcis."],
 ["Nachbarbilder unter dem aktuellen Bild anzeigen", "Show neighboring images below the current image", "현재 이미지 아래에 이전 및 다음 이미지 표시", "現在の画像の下に前後の画像を表示", "Afficher les images voisines sous l’image actuelle"],

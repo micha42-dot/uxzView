@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-// Companion window next to the Save As dialog: compact per-format compression
-// options with quality slider, target file size, metadata choices and named
-// profiles. Non-modal, parented to the native save dialog while a save is in
-// flight. The main window owns one instance across save sessions: building the
-// ~20 widgets costs ~100 ms, so re-creating it per Save As is what felt slow.
+// Save As compression options, hosted beside or inside the file picker.
+// The main window reuses the controls across saves.
 // The native QFileDialog itself stays per-save (a reused one clobbers the
 // typed file name through its asynchronous directory model).
 #include "core/codec_registry.h"
@@ -22,6 +19,7 @@ class QLabel;
 class QProgressBar;
 class QPushButton;
 class QRadioButton;
+class QScrollArea;
 class QSlider;
 class QSpinBox;
 class QTimer;
@@ -36,10 +34,9 @@ class SaveOptionsDialog final : public QDialog {
     // One session = one Save As: hand over the current document/options/profiles
     // and the native chooser. Everything (values, profile list, visibility and
     // the fixed size) is applied with updates frozen, so the first paint is
-    // already complete. Parents the window to the chooser (top-most + usable
-    // while its modal loop runs) and docks it beside the native frame.
+    // already complete. A panel hosts the controls inside a widget file picker.
     void prepare(const ImageDocument &document, SaveOptions options,
-                 const QJsonObject &profiles, QDialog &chooser);
+                 const QJsonObject &profiles, QDialog &chooser, QScrollArea *panel = nullptr);
     // Ends the session: hide, cancel workers, clear the stale auto result and
     // give the window back to its owner so the next save can reuse it.
     void endSession();
@@ -68,6 +65,7 @@ class SaveOptionsDialog final : public QDialog {
     QWidget *const owner_;
     const CodecRegistry registry_;
     QPointer<QDialog> chooser_;
+    QScrollArea *panel_ = nullptr;
     ImageDocument document_;
     SaveOptions options_;
     QJsonObject profiles_;

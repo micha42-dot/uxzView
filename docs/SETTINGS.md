@@ -164,8 +164,10 @@ format limits in [large images](LARGE_IMAGES.md).
 
 ## Kompressionsoptionen beim Speichern
 
-**Datei → Speichern unter** öffnet den nativen Dateidialog. Das Fenster für
-Kompressionsoptionen erscheint daneben oder an der zuletzt gewählten Position.
+**Datei → Speichern unter** zeigt unter Wayland die Kompressionsoptionen im
+Dateidialog. Über die Schaltfläche oben rechts lässt sich die Fenstergröße
+umschalten. Auf den anderen Plattformen erscheint das Fenster für
+Kompressionsoptionen neben dem nativen Dateidialog oder an der zuletzt gewählten Position.
 Unter **Einstellungen → Speichern** lässt es sich ausblenden. Dann gelten die gespeicherten
 Einstellungen des Ausgabeformats. Eine Kopie in einem anderen Ordner lässt das
 ursprüngliche Bild geöffnet und behält dessen Ordner für die Navigation bei.
