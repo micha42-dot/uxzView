@@ -514,18 +514,33 @@ void SavingTests::embeddedCompressionSharesSaveWindow() {
         QTRY_VERIFY(companion.isVisible());
         const auto *browser = picker.findChild<QSplitter *>(QStringLiteral("splitter"));
         QVERIFY(browser);
+        // Alignment, not pixel identity. Qt only aligns two widgets exactly
+        // when the style gives them the same frame and vertical metrics; on
+        // macOS the splitter and the spin box/combo pair sit a pixel or two
+        // apart. A real layout break (wrong grid row, collapsed panel, panel
+        // above the browser) is off by far more than this, so the tolerance
+        // keeps the assertion meaningful instead of style-sensitive.
+        const auto aligned = [](int a, int b) { return qAbs(a - b) <= 3; };
         const QRect browserBounds(browser->mapTo(&picker, QPoint{}), browser->size());
         const QRect panelBounds(panel->mapTo(&picker, QPoint{}), panel->size());
-        QCOMPARE(panelBounds.top(), browserBounds.top());
-        QCOMPARE(panelBounds.bottom(), browserBounds.bottom());
+        QVERIFY2(aligned(panelBounds.top(), browserBounds.top()),
+                 qPrintable(QStringLiteral("panel top %1 vs browser top %2")
+                                .arg(panelBounds.top()).arg(browserBounds.top())));
+        QVERIFY2(aligned(panelBounds.bottom(), browserBounds.bottom()),
+                 qPrintable(QStringLiteral("panel bottom %1 vs browser bottom %2")
+                                .arg(panelBounds.bottom()).arg(browserBounds.bottom())));
         QVERIFY(panelBounds.left() > browserBounds.right());
         const auto *targetToggle = companion.findChild<QCheckBox *>(QStringLiteral("compressionTargetEnabled"));
         const auto *targetValue = companion.findChild<QDoubleSpinBox *>(QStringLiteral("compressionTargetValue"));
         const auto *targetUnit = companion.findChild<QComboBox *>(QStringLiteral("compressionTargetUnit"));
         QVERIFY(targetToggle && targetValue && targetUnit);
-        QCOMPARE(targetValue->geometry().top(), targetUnit->geometry().top());
+        QVERIFY2(aligned(targetValue->geometry().top(), targetUnit->geometry().top()),
+                 qPrintable(QStringLiteral("value top %1 vs unit top %2")
+                                .arg(targetValue->geometry().top()).arg(targetUnit->geometry().top())));
         QVERIFY(targetValue->geometry().top() > targetToggle->geometry().bottom());
-        QCOMPARE(targetValue->geometry().left(), targetToggle->geometry().left());
+        QVERIFY2(aligned(targetValue->geometry().left(), targetToggle->geometry().left()),
+                 qPrintable(QStringLiteral("value left %1 vs toggle left %2")
+                                .arg(targetValue->geometry().left()).arg(targetToggle->geometry().left())));
         auto *resize = picker.findChild<QToolButton *>(QStringLiteral("savePickerWindowSize"));
         QVERIFY(resize && resize->isVisible());
         resize->click();
