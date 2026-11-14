@@ -189,6 +189,7 @@ int main(int argc, char **argv) {
     // Process-wide collation stays fixed once workers exist. Interface widgets
     // use their own locale for subsequent live language changes.
     QLocale::setDefault(ix::uiLocale());
+#ifndef Q_OS_WIN
     // The command-line image can be decoded while the window is still being
     // built. The open below then joins that decode instead of reading and
     // decoding the same file twice. Started after the language check because
@@ -199,6 +200,7 @@ int main(int argc, char **argv) {
     // Joined on every exit path below, including a failing window constructor: a
     // speculative decode must not outlive the caches and plugins it writes into.
     const auto joinPrewarm = qScopeGuard([] { ix::finishPrewarm(); });
+#endif
     ix::applyInterfaceLanguage(language);
     startupStage("language");
     ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
@@ -210,6 +212,9 @@ int main(int argc, char **argv) {
     };
     window.show();
     startupStage("show-window");
+    // On Windows the first image reader can hold Qt's global factory lock
+    // while scanning format DLLs. Show the window and its icons before the
+    // command-line open starts that scan.
     if (!parser.positionalArguments().isEmpty())
         window.openPath(parser.positionalArguments().first());
     startupStage("open-request");

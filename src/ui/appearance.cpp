@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "appearance.h"
+#include "icons.h"
 #include "platform_support.h"
 #include <QApplication>
 #include <QEvent>
@@ -24,6 +25,22 @@ class MenuCheckmarkStyle final : public QProxyStyle {
   public:
     explicit MenuCheckmarkStyle(QStyle *base) : QProxyStyle(base) {
         setObjectName(QStringLiteral("fusion"));
+    }
+    QIcon standardIcon(StandardPixmap icon, const QStyleOption *option,
+                       const QWidget *widget) const override {
+        if (icon != SP_ToolBarHorizontalExtensionButton && icon != SP_ToolBarVerticalExtensionButton &&
+            (icon != SP_LineEditClearButton || !widget || widget->objectName() != QStringLiteral("actionSearch")))
+            return QProxyStyle::standardIcon(icon, option, widget);
+        // The default resource PNGs initialize Qt's image format loader
+        // while the menu bar, toolbar or command search are being constructed.
+        if (icon == SP_LineEditClearButton)
+            return uiIcon(QStringLiteral("clear-text"));
+        if (icon == SP_ToolBarVerticalExtensionButton)
+            return uiIcon(QStringLiteral("overflow-down"));
+        const auto direction = option ? option->direction
+                                      : widget ? widget->layoutDirection() : QApplication::layoutDirection();
+        return uiIcon(direction == Qt::RightToLeft ? QStringLiteral("overflow-left")
+                                                   : QStringLiteral("overflow-right"));
     }
     void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter,
                      const QWidget *widget = nullptr) const override {

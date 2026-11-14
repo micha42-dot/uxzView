@@ -73,6 +73,27 @@ Logs can contain local filenames from decoder errors; review them before sharing
 No antivirus exclusions, system cache flushing or security-setting changes are
 part of these measurements.
 
+### Qt plugin discovery during Windows startup
+
+A later native Windows trace reproduced a 2.30-second launch from a test PNG.
+The background image reader spent about 1.04 seconds scanning format-plugin
+metadata. The GUI theme stage took 1.05 seconds, and its first icon-engine
+lookup began as the format scan ended. Qt takes the same factory-wide mutex
+while discovering both plugin groups. Its default PNG icons for the menu and
+toolbar overflow buttons and the command search clear button can also start a
+format scan on the GUI thread. [Qt factory loader](https://github.com/qt/qtbase/blob/v6.11.1/src/corelib/plugin/qfactoryloader.cpp) · [Qt standard icons](https://github.com/qt/qtbase/blob/v6.11.1/src/widgets/styles/qcommonstyle.cpp)
+
+Windows now submits the initial file through the main window's asynchronous
+open after showing the window. The startup controls use the existing vector
+icon renderer. In nine fresh Windows 11 processes with command search enabled,
+PNG and JPEG both opened and the first format scan followed window display.
+Empty launches performed no format scan during observation. Windows native
+window display still varied by several hundred milliseconds in some runs.
+
+For thread-level plugin timing, additionally set `QT_DEBUG_PLUGINS=1` and
+`QT_MESSAGE_PATTERN=[%{time process} %{threadid}] %{message}` for the diagnostic
+launch. The Qt plugin trace can include absolute paths.
+
 ## Controlled measurements and focused checks
 
 Windows 11, Core i5-10210U, approximately 16 GiB RAM, Release GCC 16.2 and

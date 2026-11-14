@@ -230,6 +230,35 @@ class UiQualityTests : public QObject {
         QCOMPARE(window.windowIcon().pixmap(250,250).toImage(),
             QIcon(dark ? QStringLiteral(":/ixview-dark.svg") : QStringLiteral(":/ixview-light.svg")).pixmap(250,250).toImage());
     }
+    void startupControlIconsFollowTheme() {
+        const auto restore = qScopeGuard([] {
+            ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
+        });
+        ix::applyInterfaceTheme(QStringLiteral("light"));
+        QLineEdit search;
+        search.setObjectName(QStringLiteral("actionSearch"));
+        search.setClearButtonEnabled(true);
+        const auto testIcons = [&] {
+            const auto *style = search.style();
+            return QList<QIcon>{
+                style->standardIcon(QStyle::SP_ToolBarHorizontalExtensionButton),
+                style->standardIcon(QStyle::SP_ToolBarVerticalExtensionButton),
+                style->standardIcon(QStyle::SP_LineEditClearButton, nullptr, &search)};
+        }();
+        const auto render = [](const QIcon &icon) { return icon.pixmap(QSize(16, 16)).toImage(); };
+        QList<QImage> light;
+        for (const auto &icon : testIcons) {
+            light.append(render(icon));
+            QVERIFY(!light.last().isNull());
+        }
+        ix::applyInterfaceTheme(QStringLiteral("dark"));
+        for (qsizetype i = 0; i < testIcons.size(); ++i) {
+            const auto dark = render(testIcons[i]);
+            QVERIFY(!dark.isNull());
+            QVERIFY(dark != light[i]);
+        }
+        QVERIFY(search.isClearButtonEnabled());
+    }
     void blackEntryCanLeaveFullscreen() {
         QSettings settings; QVariantMap previous;
         for (const auto &key : settings.allKeys()) previous.insert(key, settings.value(key));

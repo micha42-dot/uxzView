@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "icons.h"
+#include <QGuiApplication>
 #include <QIconEngine>
 #include <QMap>
 #include <QPainter>
 #include <QPixmapCache>
 #include <QSvgRenderer>
+#include <optional>
 namespace ix {
 namespace {
 const QMap<QString, QString> &artwork() {
@@ -50,6 +52,10 @@ const QMap<QString, QString> &artwork() {
          QStringLiteral("<circle cx='10.5' cy='10.5' r='6.5'/><path d='m15.2 15.2 5.3 5.3M7.5 10.5h6'/>")},
         {QStringLiteral("previous-image"), QStringLiteral("<path d='m14.5 6.5-5.5 5.5 5.5 5.5'/>")},
         {QStringLiteral("next-image"), QStringLiteral("<path d='m9.5 6.5 5.5 5.5-5.5 5.5'/>")},
+        {QStringLiteral("overflow-right"), QStringLiteral("<path d='m6 6 6 6-6 6m6-12 6 6-6 6'/>")},
+        {QStringLiteral("overflow-left"), QStringLiteral("<path d='m18 6-6 6 6 6m-6-12-6 6 6 6'/>")},
+        {QStringLiteral("overflow-down"), QStringLiteral("<path d='m6 6 6 6 6-6m-12 6 6 6 6-6'/>")},
+        {QStringLiteral("clear-text"), QStringLiteral("<path d='m7 7 10 10M17 7 7 17'/>")},
         {QStringLiteral("previous-page"),
          QStringLiteral("<path d='M14.5 3.5H6A1.5 1.5 0 0 0 4.5 5v14A1.5 1.5 0 0 0 6 20.5h12"
                         "a1.5 1.5 0 0 0 1.5-1.5V8.5l-5-5v5h5M13.5 12l-3 3 3 3'/>")},
@@ -69,7 +75,8 @@ const QMap<QString, QString> &artwork() {
 }
 class OutlineEngine final : public QIconEngine {
   public:
-    OutlineEngine(QString name, QPalette palette) : name_(std::move(name)), palette_(std::move(palette)) {}
+    OutlineEngine(QString name, std::optional<QPalette> palette)
+        : name_(std::move(name)), palette_(std::move(palette)) {}
     QIconEngine *clone() const override {
         return new OutlineEngine(name_, palette_);
     }
@@ -84,8 +91,9 @@ class OutlineEngine final : public QIconEngine {
     QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State, qreal scale) override {
         if (size.isEmpty() || scale <= 0)
             return {};
-        const auto color = palette_.color(mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active,
-                                          QPalette::WindowText);
+        const auto palette = palette_ ? *palette_ : QGuiApplication::palette();
+        const auto color = palette.color(mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active,
+                                         QPalette::WindowText);
         auto cacheKey = QStringLiteral("ix-outline-v5/%1/%2/%3/%4/%5")
                             .arg(name_, color.name(QColor::HexArgb))
                             .arg(size.width())
@@ -117,11 +125,14 @@ class OutlineEngine final : public QIconEngine {
 
   private:
     QString name_;
-    QPalette palette_;
+    std::optional<QPalette> palette_;
 };
 } // namespace
 QIcon uiIcon(const QString &name, const QPalette &palette) {
     return artwork().contains(name) ? QIcon(new OutlineEngine(name, palette)) : QIcon();
+}
+QIcon uiIcon(const QString &name) {
+    return artwork().contains(name) ? QIcon(new OutlineEngine(name, std::nullopt)) : QIcon();
 }
 QStringList uiIconNames() {
     return artwork().keys();

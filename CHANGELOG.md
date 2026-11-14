@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- On Windows, show the main window before decoding a command-line image so
+  Qt's initial format-plugin scan cannot block the theme setup. Use vector
+  icons for the overflow and command search controls during window construction.
+
 - Copy, move, rename and trash check the revision of the open image before
   operating on its file. If another program replaced it, üxzView asks for a reload.
 - PNG compression levels now control the encoder. Lossy WebP uses quality 0–99,
