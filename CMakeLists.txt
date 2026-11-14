@@ -218,6 +218,7 @@ if(BUILD_TESTING)
         IX_WORKFLOW_OUTPUT="${CMAKE_CURRENT_SOURCE_DIR}/tests/output"
         IX_WORKFLOW_RAW_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/build/quality-fixtures")
     add_test(NAME ixview_workflow_tests COMMAND ixview_workflow_tests -v1 -platform offscreen
+        -o -,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/workflow-test-results.txt,txt
         -o ${CMAKE_CURRENT_BINARY_DIR}/workflow-test-results.xml,junitxml)
     qt_add_executable(ixview_quality_tests tests/quality_ixview.cpp resources/app.qrc)

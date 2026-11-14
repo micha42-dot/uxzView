@@ -3195,6 +3195,8 @@ class WorkflowTests : public QObject {
         bool replaced = deleting && replaceSource();
         if (deleting) QVERIFY(replaced);
         bool handled = false;
+        bool directoryAccepted = false;
+        QStringList selectedDirectories;
         QString warning;
         QTimer timer;
         connect(&timer, &QTimer::timeout, &window, [&] {
@@ -3215,10 +3217,22 @@ class WorkflowTests : public QObject {
                     dialog->accept();
                 } else if (auto *dialog = qobject_cast<QFileDialog *>(modal)) {
                     handled = true;
+                    // Qt 6.8 selectFile() skips the focused filename editor
+                    // in a visible dialog. Enter the directory as a user would.
+                    auto *editor = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+                    if (!editor) {
+                        dialog->reject();
+                        return;
+                    }
+                    editor->setText(destination);
+                    selectedDirectories = dialog->selectedFiles();
+                    if (selectedDirectories != QStringList{destination}) {
+                        dialog->reject();
+                        return;
+                    }
                     replaced = replaceSource();
-                    dialog->setDirectory(destination);
-                    dialog->selectFile(destination);
-                    QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+                    connect(dialog, &QDialog::accepted, &window, [&] { directoryAccepted = true; });
+                    QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
                 }
             }
         });
@@ -3233,6 +3247,10 @@ class WorkflowTests : public QObject {
         window.dispatch(command);
         timer.stop();
         QVERIFY(handled);
+        if (command == QStringLiteral("fileCopy") || command == QStringLiteral("move")) {
+            QCOMPARE(selectedDirectories, QStringList{destination});
+            QVERIFY(directoryAccepted);
+        }
         QVERIFY(replaced);
         QCOMPARE(warning, ix::localized(QStringLiteral("Die Datei wurde während des Lesens verändert. Bitte erneut öffnen.")));
         QVERIFY(!QFileInfo::exists(target));
