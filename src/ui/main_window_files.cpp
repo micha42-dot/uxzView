@@ -312,13 +312,16 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     }
     const auto format = target.format.id;
     auto registry = registry_;
-    // Ask mode: resolve transparency handling with the user before encoding.
-    // White flattens (legacy default), Keep preserves pixels for formats
-    // that store alpha; either choice is then applied silently.
-    // The scan short-circuits on format first, so the (sampled, cheap) pixel
-    // check only runs when it can matter.
-    if (saveOptions.alphaMode == SaveOptions::AlphaMode::Ask &&
-        format != "jpeg" && !alphaWritable(format) && imageHasRealTransparency(output.pixels)) {
+    const bool warnLosses = settings.value(QStringLiteral("save/warnLosses"), true).toBool();
+    const bool askAlpha = saveOptions.alphaMode == SaveOptions::AlphaMode::Ask && format != "jpeg";
+    bool hasTransparency = false;
+    if ((askAlpha || warnLosses) && !alphaWritable(format) && output.pixels.hasAlphaChannel()) {
+        // A fully opaque alpha channel may require reading all pixels.
+        hasTransparency = output.pixels.sizeInBytes() >= 16 * MiB
+            ? runGuiWorker([pixels = output.pixels] { return imageHasRealTransparency(pixels); })
+            : imageHasRealTransparency(output.pixels);
+    }
+    if (askAlpha && hasTransparency) {
         QMessageBox ask(this);
         ask.setWindowTitle(IX_TEXT("Transparenz"));
         ask.setText(IX_TEXT("Das Bild enthält Transparenz, die dieses Format nicht speichern kann."));
@@ -334,7 +337,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         saveOptions.alphaMode = clicked == whiteButton ? SaveOptions::AlphaMode::White
                                                        : SaveOptions::AlphaMode::Keep;
         saveOptions.autoQuality = -1;
-        storeSaveOptions(saveOptions);
     }
     const bool targetSize = saveOptions.targetSizeEnabled && saveCapabilities(format).targetSize;
     if (!targetSize)
@@ -345,10 +347,8 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         QFileInfo(targetPath).dir() == QFileInfo(document_.path).dir());
     // Losses the user explicitly opted out of (deselected metadata) are not
     // warned about; the global switch still suppresses everything.
-    auto losses = CodecRegistry::exportLosses(output, format, &encode);
-    const QSettings lossSettings;
-    if (!lossSettings.value(QStringLiteral("save/warnLosses"), true).toBool())
-        losses.clear();
+    const auto losses = warnLosses ? CodecRegistry::exportLosses(output, format, &encode, hasTransparency)
+                                   : QStringList();
     if (!losses.isEmpty() &&
         QMessageBox::warning(this, IX_TEXT("Hinweise zum Ausgabeformat"),
                              losses.join(QStringLiteral("\n\n")) + IX_TEXT("\n\nTrotzdem speichern?"),
@@ -436,9 +436,9 @@ void MainWindow::fileOperation(const QString &op) {
         activity_.finish();
         refreshState();
     });
-    QString source = document_.path;
+    const auto source = document_.path;
+    const auto revision = document_.sourceRevision.isEmpty() ? imageFileKey(source) : document_.sourceRevision;
     if (op == QStringLiteral("delete")) {
-        const auto revision = imageFileKey(source);
         if (QMessageBox::question(
                 this, IX_TEXT("Löschen"),
                 IX_TEXT("Datei in den Papierkorb des Betriebssystems verschieben?\n%1").arg(source)) !=
@@ -539,12 +539,12 @@ void MainWindow::fileOperation(const QString &op) {
     struct FileResult { FileOperations::OperationResult operation; bool sourceUnchanged; SourceFileState target; };
     QFutureWatcher<FileResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QDialog::accept);
-    const auto revision = document_.sourceRevision;
     watcher.setFuture(QtConcurrent::run([=] {
         // Check after the chooser/name dialog and after worker scheduling.
         // Another editor may have changed the source while the dialog was open.
         auto operation = FileOperations().perform(
-            op == QStringLiteral("fileCopy") ? QStringLiteral("copy") : QStringLiteral("move"), source, target);
+            op == QStringLiteral("fileCopy") ? QStringLiteral("copy") : QStringLiteral("move"),
+            source, target, revision);
         FileResult result{operation, false, {}};
         if (operation.applied && op != QStringLiteral("fileCopy")) {
             result.target = observeSource(target);

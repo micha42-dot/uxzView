@@ -172,8 +172,8 @@ Unter **Einstellungen → Speichern** lässt es sich ausblenden. Dann gelten die
 Einstellungen des Ausgabeformats. Eine Kopie in einem anderen Ordner lässt das
 ursprüngliche Bild geöffnet und behält dessen Ordner für die Navigation bei.
 
-- **Qualität** lässt sich für JPEG, WebP und AVIF/HEIF von 0 bis 100 einstellen.
-  PNG bietet eine verlustfreie Kompressionsstufe von 0 bis 9.
+- **Qualität** reicht bei JPEG und AVIF/HEIF von 0 bis 100, bei verlustbehaftetem
+  WebP von 0 bis 99. PNG bietet eine verlustfreie Kompressionsstufe von 0 bis 9.
 - **Zieldateigröße** ermittelt über den Exportpfad die höchste passende
   Qualität unter den getesteten Stufen. Falls die Suche keine passende Stufe
   findet, speichert sie mit Qualität 1. Im verlustfreien Modus bleibt die

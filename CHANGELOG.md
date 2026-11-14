@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Copy, move, rename and trash check the revision of the open image before
+  operating on its file. If another program replaced it, üxzView asks for a reload.
+- PNG compression levels now control the encoder. Lossy WebP uses quality 0–99,
+  and the lossless switch selects lossless encoding. Export checks inspect every
+  alpha sample and run large scans in a worker. Omitting ICC no longer copies the
+  entire source buffer.
+- Delay stale swap-file cleanup until the main window has been shown. Add a Linux
+  CI check for the embedded save options under a Wayland compositor.
+
 - Saving into another directory is now an export instead of a move: the edited
   original stays the open document and keeps its working directory, so the next
   Ctrl+S writes the original again (IrfanView behaviour). Only a save inside the
@@ -13,9 +22,8 @@
   („Kompressionsoptionen beim Speichern anzeigen", default on). Unreachable
   target sizes save the smallest reachable file (quality 1, IrfanView-style)
   instead of failing; aggressive targets no longer crash (memory guards +
-  exception barriers in the size probes). Lossless/effort options are honored
-  by both the optimizer and the encoder; GIF interlaced stays a no-op (Qt
-  offers no switch). Save-open is faster (cached filters/options/profiles,
+  exception barriers in the size probes). The optimizer uses the same encoder
+  settings as the final export. Save-open is faster (cached filters/options/profiles,
   single settings batch, one persist per save).
 
 - Add a compression companion next to the native Save As dialog (compact tool

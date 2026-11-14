@@ -3162,34 +3162,84 @@ class WorkflowTests : public QObject {
         QTRY_VERIFY(!window.isBusy() && !window.document().modified);
         QVERIFY(window.close());
     }
-    void renameRechecksSourceAfterDialog() {
-        const auto path = photo(QStringLiteral("rename/before.png"), Qt::red);
-        const auto target = temporary_.filePath(QStringLiteral("rename/after.png"));
+    void fileOperationsRejectEditedSource_data() {
+        QTest::addColumn<QString>("command");
+        for (const auto *command : {"delete", "rename", "fileCopy", "move"})
+            QTest::newRow(command) << QString::fromLatin1(command);
+    }
+    void fileOperationsRejectEditedSource() {
+        QFETCH(QString, command);
+        const auto native = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        const auto restoreNative = qScopeGuard([native] {
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native);
+        });
+        const auto folder = temporary_.filePath(command);
+        const auto path = photo(command + QStringLiteral("/before.png"), Qt::red);
+        const auto destination = QDir(folder).filePath(QStringLiteral("destination"));
+        QVERIFY(QDir().mkdir(destination));
+        const auto target = command == QStringLiteral("rename")
+            ? QDir(folder).filePath(QStringLiteral("after.png"))
+            : QDir(destination).filePath(QStringLiteral("before.png"));
         ix::MainWindow window(nullptr, temporary_.filePath(QStringLiteral("journal")));
         window.openPath(path);
         QTRY_VERIFY(!window.isBusy() && window.document().path == path);
-        bool handled = false;
-        QTimer timer;
-        connect(&timer, &QTimer::timeout, &window, [&] {
-            auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
-            if (!dialog || handled) return;
-            handled = true;
+        const auto revision = window.document().sourceRevision;
+        QVERIFY(!revision.isEmpty());
+        const auto replaceSource = [&] {
             QImage changed(113, 71, QImage::Format_RGB32);
             changed.fill(Qt::blue);
-            QVERIFY(changed.save(path));
-            dialog->setTextValue(QStringLiteral("after.png"));
-            dialog->accept();
+            return changed.save(path);
+        };
+        const bool deleting = command == QStringLiteral("delete");
+        bool replaced = deleting && replaceSource();
+        if (deleting) QVERIFY(replaced);
+        bool handled = false;
+        QString warning;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &window, [&] {
+            auto *modal = QApplication::activeModalWidget();
+            if (auto *box = qobject_cast<QMessageBox *>(modal)) {
+                if (deleting && !handled && box->button(QMessageBox::Yes)) {
+                    handled = true;
+                    box->button(QMessageBox::Yes)->click();
+                } else {
+                    warning = box->text();
+                    box->reject();
+                }
+            } else if (!handled) {
+                if (auto *dialog = qobject_cast<QInputDialog *>(modal)) {
+                    handled = true;
+                    replaced = replaceSource();
+                    dialog->setTextValue(QStringLiteral("after.png"));
+                    dialog->accept();
+                } else if (auto *dialog = qobject_cast<QFileDialog *>(modal)) {
+                    handled = true;
+                    replaced = replaceSource();
+                    dialog->setDirectory(destination);
+                    dialog->selectFile(destination);
+                    QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection);
+                }
+            }
         });
         timer.start(10);
-        window.dispatch(QStringLiteral("rename"));
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        connect(&timeout, &QTimer::timeout, &window, [] {
+            if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+                dialog->reject();
+        });
+        timeout.start(5000);
+        window.dispatch(command);
         timer.stop();
         QVERIFY(handled);
-        QTRY_VERIFY(!window.isBusy() && window.document().path == target);
-        QTRY_COMPARE(window.document().pixels.size(), QSize(113, 71));
-        QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::blue));
-        QCOMPARE(window.document().sourceRevision, ix::imageFileKey(target));
-        QCOMPARE(window.document().sourceModified, QFileInfo(target).lastModified());
-        QVERIFY(!window.document().modified);
+        QVERIFY(replaced);
+        QCOMPARE(warning, ix::localized(QStringLiteral("Die Datei wurde während des Lesens verändert. Bitte erneut öffnen.")));
+        QVERIFY(!QFileInfo::exists(target));
+        QCOMPARE(QImage(path).pixelColor(0, 0), QColor(Qt::blue));
+        QCOMPARE(window.document().path, path);
+        QCOMPARE(window.document().pixels.pixelColor(0, 0), QColor(Qt::red));
+        QCOMPARE(window.document().sourceRevision, revision);
     }
     void exportKeepsPixelsProfileAndExistingFileOnFailure() {
         ix::ImageDocument document;

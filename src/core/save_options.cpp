@@ -64,10 +64,6 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
         caps.quality = true;
         caps.defaultQuality = 95;
         caps.lossless = true;
-        caps.effort = true;
-        caps.minEffort = 0;
-        caps.maxEffort = 100;
-        caps.defaultEffort = 50;
         caps.targetSize = true;
         caps.metadataIcc = true;
     } else if (format == "avif" || format == "heif" || format == "heic") {
@@ -249,7 +245,8 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
 
     // Encoded size can dip as quality increases. Check the next few levels
     // after the binary search and reuse sizes already measured there.
-    int low = 1, high = 100, best = 0;
+    const int maxQuality = maxLossyQuality(options.format);
+    int low = 1, high = maxQuality, best = 0;
     qint64 bestBytes = -1;
     while (low <= high) {
         const int quality = (low + high) / 2;
@@ -264,7 +261,7 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
             high = quality - 1;
         }
     }
-    const int upper = std::min(100, best + 5);
+    const int upper = std::min(maxQuality, best + 5);
     for (int quality = best + 1; quality <= upper; ++quality) {
         const auto bytes = measure(quality);
         if (bytes < 0)

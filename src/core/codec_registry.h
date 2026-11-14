@@ -9,6 +9,9 @@ class QIODevice;
 namespace ix {
 bool isRawFormat(const QByteArray &format);
 bool alphaWritable(const QByteArray &format);
+inline int maxLossyQuality(const QByteArray &format) {
+    return format == "webp" ? 99 : 100;
+}
 struct FormatCapability {
     QString name;
     QStringList extensions;
@@ -45,7 +48,7 @@ class CodecRegistry {
                                     // saveWithOptions).
         bool lossless = false;      // Quality 100 on capable writers (WebP/AVIF/JXL).
         int effort = 50;            // Mapped to QImageWriter compression where supported.
-        int compressionLevel = -1;  // PNG 0-9 mapped to writer quality; -1 keeps default.
+        int compressionLevel = -1;  // Explicit PNG level 0–9; -1 uses the generic effort setting.
         bool keepExif = true, keepIptc = true, keepXmp = true, keepIcc = true;
         // PNG->JPEG alpha handling: White flattens onto white (legacy default),
         // Keep preserves the pixels for encoders that store alpha. Ask is
@@ -83,8 +86,10 @@ class CodecRegistry {
     static bool canWrite(const QByteArray &format);
     // encode == nullptr: warn about every loss (legacy callers, batch review).
     // With options: types the user explicitly deselected are not warned about.
+    // transparency can reuse an exact scan of this document's pixels.
     static QStringList exportLosses(const ImageDocument &document, const QByteArray &format,
-                                    const EncodeOptions *encode = nullptr);
+                                    const EncodeOptions *encode = nullptr,
+                                    std::optional<bool> transparency = std::nullopt);
 
   private:
     QList<std::shared_ptr<ImageCodec>> codecs_;

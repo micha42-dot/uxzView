@@ -378,9 +378,11 @@ class SavingTests : public QObject {
         } else { QCOMPARE(window.document().path,source);QVERIFY(window.document().modified); }
     }
     void compressionOptionsAffectOutput();
+    void pngCompressionLevelsChangeEncodedSize();
     void targetSizeOptimizationRespectsBudget_data();
     void targetSizeOptimizationRespectsBudget();
     void companionWarmupKeepsWaylandWindowUncreated();
+    void waylandSaveOpensOneResizableWindow();
     void embeddedCompressionSharesSaveWindow();
     void companionRefreshesTargetAfterMetadataChange();
     void companionProfilesFitBeforeFirstShow_data();
@@ -388,6 +390,8 @@ class SavingTests : public QObject {
     void compressionProfilesRoundTrip();
     void perTypeMetadataMaskingDropsOnlyDeselected();
     void alphaModeControlsFlattening();
+    void transparencyDetectionUsesEveryNativeAlphaSample();
+    void exportWithoutIccPreservesPaletteAndProperties();
     void jpegFilterMatchesCanonicalFormat();
 };
 void SavingTests::compressionOptionsAffectOutput() {
@@ -410,14 +414,32 @@ void SavingTests::compressionOptionsAffectOutput() {
     QVERIFY(!lowBytes.isEmpty() && !highBytes.isEmpty());
     QVERIFY2(lowBytes.size() < highBytes.size(),
              qPrintable(QStringLiteral("%1 vs %2").arg(lowBytes.size()).arg(highBytes.size())));
+
+    ix::CodecRegistry::EncodeOptions maximum;
+    maximum.quality = 100;
+    QVERIFY(!ix::saveCapabilities(format).effort);
+    QVERIFY(registry.saveWithOptions(document, highPath, format, maximum, true).isEmpty());
+    QVERIFY(contents(highPath).contains("VP8 "));
+    maximum.lossless = true;
+    QVERIFY(registry.saveWithOptions(document, highPath, format, maximum, true).isEmpty());
+    QVERIFY(contents(highPath).contains("VP8L"));
+    QVERIFY(registry.save(document, highPath, {}, 100, true).isEmpty());
+    QVERIFY(contents(highPath).contains("VP8L"));
+}
+void SavingTests::pngCompressionLevelsChangeEncodedSize() {
+    ix::ImageDocument document;
+    document.pixels = sample();
+    ix::CodecRegistry registry;
     const auto flat = temp_.filePath(QStringLiteral("level-fast.png"));
     const auto tight = temp_.filePath(QStringLiteral("level-best.png"));
     ix::CodecRegistry::EncodeOptions fast, best;
-    fast.compressionLevel = 1;
+    fast.compressionLevel = 0;
     best.compressionLevel = 9;
     QVERIFY(registry.saveWithOptions(document, flat, "png", fast, true).isEmpty());
     QVERIFY(registry.saveWithOptions(document, tight, "png", best, true).isEmpty());
-    QVERIFY(QImageReader(flat).canRead() && QImageReader(tight).canRead());
+    QVERIFY(QFileInfo(flat).size() > QFileInfo(tight).size());
+    QCOMPARE(QImage(flat), document.pixels);
+    QCOMPARE(QImage(tight), document.pixels);
 }
 void SavingTests::targetSizeOptimizationRespectsBudget_data() {
     QTest::addColumn<QByteArray>("format");
@@ -488,6 +510,40 @@ void SavingTests::companionWarmupKeepsWaylandWindowUncreated() {
     QVERIFY(!companion->isVisible());
     const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
     QCOMPARE(companion->internalWinId() == 0, wayland);
+}
+void SavingTests::waylandSaveOpensOneResizableWindow() {
+    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
+        QSKIP("Requires a Wayland compositor");
+    const auto source = temp_.filePath(QStringLiteral("wayland-source.png"));
+    QVERIFY(sample().save(source));
+    ix::MainWindow window;
+    window.show();
+    window.openPath(source);
+    QTRY_VERIFY(!window.isBusy() && window.document().path == source);
+    QTRY_VERIFY(window.findChild<ix::SaveOptionsDialog *>());
+    auto *companion = window.findChild<ix::SaveOptionsDialog *>();
+    QCOMPARE(companion->internalWinId(), WId(0));
+
+    bool observed = false;
+    bool embedded = false;
+    bool resizable = false;
+    QTimer driver;
+    connect(&driver, &QTimer::timeout, &window, [&] {
+        auto *picker = window.findChild<QFileDialog *>();
+        if (!picker || !picker->isVisible()) return;
+        observed = true;
+        embedded = companion->isVisible() && companion->window() == picker &&
+                   companion->internalWinId() == 0;
+        const auto *resize = picker->findChild<QToolButton *>(QStringLiteral("savePickerWindowSize"));
+        resizable = resize && resize->isVisible() && !picker->isMaximized() && !picker->isFullScreen();
+        picker->reject();
+    });
+    driver.start(20);
+    window.dispatch(QStringLiteral("saveAs"));
+    QVERIFY(observed);
+    QVERIFY(embedded);
+    QVERIFY(resizable);
+    QCOMPARE(window.document().path, source);
 }
 void SavingTests::embeddedCompressionSharesSaveWindow() {
     QWidget owner;
@@ -719,6 +775,12 @@ void SavingTests::alphaModeControlsFlattening() {
     ix::CodecRegistry::EncodeOptions white, keep;
     white.alphaWhite = 1;
     keep.alphaWhite = 0;
+    const auto whiteLosses = ix::CodecRegistry::exportLosses(document, "jpeg", &white);
+    const auto keepLosses = ix::CodecRegistry::exportLosses(document, "jpeg", &keep);
+    QCOMPARE(whiteLosses.size(), 1);
+    QCOMPARE(keepLosses.size(), 1);
+    QVERIFY(whiteLosses.first().startsWith(keepLosses.first()));
+    QVERIFY(whiteLosses.first() != keepLosses.first());
     const auto whitePath = temp_.filePath(QStringLiteral("alpha-white.jpg"));
     const auto keepPath = temp_.filePath(QStringLiteral("alpha-keep.jpg"));
     QVERIFY(registry.saveWithOptions(document, whitePath, "jpeg", white, true).isEmpty());
@@ -731,6 +793,58 @@ void SavingTests::alphaModeControlsFlattening() {
     opaque.pixels = sample();
     QVERIFY(!ix::imageHasRealTransparency(opaque.pixels));
     QVERIFY(ix::CodecRegistry::exportLosses(opaque, "jpeg").isEmpty());
+}
+void SavingTests::transparencyDetectionUsesEveryNativeAlphaSample() {
+    QImage large(4097, 4097, QImage::Format_ARGB32);
+    large.fill(Qt::blue);
+    QVERIFY(!ix::imageHasRealTransparency(large));
+    large.setPixelColor(1, 1, Qt::transparent);
+    QVERIFY(ix::imageHasRealTransparency(large));
+
+    alignas(4) uchar padded[2][64]{};
+    for (auto &line : padded)
+        for (int x = 0; x < 3; ++x)
+            line[x * 4 + 3] = 255;
+    QImage rows(padded[0], 3, 2, sizeof padded[0], QImage::Format_RGBA8888);
+    QVERIFY(!ix::imageHasRealTransparency(rows));
+    padded[1][7] = 254;
+    QVERIFY(ix::imageHasRealTransparency(rows));
+
+    QImage rgba64(1, 1, QImage::Format_RGBA64_Premultiplied);
+    rgba64.fill(Qt::black);
+    QVERIFY(!ix::imageHasRealTransparency(rgba64));
+    reinterpret_cast<QRgba64 *>(rgba64.scanLine(0))[0] = QRgba64::fromRgba64(0, 0, 0, 65534);
+    QVERIFY(ix::imageHasRealTransparency(rgba64));
+}
+void SavingTests::exportWithoutIccPreservesPaletteAndProperties() {
+    ix::ImageDocument document;
+    auto &pixels = document.pixels;
+    pixels = QImage(37, 19, QImage::Format_Indexed8);
+    pixels.setColorTable({qRgb(40, 80, 120), qRgba(220, 50, 10, 190)});
+    pixels.fill(0);
+    pixels.setPixel(5, 8, 1);
+    pixels.setColorSpace(QColorSpace::DisplayP3);
+    pixels.setDotsPerMeterX(11811);
+    pixels.setDotsPerMeterY(5906);
+    pixels.setText(QStringLiteral("Description"), QStringLiteral("Indexed export"));
+    const auto key = pixels.cacheKey();
+    ix::CodecRegistry::EncodeOptions options;
+    options.keepIcc = false;
+    const auto path = temp_.filePath(QStringLiteral("without-profile.png"));
+    const auto failure = ix::CodecRegistry().saveWithOptions(document, path, "png", options, true);
+    QVERIFY2(failure.isEmpty(), qPrintable(failure));
+    const QImage saved(path);
+    QVERIFY(!saved.colorSpace().isValid());
+    QCOMPARE(saved.size(), pixels.size());
+    QCOMPARE(saved.colorTable(), pixels.colorTable());
+    for (int y = 0; y < pixels.height(); ++y)
+        for (int x = 0; x < pixels.width(); ++x)
+            QCOMPARE(saved.pixelIndex(x, y), pixels.pixelIndex(x, y));
+    QCOMPARE(saved.dotsPerMeterX(), pixels.dotsPerMeterX());
+    QCOMPARE(saved.dotsPerMeterY(), pixels.dotsPerMeterY());
+    QCOMPARE(saved.text(QStringLiteral("Description")), pixels.text(QStringLiteral("Description")));
+    QCOMPARE(pixels.colorSpace(), QColorSpace(QColorSpace::DisplayP3));
+    QCOMPARE(pixels.cacheKey(), key);
 }
 void SavingTests::jpegFilterMatchesCanonicalFormat() {
     // A JFIF-labeled filter (as advertised by some Qt builds) must resolve

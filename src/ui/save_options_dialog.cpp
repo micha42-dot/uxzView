@@ -555,6 +555,8 @@ void SaveOptionsDialog::rebuild() {
     const QSignalBlocker blockEffortSpin(effortSpin_);
     const auto formatName = QString::fromLatin1(options_.format).toUpper();
     title_->setText(panel_ ? formatName : formatName + IX_TEXT("-Optionen speichern"));
+    qualitySlider_->setMaximum(maxLossyQuality(options_.format));
+    qualitySpin_->setMaximum(maxLossyQuality(options_.format));
     qualitySlider_->setValue(options_.quality);
     qualitySpin_->setValue(options_.quality);
     progressive_->setChecked(options_.progressive);
@@ -726,8 +728,10 @@ void SaveOptionsDialog::targetOptimizationFinished() {
     options_.autoQuality = *result.quality;
     const QSignalBlocker blockSlider(qualitySlider_);
     const QSignalBlocker blockSpin(qualitySpin_);
-    qualitySlider_->setValue(*result.quality);
-    qualitySpin_->setValue(*result.quality);
+    if (!options_.lossless) {
+        qualitySlider_->setValue(*result.quality);
+        qualitySpin_->setValue(*result.quality);
+    }
     if (result.bytes > options_.targetBytes)
         targetResult_->setText(IX_TEXT("Ziel nicht erreichbar (ca. %1 KB).")
                                    .arg(result.bytes / 1024));

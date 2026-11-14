@@ -143,8 +143,6 @@ int main(int argc, char **argv) {
     ix::initializeImageMemoryLimit();
     ix::configureImageStorageFromSettings();
     startupStage("image-memory");
-    const auto swapRoot = QDir(ix::AppStorage::cacheRoot()).filePath(QStringLiteral("swap"));
-    if (QFileInfo::exists(swapRoot)) (void)QtConcurrent::run([swapRoot] { ix::cleanupStaleImageStorage(swapRoot); });
     if (parser.isSet(QStringLiteral("memory-info"))) {
         const QJsonObject result{{QStringLiteral("physicalBytes"), double(ix::physicalMemoryBytes())},
             {QStringLiteral("memoryLimitMiB"), double(ix::imageMemoryLimit() / ix::MiB)},
@@ -188,6 +186,9 @@ int main(int argc, char **argv) {
         language = QStringLiteral("de");
         ix::setUiLanguage(language);
     }
+    // Process-wide collation stays fixed once workers exist. Interface widgets
+    // use their own locale for subsequent live language changes.
+    QLocale::setDefault(ix::uiLocale());
     // The command-line image can be decoded while the window is still being
     // built. The open below then joins that decode instead of reading and
     // decoding the same file twice. Started after the language check because
@@ -198,9 +199,6 @@ int main(int argc, char **argv) {
     // Joined on every exit path below, including a failing window constructor: a
     // speculative decode must not outlive the caches and plugins it writes into.
     const auto joinPrewarm = qScopeGuard([] { ix::finishPrewarm(); });
-    // Process-wide collation stays fixed once workers exist. Interface widgets
-    // use their own locale for subsequent live language changes.
-    QLocale::setDefault(ix::uiLocale());
     ix::applyInterfaceLanguage(language);
     startupStage("language");
     ix::applyInterfaceTheme(QSettings().value(QStringLiteral("ui/theme"), QStringLiteral("system")).toString());
@@ -215,5 +213,7 @@ int main(int argc, char **argv) {
     if (!parser.positionalArguments().isEmpty())
         window.openPath(parser.positionalArguments().first());
     startupStage("open-request");
+    const auto swapRoot = QDir(ix::AppStorage::cacheRoot()).filePath(QStringLiteral("swap"));
+    (void)QtConcurrent::run([swapRoot] { ix::cleanupStaleImageStorage(swapRoot); });
     return app.exec();
 }

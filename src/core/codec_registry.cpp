@@ -34,9 +34,9 @@ bool isRawFormat(const QByteArray &format) {
     return formats.contains(format.toLower());
 }
 bool alphaWritable(const QByteArray &f) {
-    return QList<QByteArray>{"png",  "tiff", "webp", "ico", "cur", "avif", "heif",
-                             "heic", "jxl",  "exr",  "dds", "tga", "qoi"}
-        .contains(f);
+    static const QList<QByteArray> formats{"png",  "tiff", "webp", "ico", "cur", "avif", "heif",
+                                           "heic", "jxl",  "exr",  "dds", "tga", "qoi"};
+    return formats.contains(f);
 }
 namespace {
 #ifdef IX_PDF_MODULE
@@ -337,7 +337,7 @@ bool CodecRegistry::canWrite(const QByteArray &f) {
     return false;
 }
 QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray &f,
-                                       const EncodeOptions *encode) {
+                                       const EncodeOptions *encode, std::optional<bool> transparency) {
     QStringList losses;
     auto format = normalized(f);
     if (d.pageCount > 1)
@@ -349,9 +349,11 @@ QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray
         losses.append(
             IX_TEXT("EXIF-, IPTC- und XMP-Daten werden beim Export nicht vollständig übernommen. "
                     "Die EXIF-Ausrichtung ist bereits auf die Pixel angewendet."));
-    if (imageHasRealTransparency(d.pixels) && !alphaWritable(format))
-        losses.append(IX_TEXT("Dieses Ausgabeformat erhält den Alphakanal nicht zuverlässig. "
-                              "Transparenz wird auf Weiß reduziert."));
+    if (!alphaWritable(format) && (transparency ? *transparency : imageHasRealTransparency(d.pixels)))
+        losses.append(encode && encode->alphaWhite == 0
+            ? IX_TEXT("Dieses Ausgabeformat erhält den Alphakanal nicht zuverlässig.")
+            : IX_TEXT("Dieses Ausgabeformat erhält den Alphakanal nicht zuverlässig. "
+                      "Transparenz wird auf Weiß reduziert."));
     if (d.pixels.pixelFormat().typeInterpretation() == QPixelFormat::FloatingPoint && format != "exr")
         losses.append(IX_TEXT("HDR-Gleitkommawerte können auf den Bereich 0–1 begrenzt werden."));
     if (imageChannelBits(d.pixels) > 8 && format != "png" && format != "tiff" && format != "exr")
@@ -366,6 +368,9 @@ QString CodecRegistry::save(const ImageDocument &d, const QString &path, const Q
                             const std::function<QString()> &beforeCommit) const {
     EncodeOptions encode;
     encode.quality = quality;
+    // The quality-only API (including classic batch) has no lossless switch.
+    encode.lossless = quality >= 100 && normalized(requested.isEmpty()
+        ? QFileInfo(path).suffix().toLatin1() : requested) == "webp";
     return saveWithOptions(d, path, requested, encode, allowLoss, expectedTarget, beforeCommit);
 }
 QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QString &path,
@@ -453,23 +458,34 @@ QString CodecRegistry::encodeImage(const ImageDocument &document, QIODevice &dev
     // Only metadata rewriting requires a complete encoded memory buffer.
     // Other exports can stream into the same atomic QSaveFile transaction.
     QImageWriter writer(destination, format);
-    if (format == "png" && encode.compressionLevel >= 0)
-        writer.setQuality(std::clamp(encode.compressionLevel, 0, 9) * 10 - 1);
-    else
-        writer.setQuality(quality);
-    // Lossless forces quality 100 on capable writers.
-    if (encode.lossless) writer.setQuality(100);
-    if (format == "webp" || format == "avif" || format == "heif" || format == "heic" ||
+    // Qt switches WebP to lossless at quality 100. Reserve it for that mode.
+    writer.setQuality(encode.lossless ? 100 : std::min(quality, maxLossyQuality(format)));
+    if (format == "png" && encode.compressionLevel >= 0) {
+        // Qt's PNG writer maps its 0–100 compression setting to zlib levels.
+        writer.setCompression(std::clamp(encode.compressionLevel, 0, 9) * 11);
+    } else if (format == "avif" || format == "heif" || format == "heic" ||
         format == "jxl" || format == "png" || format == "tiff")
         writer.setCompression(encode.effort);
     // Note: Qt's QImageWriter exposes no GIF interlace switch, so
     // encode.interlaced is accepted (UI + profiles) but currently a no-op.
     Q_UNUSED(encode.interlaced);
     QImage output = document.pixels;
-    if (!encode.keepIcc && output.colorSpace().isValid())
+    if (!encode.keepIcc && output.colorSpace().isValid()) {
+        // Changing metadata on a shared QImage detaches its entire buffer.
+        // The read-only header borrows pixels from document for this encode.
+        const auto &pixels = document.pixels;
+        output = QImage(pixels.constBits(), pixels.width(), pixels.height(), pixels.bytesPerLine(), pixels.format());
+        if (output.isNull())
+            return IX_TEXT("Speicher nicht verfügbar.");
+        if (pixels.colorCount() > 0)
+            output.setColorTable(pixels.colorTable());
+        inheritImageProperties(pixels, output);
         output.setColorSpace(QColorSpace());
+        output.setDevicePixelRatio(pixels.devicePixelRatio());
+        output.setOffset(pixels.offset());
+    }
     // alphaWhite != 0 (legacy default) flattens transparency onto white for
-    // formats without alpha. alphaWhite == 0 keeps the pixels untouched; the
+    // formats without alpha. alphaWhite == 0 skips compositing.
     // The save dialog resolves Ask mode before encoding. jpegli flattens internally,
     // so JPEG only needs this pass when the Qt writer is selected.
     if (!jpegli && encode.alphaWhite != 0 && output.hasAlphaChannel() &&

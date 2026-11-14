@@ -70,6 +70,7 @@ fixed by the SDK lock; CI action versions are in `.github/workflows`.
 | --- | --- | --- |
 | [CMake](https://github.com/Kitware/CMake) | Configure, compile and install | BSD-3-Clause |
 | [Ninja](https://github.com/ninja-build/ninja) | Build execution | Apache-2.0 |
+| [Weston](https://gitlab.freedesktop.org/wayland/weston) | Headless Wayland compositor for Linux CI | [MIT](https://gitlab.freedesktop.org/wayland/weston/-/blob/13.0.0/COPYING) |
 | [CPython](https://github.com/python/cpython) | SDK, packaging and validation scripts | PSF-2.0 and bundled component notices |
 | [Pillow](https://github.com/python-pillow/Pillow) | Regenerating logo assets | MIT-CMU / PIL notices |
 | [GCC](https://gcc.gnu.org/), [MinGW-w64](https://www.mingw-w64.org/), [MSYS2](https://www.msys2.org/) | Windows compiler, runtime and verified packages | GCC GPL / Runtime Library Exception; package-specific MinGW/MSYS2 licenses |
