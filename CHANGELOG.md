@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Color adjust, auto levels and non-standard convolution kernels on 8-bit
+  RGB32/ARGB32 images now run on native bytes (each byte expands to v*257 and
+  div_257 rounds back, matching the convertToFormat round trip) instead of
+  whole-image RGBA64 buffers. Output is bit-identical: the legacy RGBA64 path
+  is kept as an independent reference and compared across all pixel formats,
+  including general convolution kernels on RGB32/ARGB32.
+
 - On Windows, show the main window before decoding a command-line image so
   Qt's initial format-plugin scan cannot block the theme setup. Use vector
   icons for the overflow and command search controls during window construction.

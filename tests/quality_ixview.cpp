@@ -410,6 +410,35 @@ class QualityTests : public QObject {
         QVERIFY_EXCEPTION_THROWN(ix::grayscale(source),std::runtime_error);
         QCOMPARE(source.pixelColor(8192,8191),QColor(Qt::blue));
     }
+    void nativeColorAdjustAndAutoCorrectMatchLegacy_data() {
+        QTest::addColumn<int>("format");
+        for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_ARGB32_Premultiplied,
+             QImage::Format_RGBA8888,QImage::Format_RGB888,QImage::Format_Indexed8,QImage::Format_Grayscale8,
+             QImage::Format_Grayscale16,QImage::Format_RGBA64,QImage::Format_RGBA32FPx4})
+            QTest::newRow(QByteArray::number(int(format)).constData()) << int(format);
+    }
+    void nativeColorAdjustAndAutoCorrectMatchLegacy() {
+        QFETCH(int,format);
+        auto source=ix::test::filterPattern({257,113},QImage::Format(format));
+        QVERIFY(!source.isNull());
+        source.setColorSpace(QColorSpace::DisplayP3);
+        source.setDevicePixelRatio(1.75); source.setOffset({-7,13});
+        source.setDotsPerMeterX(4500); source.setDotsPerMeterY(7300);
+        source.setText(QStringLiteral("Comment"),QStringLiteral("pixel adjust preservation"));
+        const auto before=source.copy(); const auto key=source.cacheKey();
+        const auto verify=[&](const QImage &actual,const QImage &expected) {
+            QCOMPARE(actual,expected); QCOMPARE(actual.format(),expected.format());
+            QCOMPARE(actual.colorSpace(),source.colorSpace());
+            QCOMPARE(actual.devicePixelRatio(),source.devicePixelRatio()); QCOMPARE(actual.offset(),source.offset());
+            QCOMPARE(actual.dotsPerMeterX(),source.dotsPerMeterX()); QCOMPARE(actual.dotsPerMeterY(),source.dotsPerMeterY());
+            QCOMPARE(actual.text(QStringLiteral("Comment")),source.text(QStringLiteral("Comment")));
+        };
+        const QList<ix::ColorAdjust> variants{ix::ColorAdjust{}, {12,-30,.7,40,10,-5,8}, {-60,80,2.2,-25,-20,30,0}};
+        for (const auto &options : variants)
+            verify(ix::adjustColors(source,options),ix::test::referenceAdjustColors(source,options));
+        verify(ix::autoCorrect(source),ix::test::referenceAutoCorrect(source));
+        QCOMPARE(source,before); QCOMPARE(source.cacheKey(),key);
+    }
     void autoCropMatchesOriginalPixels_data() {
         QTest::addColumn<int>("format");
         for (auto format : {QImage::Format_RGB32,QImage::Format_ARGB32,QImage::Format_RGBA64,
@@ -497,10 +526,12 @@ class QualityTests : public QObject {
                 QTest::newRow(name.constData()) << int(format) << size << 0;
             }
         QTest::newRow("full-16-bit-range") << int(QImage::Format_RGBA64) << QSize(65536, 1) << 0;
-        for (int variant = 1; variant <= 5; ++variant) {
-            const auto name = QByteArray("general-filter-") + QByteArray::number(variant);
-            QTest::newRow(name.constData()) << int(QImage::Format_RGBA64) << QSize(13, 11) << variant;
-        }
+        for (int variant = 1; variant <= 5; ++variant)
+            for (const auto format : {QImage::Format_RGB32, QImage::Format_ARGB32, QImage::Format_RGBA64}) {
+                const auto name = QByteArray("general-filter-") + QByteArray::number(int(format)) + '-' +
+                                  QByteArray::number(variant);
+                QTest::newRow(name.constData()) << int(format) << QSize(13, 11) << variant;
+            }
     }
     void nativeSharpenCoversEveryByteAndNeighborSum_data() {
         QTest::addColumn<int>("format");

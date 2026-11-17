@@ -161,7 +161,7 @@ QImage swapChannels(const QImage &s, int a, int b) {
     });
 }
 QImage adjustColors(const QImage &s, const ColorAdjust &o) {
-    return perPixel(s, [=](QRgba64 p) {
+    const auto adjust = [=](QRgba64 p) {
         double r = p.red() / 65535.0, g = p.green() / 65535.0, b = p.blue() / 65535.0,
                gray = .2126 * r + .7152 * g + .0722 * b;
         auto cv = [&](double v, int balance) {
@@ -170,7 +170,14 @@ QImage adjustColors(const QImage &s, const ColorAdjust &o) {
             return u16(std::pow(std::clamp(v, 0.0, 1.0), 1 / std::max(.01, o.gamma)));
         };
         return QRgba64::fromRgba64(cv(r, o.red), cv(g, o.green), cv(b, o.blue), p.alpha());
-    });
+    };
+    if (nativeRgb32(s)) {
+        // fromArgb32 expands each byte v to v*257 and toArgb32 rounds back with
+        // div_257, exactly the convertToFormat round trip, without whole-image
+        // RGBA64 buffers.
+        return perPixel32(s, [&](QRgb pixel) { return adjust(QRgba64::fromArgb32(pixel)).toArgb32(); });
+    }
+    return perPixel(s, adjust);
 }
 QImage convolve(const QImage &s, const QVector<double> &k, int side, double div, double offset) {
     if (s.isNull() || side <= 0 || qint64(side) * side > std::numeric_limits<int>::max() ||
@@ -217,6 +224,40 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
             }
 #endif
             for (; x < s.width(); ++x) target[x] = scalar(x);
+        }
+        return finish(s, std::move(out));
+    }
+    if (nativeRgb32(s)) {
+        // Generic kernels keep the scalar double arithmetic and order, reading
+        // bytes expanded to v*257 and rounding back with div_257 (toArgb32) —
+        // exactly the RGBA64 buffers and final conversion, without either.
+        const int half = side / 2;
+        QImage out(s.size(), s.format());
+        if (out.isNull()) throw std::runtime_error("Ungültiger Filter oder nicht genügend Speicher.");
+        out.setDevicePixelRatio(s.devicePixelRatio());
+        out.setOffset(s.offset());
+        const QRgb opaque = s.format() == QImage::Format_RGB32 ? 0xff000000u : 0;
+        const auto expand = [](int v) { return quint16(v | (v << 8)); };
+        for (int y = 0; y < s.height(); ++y) {
+            const auto *center = reinterpret_cast<const QRgb *>(s.constScanLine(y));
+            auto *target = reinterpret_cast<QRgb *>(out.scanLine(y));
+            for (int x = 0; x < s.width(); ++x) {
+                double r = 0, g = 0, b = 0;
+                for (int j = 0; j < side; ++j) {
+                    const auto *row = reinterpret_cast<const QRgb *>(
+                        s.constScanLine(std::clamp(y + j - half, 0, s.height() - 1)));
+                    for (int i = 0; i < side; ++i) {
+                        const auto pixel = row[std::clamp(x + i - half, 0, s.width() - 1)] | opaque;
+                        const double w = k[j * side + i];
+                        r += expand(qRed(pixel)) * w;
+                        g += expand(qGreen(pixel)) * w;
+                        b += expand(qBlue(pixel)) * w;
+                    }
+                }
+                target[x] = QRgba64::fromRgba64(u16(r / div / 65535 + offset),
+                    u16(g / div / 65535 + offset), u16(b / div / 65535 + offset),
+                    expand(qAlpha(center[x] | opaque))).toArgb32() | opaque;
+            }
         }
         return finish(s, std::move(out));
     }
@@ -284,20 +325,42 @@ QImage autoCorrect(const QImage &s) {
     std::vector<std::array<quint64, 3>> histogram(65536);
     quint64 count = 0;
     std::array<quint16, 3> lo{65535, 65535, 65535}, hi{0, 0, 0};
-    auto input = s.convertToFormat(QImage::Format_RGBA64);
-    if (input.isNull())
-        throw std::runtime_error("Speicher nicht verfügbar.");
-    for (int y = 0; y < input.height(); ++y) {
-        auto *r = reinterpret_cast<const QRgba64 *>(input.constScanLine(y));
-        for (int x = 0; x < input.width(); ++x) {
-            if (!r[x].alpha())
-                continue;
-            ++count;
-            std::array<quint16, 3> v{r[x].red(), r[x].green(), r[x].blue()};
-            for (int c = 0; c < 3; ++c) {
-                ++histogram[v[c]][c];
+    const bool native = nativeRgb32(s);
+    if (native) {
+        // Byte channels expand to v*257 in the RGBA64 working format; index the
+        // 16-bit histogram with the same expanded values without allocating it.
+        const QRgb opaque = s.format() == QImage::Format_RGB32 ? 0xff000000u : 0;
+        for (int y = 0; y < s.height(); ++y) {
+            const auto *row = reinterpret_cast<const QRgb *>(s.constScanLine(y));
+            for (int x = 0; x < s.width(); ++x) {
+                const QRgb pixel = row[x] | opaque;
+                if (!qAlpha(pixel))
+                    continue;
+                ++count;
+                quint16 v[3] = {quint16(qRed(pixel)), quint16(qGreen(pixel)), quint16(qBlue(pixel))};
+                for (int c = 0; c < 3; ++c) {
+                    v[c] |= v[c] << 8;
+                    ++histogram[v[c]][c];
+                }
             }
         }
+    } else {
+        auto input = s.convertToFormat(QImage::Format_RGBA64);
+        if (input.isNull())
+            throw std::runtime_error("Speicher nicht verfügbar.");
+        for (int y = 0; y < input.height(); ++y) {
+            auto *r = reinterpret_cast<const QRgba64 *>(input.constScanLine(y));
+            for (int x = 0; x < input.width(); ++x) {
+                if (!r[x].alpha())
+                    continue;
+                ++count;
+                std::array<quint16, 3> v{r[x].red(), r[x].green(), r[x].blue()};
+                for (int c = 0; c < 3; ++c) {
+                    ++histogram[v[c]][c];
+                }
+            }
+        }
+        input = {}; // Histogram analysis is complete before allocating output pixels.
     }
     if (!count)
         return s;
@@ -320,15 +383,17 @@ QImage autoCorrect(const QImage &s) {
             }
         }
     }
-    input = {}; // Histogram analysis is complete before allocating output pixels.
-    return perPixel(s, [=](QRgba64 p) {
+    const auto correct = [=](QRgba64 p) {
         if (!p.alpha())
             return p;
         auto cv = [&](int c, int v) {
             return hi[c] > lo[c] ? u16(double(v - lo[c]) / (hi[c] - lo[c])) : quint16(v);
         };
         return QRgba64::fromRgba64(cv(0, p.red()), cv(1, p.green()), cv(2, p.blue()), p.alpha());
-    });
+    };
+    if (native)
+        return perPixel32(s, [&](QRgb pixel) { return correct(QRgba64::fromArgb32(pixel)).toArgb32(); });
+    return perPixel(s, correct);
 }
 QRect autoCropRect(const QImage &s, int tolerance) {
     if (s.isNull())

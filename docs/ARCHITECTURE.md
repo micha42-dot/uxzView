@@ -442,8 +442,10 @@ Row borders and non-SSE2 targets use the same scalar byte calculation. No shared
 scratch state, new pool or dependency is involved. The current conservative
 memory-admission checks remain unchanged.
 Edge replication, unchanged center alpha, output conversion and inherited
-profile/text/DPI match the scalar path. Other kernels/divisors/offsets retain
-that path. `tests/convolution_reference.h` keeps the original scalar arithmetic
+profile/text/DPI match the scalar path. Other kernels/divisors/offsets keep the
+same scalar double arithmetic on straight RGB32/ARGB32, expanding each byte to
+v*257 on read and rounding back with div_257, which avoids both RGBA64 buffers;
+other formats retain the RGBA64 path. `tests/convolution_reference.h` keeps the original scalar arithmetic
 for independent comparisons; extend precision/edge coverage when changing this
 specialization. No additional image buffer, cache, thread pool or dependency is
 introduced. The shared operation serves explicit sharpening, resize sharpening,
@@ -464,8 +466,12 @@ Byte-exact masks/extraction replace whole-image RGBA64 conversion; the combined
 source/output pixels need 8 rather than 16 bytes per pixel. Alpha, color space,
 DPI, text, device-pixel ratio and image offset retain their previous semantics.
 Premultiplied, indexed, HDR and higher-depth inputs retain the RGBA64 path.
-Grayscale/color-adjust arithmetic is unchanged: a generic per-pixel 32/64-bit
-adapter reduced buffers but slowed grayscale in the measured prototype.
+Color adjust and auto levels apply the unchanged RGBA64-domain arithmetic per
+pixel through `QRgba64::fromArgb32`/`toArgb32` adapters on straight RGB32/ARGB32
+(a byte expands to v*257 and div_257 rounds back, exactly the convertToFormat
+round trip), so 8-bit edits allocate no whole-image 16-bit buffer. Grayscale
+keeps its direct byte thresholds; a generic per-pixel 32/64-bit adapter reduced
+buffers but slowed grayscale in the measured prototype.
 
 Automatic border cropping reads native straight RGB32/ARGB32/RGBX64/RGBA64
 scanlines without another image allocation. Tolerance retains QColor's 8-bit
