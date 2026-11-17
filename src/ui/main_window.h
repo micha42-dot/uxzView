@@ -116,7 +116,7 @@ class MainWindow : public QMainWindow {
     enum class WorkMode { Load, Edit, Page, Display, Selection, Undo, Redo };
     WorkMode workMode_ = WorkMode::Load;
     DocumentActivity activity_;
-    bool lockZoom_ = false, lockScroll_ = false, displaySharpen_ = false;
+    bool lockZoom_ = false, lockScroll_ = false, displaySharpen_ = false, colorManage_ = true;
     bool zoomEdited_ = false;
     bool smoothZoom_ = true, smoothFit_ = true;
     int pendingNavigation_ = 0;

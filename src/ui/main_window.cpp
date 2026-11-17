@@ -358,6 +358,10 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     applySettings(true);
     refreshState();
     updateStatus();
+    // Warm the codec capability scan and Save-As widgets right away, so a
+    // cold start without an image does not pay for the plugin scan on the
+    // first open/save.
+    scheduleSaveUiWarmup();
 }
 MainWindow::~MainWindow() {
     // Workers capture value inputs and only queue GUI delivery. Join before
@@ -981,7 +985,7 @@ void MainWindow::openRequested(DeferredOpen request) {
         animationEnded_ = false;
     }
     const QSettings settings;
-    bool manage = settings.value(QStringLiteral("color/manage"), true).toBool(), sharp = displaySharpen_;
+    bool manage = colorManage_, sharp = displaySharpen_;
     auto registry = registry_;
     bool rawPreview = settings.value(QStringLiteral("performance/rawPreview"), true).toBool();
     bool same = path == document_.path;
@@ -1253,7 +1257,7 @@ void MainWindow::schedulePrefetch() {
     const QSettings settings;
     // Same request the real open will issue, so the speculative entry also
     // carries the display image the user's colour/sharpen settings ask for.
-    const ImageLoadRequest request{path, 0, settings.value(QStringLiteral("color/manage"), true).toBool(),
+    const ImageLoadRequest request{path, 0, colorManage_,
                                    displaySharpen_, false};
     prefetchPool_.start([registry, request, token] {
         if (token->load())
@@ -1284,7 +1288,7 @@ void MainWindow::restoreHistory(bool redo) {
         return;
     stopAnimation();
     const auto entry = *target;
-    const bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool();
+    const bool manage = colorManage_;
     const bool sharp = displaySharpen_;
     beginWork([entry, manage, sharp] {
         return WorkResult{entry, displayImage(entry.pixels, manage, sharp), {}, entry.selection};
@@ -1308,7 +1312,7 @@ void MainWindow::operation(std::function<QImage(const QImage &)> fn, bool stream
         return;
     stopAnimation();
     ImageDocument d = document_;
-    bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool(), sharp = displaySharpen_;
+    bool manage = colorManage_, sharp = displaySharpen_;
     beginWork(
         [d, fn, manage, sharp]() mutable {
             QImage result = fn(d.pixels);
@@ -1607,6 +1611,7 @@ void MainWindow::applySettings(bool applyFit) {
     lockZoom_ = s.value(QStringLiteral("view/lockZoom"), false).toBool();
     lockScroll_ = s.value(QStringLiteral("view/lockScroll"), false).toBool();
     displaySharpen_ = s.value(QStringLiteral("view/sharpenDisplay"), false).toBool();
+    colorManage_ = s.value(QStringLiteral("color/manage"), true).toBool();
     windowFitCommand_ = s.value(QStringLiteral("view/fitCommand")).toString();
     if (applyFit) {
         const auto fit = ImageView::Fit(
@@ -1668,7 +1673,7 @@ void MainWindow::displayCurrent() {
     if (document_.empty())
         return;
     auto d = document_;
-    bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool(), sharp = displaySharpen_;
+    bool manage = colorManage_, sharp = displaySharpen_;
     beginWork([=] { return WorkResult{d, displayImage(d.pixels, manage, sharp), {}}; }, WorkMode::Display);
 }
 void MainWindow::stopAnimation() {
@@ -2089,7 +2094,7 @@ void MainWindow::dispatch(const QString &cmd) {
         const auto expectedSource = document_.sourceRevision.isEmpty() ? imageFileKey(source) : document_.sourceRevision;
         const auto expectedTarget = QFileInfo::exists(target) ? imageFileKey(target) : QString();
         auto registry = registry_;
-        bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool();
+        bool manage = colorManage_;
         beginWork(
             [=] {
                 auto error = transformJpeg(source, target, transform, crop, expectedTarget, expectedSource);
@@ -2155,7 +2160,7 @@ void MainWindow::dispatch(const QString &cmd) {
                                  QMessageBox::Yes | QMessageBox::Cancel,
                                  QMessageBox::Cancel) != QMessageBox::Yes)
             return;
-        bool manage = QSettings().value(QStringLiteral("color/manage"), true).toBool(),
+        bool manage = colorManage_,
              sharp = displaySharpen_;
         beginWork(
             [d, o, manage, sharp]() mutable {
@@ -2722,6 +2727,7 @@ void MainWindow::keyPressEvent(QKeyEvent *e) {
     QMainWindow::keyPressEvent(e);
 }
 void MainWindow::applyControlSettings() {
+    colorManage_ = QSettings().value(QStringLiteral("color/manage"), true).toBool();
     // Both settings are read live (view keys, double-click handler), so no
     // cached state to refresh. Reset the zoom toggle: a fit/zoom change made
     // through the dialog may otherwise restore a stale pre-toggle fit.

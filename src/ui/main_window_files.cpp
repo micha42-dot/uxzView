@@ -51,12 +51,14 @@ void MainWindow::scheduleSaveUiWarmup() {
     if (saveUiWarmupScheduled_)
         return;
     saveUiWarmupScheduled_ = true;
-    if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
-        return;
-    // Warm the format list off the GUI thread: writableSaveFormats() walks
-    // every codec capability (~60-70 ms cold), and Save As must not pay it.
+    // The format/codec warmup always runs, and it runs at startup now, not only
+    // after the first image: QImageReader::supportedImageFormats() scans and
+    // loads every imageformats DLL, which on a cold Windows start (antivirus
+    // touching each DLL) is the single largest first-open/save cost.
     saveFormatsWarmup_ = QtConcurrent::run([registry = registry_] {
         (void)writableSaveFormats(registry);
+        (void)registry.cachedOpenFilter();
+        (void)registry.cachedSaveFilter();
         // Warm jpegli's lazy initialisation (SIMD dispatch tables, quant/
         // Huffman tables, colour-transform + ICC path) on this background
         // thread. Without it the FIRST PNG->JPEG export paid all of this
@@ -67,10 +69,15 @@ void MainWindow::scheduleSaveUiWarmup() {
         if (jpegliEnabled())
             (void)warmJpegEncoder();
     });
-    // Build the hidden companion after the first image has had time to paint:
+    if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
+        return;
+    // Build the hidden companion after the window has had time to paint:
     // by the time the user hits Save As, the widgets already exist.
     QTimer::singleShot(150, this, [this] {
-        if (!isVisible() || document_.empty() || activity_.busy() || QApplication::activeModalWidget())
+        // The companion is built at startup too (the warmup now runs before any
+        // image is open), so the empty-document guard is gone; it only needs the
+        // window to be visible and no modal dialog to be up.
+        if (!isVisible() || activity_.busy() || QApplication::activeModalWidget())
             return;
         if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
             return;
