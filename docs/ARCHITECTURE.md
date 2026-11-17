@@ -461,6 +461,17 @@ input before pixel output. RGBA64 source sharing is accounted once. This is an
 operation-local image-buffer estimate, not a global RAM cap; histogram tables,
 metadata, other documents/workers and allocator overhead remain additional.
 
+`displayImage` returns the source unchanged (shared, no copy) when neither color
+management nor display sharpening applies. For file-backed straight 32-bit images
+with both enabled, profile conversion and the standard sharpen are fused into one
+output buffer: a ring of three row-wise sRGB-converted rows feeds
+`detail::sharpenRow32`, the same row routine `convolve()` uses, so the result is
+byte-identical to convert-then-sharpen without materializing the converted full
+image. RAM images keep whole-image `convertedToColorSpace` plus `convolve()`,
+because per-row ICC conversion measures about twice as slow there. Other formats
+and sharpen-only/color-only combinations keep their existing single-conversion or
+single-filter paths.
+
 Negative/channel/swap operations use `perPixel32` only for straight RGB32/ARGB32.
 Byte-exact masks/extraction replace whole-image RGBA64 conversion; the combined
 source/output pixels need 8 rather than 16 bytes per pixel. Alpha, color space,

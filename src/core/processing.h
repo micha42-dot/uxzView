@@ -34,6 +34,13 @@ struct ColorAdjust {
 QImage adjustColors(const QImage &source, const ColorAdjust &adjust);
 QImage convolve(const QImage &source, const QVector<double> &kernel, int side, double divisor = 1,
                 double offset = 0);
+namespace detail {
+// Standard 3x3 sharpening of one straight 32-bit row (edge-replicated), shared
+// by convolve()'s native path and the fused display preparation so both produce
+// identical bytes.
+void sharpenRow32(QRgb *target, const QRgb *center, const QRgb *above, const QRgb *below,
+                  int width, bool opaque);
+}
 QImage autoCorrect(const QImage &source);
 // Border colour tolerance for the auto-crop commands. Video screenshots,
 // scans and similar sources rarely have perfectly uniform borders: the black

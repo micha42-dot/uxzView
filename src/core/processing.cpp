@@ -58,6 +58,39 @@ __m128i sharpenFour(__m128i center, __m128i above, __m128i left, __m128i right, 
     return _mm_or_si128(_mm_andnot_si128(alphaMask, _mm_packus_epi16(low, high)), alpha);
 }
 #endif
+} // namespace
+
+namespace detail {
+void sharpenRow32(QRgb *target, const QRgb *center, const QRgb *above, const QRgb *below,
+                  int width, bool opaque) {
+    const auto channel = [](int center, int above, int left, int right, int below) {
+        return std::clamp(5 * center - above - left - right - below, 0, 255);
+    };
+    const auto scalar = [&](int x) {
+        const auto p = center[x], up = above[x], down = below[x];
+        const auto left = center[std::max(0, x - 1)], right = center[std::min(x + 1, width - 1)];
+        return qRgba(channel(qRed(p), qRed(up), qRed(left), qRed(right), qRed(down)),
+            channel(qGreen(p), qGreen(up), qGreen(left), qGreen(right), qGreen(down)),
+            channel(qBlue(p), qBlue(up), qBlue(left), qBlue(right), qBlue(down)), opaque ? 255 : qAlpha(p));
+    };
+    int x = 0;
+#ifdef IX_SHARPEN_SSE2
+    target[x] = scalar(x); ++x;
+    for (; x <= width - 5; x += 4) {
+        const auto pixels = sharpenFour(_mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x)),
+            _mm_loadu_si128(reinterpret_cast<const __m128i *>(above + x)),
+            _mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x - 1)),
+            _mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x + 1)),
+            _mm_loadu_si128(reinterpret_cast<const __m128i *>(below + x)), opaque);
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(target + x), pixels);
+    }
+#endif
+    for (; x < width; ++x) target[x] = scalar(x);
+}
+} // namespace detail
+
+namespace {
+
 template <class F> QImage perPixel32(const QImage &src, F fn) {
     QImage out = allocateImage(src.size(), src.format(), imageIsFileBacked(src) ? 0 : src.sizeInBytes());
     if (out.isNull()) throw std::runtime_error("Speicher nicht verfügbar.");
@@ -196,34 +229,12 @@ QImage convolve(const QImage &s, const QVector<double> &k, int side, double div,
         QImage out(s.size(), s.format());
         if (out.isNull()) throw std::runtime_error("Ungültiger Filter oder nicht genügend Speicher.");
         const bool opaque = s.format() == QImage::Format_RGB32;
-        const auto channel = [](int center, int above, int left, int right, int below) {
-            return std::clamp(5 * center - above - left - right - below, 0, 255);
-        };
         for (int y = 0; y < s.height(); ++y) {
             const auto *above = reinterpret_cast<const QRgb *>(s.constScanLine(std::max(0, y - 1)));
             const auto *center = reinterpret_cast<const QRgb *>(s.constScanLine(y));
             const auto *below = reinterpret_cast<const QRgb *>(s.constScanLine(std::min(y + 1, s.height() - 1)));
-            auto *target = reinterpret_cast<QRgb *>(out.scanLine(y));
-            const auto scalar = [&](int x) {
-                const auto p = center[x], up = above[x], down = below[x];
-                const auto left = center[std::max(0, x - 1)], right = center[std::min(x + 1, s.width() - 1)];
-                return qRgba(channel(qRed(p), qRed(up), qRed(left), qRed(right), qRed(down)),
-                    channel(qGreen(p), qGreen(up), qGreen(left), qGreen(right), qGreen(down)),
-                    channel(qBlue(p), qBlue(up), qBlue(left), qBlue(right), qBlue(down)), opaque ? 255 : qAlpha(p));
-            };
-            int x = 0;
-#ifdef IX_SHARPEN_SSE2
-            target[x] = scalar(x); ++x;
-            for (; x <= s.width() - 5; x += 4) {
-                const auto pixels = sharpenFour(_mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x)),
-                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(above + x)),
-                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x - 1)),
-                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(center + x + 1)),
-                    _mm_loadu_si128(reinterpret_cast<const __m128i *>(below + x)), opaque);
-                _mm_storeu_si128(reinterpret_cast<__m128i *>(target + x), pixels);
-            }
-#endif
-            for (; x < s.width(); ++x) target[x] = scalar(x);
+            detail::sharpenRow32(reinterpret_cast<QRgb *>(out.scanLine(y)), center, above, below,
+                                 s.width(), opaque);
         }
         return finish(s, std::move(out));
     }

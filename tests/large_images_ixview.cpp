@@ -159,6 +159,16 @@ private slots:
         const auto display=ix::displayImage(image,true,false);
         QVERIFY(ix::imageIsFileBacked(display));QCOMPARE(display,expected);
     }
+    void mappedDisplayColorSharpenFusionMatchesSequential() {
+        auto image=ix::copyImageRegion(fixture(),fixture().rect()); image.setColorSpace(QColorSpace::DisplayP3);
+        QVERIFY(ix::imageIsFileBacked(image));
+        const QVector<double> kernel{0,-1,0,-1,5,-1,0,-1,0};
+        const auto expected=ix::convolve(image.convertedToColorSpace(QColorSpace::SRgb),kernel,3);
+        const auto display=ix::displayImage(image,true,true);
+        QVERIFY(ix::imageIsFileBacked(display)); QCOMPARE(display,expected);
+        QCOMPARE(display.colorSpace(),QColorSpace(QColorSpace::SRgb));
+        QCOMPARE(image.colorSpace(),QColorSpace(QColorSpace::DisplayP3));
+    }
     void resizeMatchesReference_data() {
         QTest::addColumn<int>("format"); QTest::addColumn<int>("filter");
         for (int format : {int(QImage::Format_RGB32),int(QImage::Format_ARGB32),int(QImage::Format_RGBA64)})

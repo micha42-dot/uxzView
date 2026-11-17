@@ -13,6 +13,7 @@
 #include <QSettings>
 #include <QThreadPool>
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <stdexcept>
 #include <cstring>
@@ -23,20 +24,61 @@ bool needsColorConversion(const QImage &image, bool manageColor) {
 }
 }
 QImage displayImage(const QImage &image, bool manageColor, bool sharpen) {
+    const bool convert = needsColorConversion(image, manageColor);
+    // Convert one source row to sRGB; row-wise conversion is pixel-identical to
+    // the whole-image convertedToColorSpace (covered by the mapped-display tests).
+    const auto convertRow = [&](int y) {
+        QImage row(image.constScanLine(y), image.width(), 1, image.bytesPerLine(), image.format());
+        row.setColorTable(image.colorTable());
+        row.setColorSpace(image.colorSpace());
+        const auto converted = row.convertedToColorSpace(QColorSpace::SRgb);
+        if (converted.isNull() || converted.format() != image.format())
+            throw std::runtime_error("Farbprofil konnte nicht zeilenweise konvertiert werden.");
+        return converted;
+    };
+    const bool native = image.format() == QImage::Format_RGB32 || image.format() == QImage::Format_ARGB32;
+    if (convert && sharpen && native && imageIsFileBacked(image)) {
+        // Fuse profile conversion and standard sharpening into a single output
+        // buffer: keep a ring of three converted rows and sharpen each output
+        // row from them. sharpenRow32 is the same code convolve() runs on the
+        // converted image, so this is byte-identical to the previous
+        // convert-row-loop-then-convolve without materializing a second full
+        // image. RAM images keep the faster whole-image conversion plus
+        // convolve() (row-wise conversion measures about twice as slow there).
+        QImage out = allocateImage(image.size(), image.format(),
+                                   imageIsFileBacked(image) ? 0 : image.sizeInBytes());
+        if (out.isNull())
+            throw std::runtime_error(IX_TEXT("Bildanzeige konnte nicht berechnet werden.").toStdString());
+        std::array<QImage, 3> ring;
+        std::array<int, 3> ringRow{-1, -1, -1};
+        const auto convertedRow = [&](int r) -> const QRgb * {
+            r = std::clamp(r, 0, image.height() - 1);
+            const int slot = r % 3;
+            if (ringRow[slot] != r) {
+                ring[slot] = convertRow(r);
+                ringRow[slot] = r;
+            }
+            return reinterpret_cast<const QRgb *>(ring[slot].constScanLine(0));
+        };
+        const bool opaque = image.format() == QImage::Format_RGB32;
+        for (int y = 0; y < image.height(); ++y)
+            detail::sharpenRow32(reinterpret_cast<QRgb *>(out.scanLine(y)), convertedRow(y),
+                                 convertedRow(y - 1), convertedRow(y + 1), image.width(), opaque);
+        inheritImageProperties(image, out);
+        out.setColorSpace(QColorSpace::SRgb);
+        return out;
+    }
     QImage out = image;
-    if (needsColorConversion(image, manageColor))
-    {
+    if (convert) {
         if (!imageIsFileBacked(image)) out = image.convertedToColorSpace(QColorSpace::SRgb);
         else {
-            out=allocateImage(image.size(),image.format(),qint64(image.width())*32);
-            for (int y=0; y<image.height(); ++y) {
-                QImage row(image.constScanLine(y),image.width(),1,image.bytesPerLine(),image.format());
-                row.setColorTable(image.colorTable()); row.setColorSpace(image.colorSpace());
-                const auto converted=row.convertedToColorSpace(QColorSpace::SRgb);
-                if (converted.isNull() || converted.format()!=out.format()) throw std::runtime_error("Farbprofil konnte nicht zeilenweise konvertiert werden.");
-                std::memcpy(out.scanLine(y),converted.constBits(),size_t(image.bytesPerLine()));
+            out = allocateImage(image.size(), image.format(), qint64(image.width()) * 32);
+            for (int y = 0; y < image.height(); ++y) {
+                const auto converted = convertRow(y);
+                std::memcpy(out.scanLine(y), converted.constBits(), size_t(image.bytesPerLine()));
             }
-            inheritImageProperties(image,out); out.setColorSpace(QColorSpace::SRgb);
+            inheritImageProperties(image, out);
+            out.setColorSpace(QColorSpace::SRgb);
         }
     }
     if (sharpen && !out.isNull())

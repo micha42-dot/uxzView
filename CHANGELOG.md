@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Display preparation for file-backed 8-bit images with color management and
+  display sharpening both enabled now fuses profile conversion and sharpening
+  into a single output buffer (three converted rows feed the shared native
+  sharpen row routine) instead of materializing the converted full image and a
+  second sharpened copy. Byte-identical to the previous path, verified against
+  the sequential reference for RAM and file-backed images and by unchanged
+  navigation display hashes; roughly 10–20 % faster and one full image less
+  memory on a 24 MP file-backed P3 image. RAM images keep the faster whole-image
+  conversion.
+
 - Color adjust, auto levels and non-standard convolution kernels on 8-bit
   RGB32/ARGB32 images now run on native bytes (each byte expands to v*257 and
   div_257 rounds back, matching the convertToFormat round trip) instead of

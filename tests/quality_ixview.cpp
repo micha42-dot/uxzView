@@ -5,6 +5,7 @@
 #include "core/codec_registry.h"
 #include "core/batch_pipeline.h"
 #include "core/file_operations.h"
+#include "core/image_loading.h"
 #include "core/preview_service.h"
 #include "convolution_reference.h"
 #include "auto_crop_reference.h"
@@ -437,6 +438,35 @@ class QualityTests : public QObject {
         for (const auto &options : variants)
             verify(ix::adjustColors(source,options),ix::test::referenceAdjustColors(source,options));
         verify(ix::autoCorrect(source),ix::test::referenceAutoCorrect(source));
+        QCOMPARE(source,before); QCOMPARE(source.cacheKey(),key);
+    }
+    void displayColorSharpenFusionMatchesSequential_data() {
+        QTest::addColumn<int>("format");
+        QTest::newRow("rgb32") << int(QImage::Format_RGB32);
+        QTest::newRow("argb32") << int(QImage::Format_ARGB32);
+    }
+    void displayColorSharpenFusionMatchesSequential() {
+        QFETCH(int,format);
+        auto source=ix::test::filterPattern({67,41},QImage::Format(format));
+        source.setColorSpace(QColorSpace::DisplayP3);
+        source.setDevicePixelRatio(1.5); source.setOffset({3,-2});
+        source.setDotsPerMeterX(4200); source.setDotsPerMeterY(5300);
+        source.setText(QStringLiteral("Comment"),QStringLiteral("fused display"));
+        const auto before=source.copy(); const auto key=source.cacheKey();
+        const QVector<double> kernel{0,-1,0,-1,5,-1,0,-1,0};
+        // Sequential reference: whole-image profile conversion, then the native
+        // standard sharpen exactly as convolve() applies it.
+        const auto expected=ix::convolve(source.convertedToColorSpace(QColorSpace::SRgb),kernel,3);
+        const auto actual=ix::displayImage(source,true,true);
+        QCOMPARE(actual,expected); QCOMPARE(actual.format(),expected.format());
+        QCOMPARE(actual.colorSpace(),QColorSpace(QColorSpace::SRgb));
+        QCOMPARE(actual.devicePixelRatio(),expected.devicePixelRatio()); QCOMPARE(actual.offset(),expected.offset());
+        QCOMPARE(actual.dotsPerMeterX(),source.dotsPerMeterX()); QCOMPARE(actual.dotsPerMeterY(),source.dotsPerMeterY());
+        QCOMPARE(actual.text(QStringLiteral("Comment")),source.text(QStringLiteral("Comment")));
+        // The non-fused combinations keep their existing paths.
+        QCOMPARE(ix::displayImage(source,true,false),source.convertedToColorSpace(QColorSpace::SRgb));
+        QCOMPARE(ix::displayImage(source,false,true),ix::convolve(source,kernel,3));
+        QCOMPARE(ix::displayImage(source,false,false),source);
         QCOMPARE(source,before); QCOMPARE(source.cacheKey(),key);
     }
     void autoCropMatchesOriginalPixels_data() {
