@@ -10,6 +10,8 @@
 #include "core/jpeg_transform.h"
 #include "core/batch_pipeline.h"
 #include "core/batch_memory.h"
+#include "core/codec_registry.h"
+#include "core/save_formats.h"
 #include <QColorSpace>
 #include "ui/main_window.h"
 #include "ui/library_dialog.h"
@@ -946,11 +948,35 @@ class MaintenanceTests : public QObject {
         const auto input = temporary_.filePath(QStringLiteral("plan-input.png"));
         QImage image(8, 6, QImage::Format_RGB32); image.fill(Qt::red);
         QVERIFY(image.save(input));
+        // The batch output suffix must be exactly what "Save As" would suggest
+        // for the canonical id, and for JPEG that is always .jpg, never an
+        // alias like .jfif/.jpeg. TIFF and friends keep their first extension.
+        const auto formats = ix::writableSaveFormats(ix::CodecRegistry());
+        const auto suffixOf = [&](const QByteArray &canonicalId) {
+            const auto it = std::find_if(formats.cbegin(), formats.cend(),
+                                         [&](const auto &f) { return f.id == canonicalId; });
+            return it == formats.cend() ? QByteArray() : it->suffix().toLatin1();
+        };
+        for (const auto &stored : {QByteArray("jfif"), QByteArray("tif")}) {
+            const auto canonical = ix::canonicalSaveFormat(stored);
+            ix::PipelineJob job;
+            job.inputs = {input};
+            job.outputDirectory = temporary_.filePath(QStringLiteral("planned-out"));
+            // A profile saved before the format combos stored canonical ids
+            // may still carry the raw extension (Qt builds advertise JFIF first).
+            job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QString::fromLatin1(stored)}}}};
+            std::atomic_bool cancel = false;
+            const auto plan = ix::BatchPipeline::plan(job, &cancel);
+            QCOMPARE(plan.size(), 1);
+            const auto expected = QStringLiteral(".") + QString::fromLatin1(suffixOf(canonical));
+            QVERIFY2(plan[0].output.endsWith(expected),
+                     qPrintable(QStringLiteral("stored=%1 planned=%2 expected-suffix=%3")
+                                    .arg(QString::fromLatin1(stored), plan[0].output, expected)));
+        }
+        // The actual regression: JPEG must never come out as .jfif/.jpeg.
         ix::PipelineJob job;
         job.inputs = {input};
         job.outputDirectory = temporary_.filePath(QStringLiteral("planned-out"));
-        // A profile saved before the format combos stored canonical ids may
-        // still carry the raw extension (Qt builds that advertise JFIF first).
         job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("jfif")}}}};
         std::atomic_bool cancel = false;
         const auto plan = ix::BatchPipeline::plan(job, &cancel);
