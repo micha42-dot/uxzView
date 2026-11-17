@@ -493,12 +493,26 @@ QString CodecRegistry::encodeImage(const ImageDocument &document, QIODevice &dev
         QImage flat;
         try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
         catch (const std::exception &error) { return localized(QString::fromUtf8(error.what())); }
+        // Premultiply once for the whole image when that copy fits the budget
+        // instead of allocating per row; on allocation failure fall back to
+        // the row-by-row path below. Same pixels either way.
+        QImage premultiplied;
+        try { premultiplied = output.convertToFormat(QImage::Format_ARGB32_Premultiplied); }
+        catch (const std::exception &) { premultiplied = QImage(); }
+        if (premultiplied.isNull())
+            premultiplied = QImage();
         for (int y=0; y<output.height(); ++y) {
-            QImage input(output.constScanLine(y),output.width(),1,output.bytesPerLine(),output.format());
-            input.setColorTable(output.colorTable());
-            const auto premultiplied=input.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-            if (premultiplied.isNull()) { return IX_TEXT("Speicher nicht verfügbar."); }
-            const auto *source=reinterpret_cast<const QRgb *>(premultiplied.constBits());
+            const QRgb *source = nullptr;
+            QImage rowPremultiplied;
+            if (!premultiplied.isNull()) {
+                source = reinterpret_cast<const QRgb *>(premultiplied.constScanLine(y));
+            } else {
+                QImage input(output.constScanLine(y),output.width(),1,output.bytesPerLine(),output.format());
+                input.setColorTable(output.colorTable());
+                rowPremultiplied = input.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                if (rowPremultiplied.isNull()) { return IX_TEXT("Speicher nicht verfügbar."); }
+                source = reinterpret_cast<const QRgb *>(rowPremultiplied.constBits());
+            }
             auto *target=reinterpret_cast<QRgb *>(flat.scanLine(y));
             for (int x=0;x<flat.width();++x) {
                 const auto pixel=source[x]; const int white=255-qAlpha(pixel);

@@ -138,31 +138,77 @@ QString writeJpegli(QIODevice &destination, const QImage &image, int quality,
             cmykRow = QImage(image.width(),1,QImage::Format_CMYK8888);
             if (cmykRow.isNull()) throw std::bad_alloc();
         }
+
+        // Hoist the per-row conversions into one whole-image conversion when
+        // the copy fits the same budget. Per row this allocated once per
+        // scanline, and the ICC path re-created the colour transform for
+        // every row; once per image it is one allocation and one transform.
+        // Oversized images keep the streaming row-by-row path below.
+        QImage converted;
+        if (!cmyk && !gray) {
+            const bool flatten = image.hasAlphaChannel() && options.flattenAlpha;
+            const qint64 bpp = convertColor ? 3 : (flatten ? 4 : 3);
+            const qint64 convertedBytes = qint64(image.width()) * image.height() * bpp;
+            if (resident + convertedBytes + working <= limit) {
+                if (convertColor)
+                    converted = image.convertedToColorSpace(colorSpace, QImage::Format_RGB888);
+                else if (flatten)
+                    converted = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                else
+                    converted = image.convertToFormat(QImage::Format_RGB888);
+                if (converted.isNull())
+                    throw std::bad_alloc();
+            }
+        }
         for (int y = 0; y < image.height(); ++y) {
-            QImage row(image.constScanLine(y), image.width(), 1, image.bytesPerLine(), image.format());
-            row.setColorTable(image.colorTable());
+            QImage row;
+            if (!converted.isNull()) {
+                if (converted.format() == QImage::Format_ARGB32_Premultiplied) {
+                    // Whole-image premultiply once; per row only the
+                    // unpremultiply onto white, no per-row allocation.
+                    const auto *source = reinterpret_cast<const QRgb *>(converted.constScanLine(y));
+                    auto *target = whiteRow.bits();
+                    for (int x = 0; x < image.width(); ++x) {
+                        const auto p = source[x]; const int white = 255 - qAlpha(p);
+                        target[x*3] = uchar(qRed(p) + white);
+                        target[x*3+1] = uchar(qGreen(p) + white);
+                        target[x*3+2] = uchar(qBlue(p) + white);
+                    }
+                    row = whiteRow;
+                } else {
+                    row = QImage(converted.constScanLine(y), converted.width(), 1,
+                                 converted.bytesPerLine(), converted.format());
+                }
+                if (row.isNull()) throw std::bad_alloc();
+                auto *pixels = const_cast<JSAMPROW>(reinterpret_cast<const JSAMPLE *>(row.constBits()));
+                if (jpegli_write_scanlines(&state, &pixels, 1) != 1)
+                    throw std::runtime_error("jpegli: incomplete scanline");
+                continue;
+            }
+            QImage source(image.constScanLine(y), image.width(), 1, image.bytesPerLine(), image.format());
+            source.setColorTable(image.colorTable());
             if (cmyk) {
                 // Match the inverted CMYK convention used by Qt/Adobe readers.
-                auto *target = cmykRow.bits(); const auto *source = row.constBits();
-                for (qsizetype x=0;x<qsizetype(image.width())*4;++x) target[x]=uchar(255-source[x]);
+                auto *target = cmykRow.bits(); const auto *src = source.constBits();
+                for (qsizetype x=0;x<qsizetype(image.width())*4;++x) target[x]=uchar(255-src[x]);
                 row = cmykRow;
-            } else if (gray) row = row.convertToFormat(QImage::Format_Grayscale8);
+            } else if (gray) row = source.convertToFormat(QImage::Format_Grayscale8);
             else if (convertColor) {
-                row.setColorSpace(image.colorSpace());
-                row = row.convertedToColorSpace(colorSpace, QImage::Format_RGB888);
+                source.setColorSpace(image.colorSpace());
+                row = source.convertedToColorSpace(colorSpace, QImage::Format_RGB888);
             } else if (image.hasAlphaChannel() && options.flattenAlpha) {
-                const auto premultiplied = row.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                const auto premultiplied = source.convertToFormat(QImage::Format_ARGB32_Premultiplied);
                 if (premultiplied.isNull()) throw std::bad_alloc();
-                const auto *source = reinterpret_cast<const QRgb *>(premultiplied.constBits());
+                const auto *src = reinterpret_cast<const QRgb *>(premultiplied.constBits());
                 auto *target = whiteRow.bits();
                 for (int x = 0; x < image.width(); ++x) {
-                    const auto p = source[x]; const int white = 255 - qAlpha(p);
+                    const auto p = src[x]; const int white = 255 - qAlpha(p);
                     target[x*3] = uchar(qRed(p) + white);
                     target[x*3+1] = uchar(qGreen(p) + white);
                     target[x*3+2] = uchar(qBlue(p) + white);
                 }
                 row = whiteRow;
-            } else row = row.convertToFormat(QImage::Format_RGB888);
+            } else row = source.convertToFormat(QImage::Format_RGB888);
             if (row.isNull()) throw std::bad_alloc();
             auto *pixels = const_cast<JSAMPROW>(reinterpret_cast<const JSAMPLE *>(row.constBits()));
             if (jpegli_write_scanlines(&state, &pixels, 1) != 1)
