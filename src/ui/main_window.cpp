@@ -355,6 +355,7 @@ MainWindow::MainWindow(QWidget *p, QString cacheRoot)
     // Old settings may contain a temporary fullscreen state. Restore the
     // ordinary window first so fullscreen always goes through fullscreen().
     setWindowState(windowState() & ~Qt::WindowFullScreen);
+    deferToolbarIcons_ = true;
     applySettings(true);
     refreshState();
     updateStatus();
@@ -1571,6 +1572,24 @@ void MainWindow::refreshToolbarIcons() {
             .arg(blend(.07), blend(.14), blend(.16), background.name(),
                  colors.color(QPalette::Base).name(), colors.color(QPalette::Text).name(),
                  colors.color(QPalette::Disabled, QPalette::Text).name()));
+    // Startup: render the SVG icons one event-loop turn later, after the
+    // window has painted. Parsing/rendering every toolbar icon synchronously
+    // is the largest single cost in the MainWindow constructor (measured
+    // ~45 ms warm, more on a cold cache) and sits on the critical path before
+    // the first frame. Theme/palette changes later still render immediately.
+    if (deferToolbarIcons_) {
+        QTimer::singleShot(0, this, [this] {
+            deferToolbarIcons_ = false;
+            setToolbarActionIcons();
+        });
+        return;
+    }
+    setToolbarActionIcons();
+}
+
+void MainWindow::setToolbarActionIcons() {
+    if (!toolbar_)
+        return;
     for (auto *action : toolbar_->actions()) {
         auto icon = action->property("ixIcon").toString();
         if (!icon.isEmpty())

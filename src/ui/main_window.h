@@ -195,6 +195,8 @@ class MainWindow : public QMainWindow {
     void applySettings(bool applyFit = false);
     void applyWindowAppearance(bool fullscreen);
     void refreshToolbarIcons();
+    void setToolbarActionIcons();
+    bool deferToolbarIcons_ = false;
     void fullscreen();
     void commitZoomEdit();
     void startSlideshow(bool showDialog);
