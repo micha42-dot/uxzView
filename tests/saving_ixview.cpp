@@ -393,6 +393,7 @@ class SavingTests : public QObject {
     void transparencyDetectionUsesEveryNativeAlphaSample();
     void exportWithoutIccPreservesPaletteAndProperties();
     void jpegFilterMatchesCanonicalFormat();
+    void everyWritableCapabilityIdIsCanonicalAndWritable();
 };
 void SavingTests::compressionOptionsAffectOutput() {
     const auto format = QByteArrayLiteral("webp");
@@ -864,6 +865,26 @@ void SavingTests::jpegFilterMatchesCanonicalFormat() {
                                                jpegFilter, formats);
     QCOMPARE(target.format.id, QByteArray("jpeg"));
     QVERIFY(target.suggestedPath.endsWith(QStringLiteral(".jpg")));
+}
+
+void SavingTests::everyWritableCapabilityIdIsCanonicalAndWritable() {
+    // The format combos store cap.extensions.first() as their data. That value
+    // must be canonical: Qt builds that advertise JFIF first would otherwise
+    // store "jfif", and the batch plan would name outputs .jfif.
+    ix::CodecRegistry registry;
+    for (const auto &cap : registry.capabilities()) {
+        if (!cap.write || cap.extensions.isEmpty())
+            continue;
+        const auto raw = cap.extensions.first().toLatin1();
+        const auto id = ix::canonicalSaveFormat(raw);
+        QVERIFY2(ix::CodecRegistry::canWrite(id),
+                 qPrintable(QStringLiteral("capability %1 -> id %2 is not writable")
+                                .arg(QString::fromLatin1(raw), QString::fromLatin1(id))));
+        QVERIFY2(id != QByteArray("jfif") && id != QByteArray("jpg") &&
+                     id != QByteArray("jpe") && id != QByteArray("tif"),
+                 qPrintable(QStringLiteral("alias id %1 would leak into format combos")
+                                .arg(QString::fromLatin1(id))));
+    }
 }
 int main(int argc,char **argv) {
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);

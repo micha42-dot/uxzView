@@ -942,6 +942,21 @@ class MaintenanceTests : public QObject {
         QSettings().setValue(QStringLiteral("performance/imageCacheMiB"), 0);
         QSettings().setValue(QStringLiteral("performance/previewCacheMiB"), 0);
     }
+    void exportStepFormatIsCanonicalizedWhenPlanning() {
+        const auto input = temporary_.filePath(QStringLiteral("plan-input.png"));
+        QImage image(8, 6, QImage::Format_RGB32); image.fill(Qt::red);
+        QVERIFY(image.save(input));
+        ix::PipelineJob job;
+        job.inputs = {input};
+        job.outputDirectory = temporary_.filePath(QStringLiteral("planned-out"));
+        // A profile saved before the format combos stored canonical ids may
+        // still carry the raw extension (Qt builds that advertise JFIF first).
+        job.profile.steps = {{QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("jfif")}}}};
+        std::atomic_bool cancel = false;
+        const auto plan = ix::BatchPipeline::plan(job, &cancel);
+        QCOMPARE(plan.size(), 1);
+        QVERIFY2(plan[0].output.endsWith(QStringLiteral(".jpg")), qPrintable(plan[0].output));
+    }
     void batchReleasesResizedSourceBeforePublishingOutput() {
         const auto input=temporary_.filePath(QStringLiteral("memory.owned"));
         const auto output=temporary_.filePath(QStringLiteral("memory-result.png"));

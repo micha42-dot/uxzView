@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "batch_pipeline.h"
 #include "batch_processor.h"
+#include "codec_registry.h"
 #include "file_operations.h"
 #include "file_revision.h"
+#include "save_formats.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QSet>
@@ -45,8 +47,20 @@ QList<PipelineFile> BatchPipeline::plan(const PipelineJob &job, const std::atomi
         if (cancelled()) return {};
         sources.insert(identity(input));
     }
+    // Canonicalize here as well: profiles written before the format combos
+    // stored canonical ids may still contain a raw extension such as "jfif",
+    // which would otherwise name every output .jfif.
     const auto format = job.profile.steps.isEmpty() ? QByteArray()
-        : job.profile.steps.last().parameters.value(QStringLiteral("format")).toString().toLatin1();
+        : canonicalSaveFormat(job.profile.steps.last().parameters.value(QStringLiteral("format")).toString().toLatin1());
+    // Resolve the app's own canonical suffix for that id (jpeg -> .jpg), so
+    // batch outputs never carry an alias extension such as .jfif or .jpe.
+    QByteArray extension = format;
+    if (!format.isEmpty())
+        for (const auto &f : writableSaveFormats(CodecRegistry()))
+            if (f.id == format) {
+                extension = f.suffix().toLatin1();
+                break;
+            }
     QList<PipelineFile> result;
     result.reserve(job.inputs.size());
     for (int i = 0; i < job.inputs.size(); ++i) {
@@ -56,7 +70,7 @@ QList<PipelineFile> BatchPipeline::plan(const PipelineJob &job, const std::atomi
         entry.input = QFileInfo(job.inputs[i]).absoluteFilePath();
         entry.inputStamp = imageFileKey(entry.input);
         entry.error = validation;
-        const auto name = BatchProcessor::outputName(entry.input, job.namePattern, i + 1, format);
+        const auto name = BatchProcessor::outputName(entry.input, job.namePattern, i + 1, extension);
         entry.output = QDir(job.outputDirectory).absoluteFilePath(name);
         const QFileInfo target(entry.output);
         entry.replaces = target.exists();

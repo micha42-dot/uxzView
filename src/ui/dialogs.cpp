@@ -4,6 +4,7 @@
 #include "dialog_layout.h"
 #include "core/batch_processor.h"
 #include "core/localization.h"
+#include "core/save_formats.h"
 #include "platform_support.h"
 #include "settings_dialog.h"
 #include <QColorSpace>
@@ -802,7 +803,7 @@ BatchFileChanges batchDialog(QWidget *p, const QStringList &initial) {
     auto *format = new QComboBox;
     for (const auto &c : CodecRegistry().capabilities())
         if (c.write)
-            format->addItem(c.name, c.extensions.first());
+            format->addItem(c.name, canonicalSaveFormat(c.extensions.first().toLatin1()));
     format->setCurrentIndex(std::max(0, format->findData(QStringLiteral("png"))));
     f->addRow(IX_TEXT("Zielformat:"), format);
     auto *quality = integer(f, IX_TEXT("Qualität (0–100):"), 95, 0, 100);

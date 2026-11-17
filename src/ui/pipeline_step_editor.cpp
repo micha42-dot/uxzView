@@ -4,6 +4,7 @@
 #include "resize_filters.h"
 #include "core/codec_registry.h"
 #include "core/localization.h"
+#include "core/save_formats.h"
 #include <QtWidgets>
 #include <algorithm>
 namespace ix {
@@ -98,9 +99,14 @@ bool editPipelineStep(PipelineStep &step, QWidget *parent) {
         auto *format = new QComboBox;
         for (const auto &cap : CodecRegistry().capabilities())
             if (cap.write)
-                format->addItem(cap.name, cap.extensions.first());
-        format->setCurrentIndex(std::max(
-            0, format->findData(p.value(QStringLiteral("format")).toString(QStringLiteral("webp")))));
+                // Canonical id, not the raw first extension: some Qt builds
+                // advertise JFIF first, and "jfif" must never be stored as the
+                // step format (it would name batch outputs .jfif).
+                format->addItem(cap.name, canonicalSaveFormat(cap.extensions.first().toLatin1()));
+        // Older profiles may still carry a raw extension ("jfif"); map it to
+        // the canonical id so the JPEG entry is selected again.
+        const auto stored = canonicalSaveFormat(p.value(QStringLiteral("format")).toString(QStringLiteral("webp")).toLatin1());
+        format->setCurrentIndex(std::max(0, format->findData(stored)));
         form->addRow(IX_TEXT("Format:"), format);
         auto *quality = spin(IX_TEXT("Qualität:"), p.value(QStringLiteral("quality")).toInt(95), 0, 100);
         values = [=] {
