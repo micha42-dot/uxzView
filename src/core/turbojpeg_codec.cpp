@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "turbojpeg_codec.h"
+#include "file_revision.h"
 #include "image_document.h"
 #include "image_storage.h"
 #include "localization.h"
 #include "memory_policy.h"
 #include "metadata.h"
 #include <QBuffer>
+#include <QCache>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QMutex>
 #include <algorithm>
 #include <cstring>
 #include <turbojpeg.h>
@@ -96,33 +99,43 @@ void applyJfifDensity(QImage &image, const JpegHeader &header) {
 }
 // Mirror QtCodec's document bookkeeping (path, metadata, EXIF presence) so the
 // turbo path is indistinguishable to callers. The size comes from the file that
-// was already open for the read, never from a second stat().
+// was already open for the read, never from a second stat(). Metadata is parsed
+// from the bytes already in memory: the decode just read the whole file, so
+// reopening it for Exiv2 would only repeat that IO.
 void finishDocument(ImageDocument &document, const QString &path,
-                    const QByteArray &head, qint64 fileBytes) {
+                    const QByteArray &data, qint64 fileBytes) {
     document.path = QFileInfo(path).absoluteFilePath();
     document.fileBytes = fileBytes;
     for (const auto &key : document.pixels.textKeys())
         document.text.insert(key, document.pixels.text(key));
-    document.metadata = readMetadata(path, document.metadataWarning);
+    document.metadata = readMetadata(data, path, document.metadataWarning);
     if (document.metadata) {
         document.sourceHasExif = document.metadata->hasExif ||
                                  document.metadata->hasIptc ||
                                  document.metadata->hasXmp;
     } else {
+        const auto head = data.left(kHeaderPrefixBytes);
         document.sourceHasExif = head.contains("Exif\0\0") ||
                                  head.contains("http://ns.adobe.com/xap/") ||
                                  head.contains("Photoshop 3.0");
     }
 }
-} // namespace
-
-bool TurboJpegCodec::accepts(const QString &path) const {
-    const auto suffix = QFileInfo(path).suffix().toLower();
-    if (suffix != QLatin1StringView("jpg") && suffix != QLatin1StringView("jpeg") &&
-        suffix != QLatin1StringView("jpe"))
-        return false;
-    // Large JPEGs and forced spills need Qt's mapped-buffer decode path.
-    // Let QtCodec handle them; the turbo path serves the common case.
+// accepts() walks the on-disk header prefix; cache the decision per file
+// revision so repeated probes of an unchanged file do not reopen and re-walk
+// it. The spill threshold is part of the key because it is a test seam.
+struct AcceptEntry {
+    JpegHeader header;
+    bool accepted = false;
+};
+QMutex &acceptMutex() {
+    static QMutex mutex;
+    return mutex;
+}
+QCache<QString, AcceptEntry> &acceptCache() {
+    static QCache<QString, AcceptEntry> cache(256);
+    return cache;
+}
+bool probeJpegAccepts(const QString &path, JpegHeader &header) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return false;
@@ -137,7 +150,7 @@ bool TurboJpegCodec::accepts(const QString &path) const {
         const auto head = file.read(std::min<qint64>(limit, file.size()));
         return inspectJpegHeader(head.constData(), head.size());
     };
-    auto header = walk(kHeaderPrefixBytes / 4);
+    header = walk(kHeaderPrefixBytes / 4);
     if (!header.parsed)
         header = walk(kHeaderPrefixBytes);
     // ICC profiles and non-RGB component layouts (grayscale, CMYK/YCCK) must
@@ -162,6 +175,30 @@ bool TurboJpegCodec::accepts(const QString &path) const {
         qint64(header.width) * header.height * bytesPerPixel > o.spillThresholdBytes)
         return false;
     return true;
+}
+} // namespace
+
+bool TurboJpegCodec::accepts(const QString &path) const {
+    const auto suffix = QFileInfo(path).suffix().toLower();
+    if (suffix != QLatin1StringView("jpg") && suffix != QLatin1StringView("jpeg") &&
+        suffix != QLatin1StringView("jpe"))
+        return false;
+    // Large JPEGs and forced spills need Qt's mapped-buffer decode path.
+    // Let QtCodec handle them; the turbo path serves the common case.
+    const QString key = imageFileKey(path) + QLatin1Char('|') +
+                        QString::number(imageStorageOptions().spillThresholdBytes);
+    {
+        QMutexLocker lock(&acceptMutex());
+        if (const auto *entry = acceptCache().object(key))
+            return entry->accepted;
+    }
+    JpegHeader header;
+    const bool accepted = probeJpegAccepts(path, header);
+    {
+        QMutexLocker lock(&acceptMutex());
+        acceptCache().insert(key, new AcceptEntry{header, accepted}, 1);
+    }
+    return accepted;
 }
 
 ImageResult TurboJpegCodec::read(const QString &path, int page) const {
@@ -263,7 +300,7 @@ ImageResult TurboJpegCodec::read(const QString &path, int page) const {
     result.document.animated = false;
     result.document.delayMs = 100;
     result.document.loopCount = 0;
-    finishDocument(result.document, path, buffer.left(kHeaderPrefixBytes), fileBytes);
+    finishDocument(result.document, path, buffer, fileBytes);
     return result;
 }
 
@@ -289,7 +326,7 @@ ImageResult TurboJpegCodec::qtJpegFallback(QBuffer *io, const QByteArray &buffer
     result.document.animated = reader.supportsAnimation() && result.document.pageCount != 1;
     result.document.delayMs = std::max(20, reader.nextImageDelay());
     result.document.loopCount = reader.loopCount();
-    finishDocument(result.document, path, buffer.left(kHeaderPrefixBytes), fileBytes);
+    finishDocument(result.document, path, buffer, fileBytes);
     return result;
 }
 } // namespace ix

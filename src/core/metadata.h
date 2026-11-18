@@ -6,6 +6,7 @@
 #include <QSize>
 #include <QString>
 #include <memory>
+class QIODevice;
 namespace ix {
 class Metadata {
   public:
@@ -16,6 +17,11 @@ class Metadata {
     qint64 nativeBytes = 0; // Bounded estimate of native tag/value/data-area storage.
 };
 std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warning);
+// Same parser over an already-open device or an in-memory snapshot, so callers
+// that already hold the file bytes (e.g. the in-memory JPEG decode) do not
+// reopen the file for Exiv2.
+std::shared_ptr<const Metadata> readMetadata(QIODevice &device, const QString &path, QString &warning);
+std::shared_ptr<const Metadata> readMetadata(const QByteArray &data, const QString &path, QString &warning);
 QByteArray attachMetadata(QByteArray encoded, const Metadata &metadata, QSize pixelSize, double dpiX,
                           double dpiY, bool modified, QString &error);
 bool metadataWritable(QByteArray format);

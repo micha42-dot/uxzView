@@ -4733,6 +4733,37 @@ class IxTests : public QObject {
         QCOMPARE(codec->reads, 2);
         ix::ImageLoadCache::clear();
     }
+    void readMetadataFromMemoryMatchesFileRead() {
+#ifdef IX_TEST_EXIV2
+        const auto source=dir(QStringLiteral("memmeta-source.jpg"));
+        const auto pixels=pattern(32,24); QVERIFY(pixels.save(source));
+        auto native=Exiv2::ImageFactory::open(source.toStdString()); native->readMetadata();
+        native->exifData()["Exif.Image.Make"]="Buffer camera"; native->writeMetadata();
+        QString fileWarning, byteWarning, deviceWarning;
+        const auto fromFile=ix::readMetadata(source,fileWarning);
+        QVERIFY(fromFile && fromFile->hasExif);
+        QFile input(source); QVERIFY(input.open(QIODevice::ReadOnly));
+        const auto bytes=input.readAll(); input.close();
+        // The in-memory overloads must produce exactly the file-based result.
+        const auto fromBytes=ix::readMetadata(bytes,source,byteWarning);
+        QVERIFY(fromBytes && fromBytes->hasExif);
+        QCOMPARE(fromBytes->tags,fromFile->tags);
+        QCOMPARE(fromBytes->hasExif,fromFile->hasExif);
+        QCOMPARE(fromBytes->hasIptc,fromFile->hasIptc);
+        QCOMPARE(fromBytes->hasXmp,fromFile->hasXmp);
+        QCOMPARE(fromBytes->nativeBytes,fromFile->nativeBytes);
+        QCOMPARE(byteWarning,fileWarning);
+        QByteArray holder=bytes; QBuffer device(&holder);
+        QVERIFY(device.open(QIODevice::ReadOnly));
+        const auto fromDevice=ix::readMetadata(static_cast<QIODevice &>(device),source,deviceWarning);
+        QVERIFY(fromDevice && fromDevice->hasExif);
+        QCOMPARE(fromDevice->tags,fromFile->tags);
+        QCOMPARE(fromDevice->nativeBytes,fromFile->nativeBytes);
+        QCOMPARE(deviceWarning,fileWarning);
+#else
+        QSKIP("Exiv2 is not available in this build");
+#endif
+    }
     void metadataDpiBoundsPreserveInputAndHighResolutions() {
 #ifdef IX_TEST_EXIV2
         const auto source=dir(QStringLiteral("dpi-source.jpg")), target=dir(QStringLiteral("dpi-target.jpg"));

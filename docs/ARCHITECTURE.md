@@ -99,7 +99,13 @@ claiming codec instead — the turbo JPEG path retries with Qt's tolerant reader
 and reports the strict parser's error only when Qt cannot decode the stream
 either. `accepts()` therefore has to mirror every cheap precondition of `read()`
 (including the in-memory size limit), so a fast path never claims a file it
-cannot finish.
+cannot finish. The turbo JPEG `accepts()` probe (header walk plus the Exif
+orientation check) is cached per file revision key plus spill threshold, so
+repeated probes of an unchanged file no longer reopen it. `read()` still
+re-inspects the in-memory buffer itself, because the file may have changed after
+`accepts()`; metadata is parsed from the already-loaded buffer via the
+`readMetadata(QByteArray/QIODevice, ...)` overloads instead of reopening the
+file for Exiv2, so one JPEG open costs a single file read.
 
 `CodecRegistry::openFilter` uses readable extension keys, with normalized groups
 for aliases, instead of full decoder/encoder capabilities. Qt's extension source

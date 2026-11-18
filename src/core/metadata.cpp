@@ -2,7 +2,9 @@
 // Copyright (C) 2026 IxView contributors
 #include "metadata.h"
 #include "localization.h"
+#include <QBuffer>
 #include <QFile>
+#include <QIODevice>
 #include <QMutex>
 #include <algorithm>
 #include <cstring>
@@ -20,14 +22,14 @@ namespace {
 // OS mapping that another process could truncate while it is being parsed.
 class MetadataIo final : public Exiv2::BasicIo {
   public:
-    explicit MetadataIo(QFile &file)
-        : file_(file), size_(file.size()), path_(file.fileName().toUtf8().toStdString()) {}
+    explicit MetadataIo(QIODevice &device, std::string path)
+        : device_(device), size_(device.size()), path_(std::move(path)) {}
     int open() override {
         denied_ = false;
         return seek(0, beg);
     }
     int close() override {
-        return 0; // The enclosing readMetadata scope owns the open file.
+        return 0; // The enclosing readMetadata scope owns the device.
     }
     size_t write(const Exiv2::byte *, size_t) override {
         denied_ = true;
@@ -58,13 +60,18 @@ class MetadataIo final : public Exiv2::BasicIo {
         while (copied < count) {
             const auto offset = position_ - bufferStart_;
             if (offset < 0 || offset >= buffer_.size()) {
-                if (!file_.seek(position_))
+                if (!device_.seek(position_)) {
+                    ioError_ = true;
                     break;
+                }
                 bufferStart_ = position_;
                 // PNG has many short chunk headers separated by pixel data.
                 // Nearby seeks stay in this bounded buffer instead of issuing
                 // a new filesystem request for each tiny header.
-                buffer_ = file_.read(std::min(qint64(64 * 1024), size_ - position_));
+                const auto chunk = device_.read(std::min(qint64(64 * 1024), size_ - position_));
+                if (chunk.size() < 0)
+                    ioError_ = true;
+                buffer_ = chunk;
                 if (buffer_.isEmpty())
                     break;
                 continue;
@@ -91,9 +98,9 @@ class MetadataIo final : public Exiv2::BasicIo {
         if (writable)
             throw Exiv2::Error(Exiv2::ErrorCode::kerFailedToMapFileForReadWrite, path_);
         if (mapped_.isEmpty()) {
-            if (!file_.seek(0))
+            if (!device_.seek(0))
                 throw Exiv2::Error(Exiv2::ErrorCode::kerInputDataReadFailed);
-            mapped_ = file_.read(size_);
+            mapped_ = device_.read(size_);
             if (mapped_.size() != size_)
                 throw Exiv2::Error(Exiv2::ErrorCode::kerInputDataReadFailed);
         }
@@ -112,10 +119,10 @@ class MetadataIo final : public Exiv2::BasicIo {
         return size_t(size_);
     }
     bool isopen() const override {
-        return file_.isOpen();
+        return device_.isOpen();
     }
     int error() const override {
-        return denied_ || file_.error() != QFile::NoError;
+        return denied_ || ioError_;
     }
     bool eof() const override {
         return position_ >= size_;
@@ -129,12 +136,12 @@ class MetadataIo final : public Exiv2::BasicIo {
     size_t remaining() const {
         return size_t(std::max(qint64(0), size_ - position_));
     }
-    QFile &file_;
+    QIODevice &device_;
     qint64 size_;
     std::string path_;
     QByteArray mapped_, buffer_;
     qint64 position_ = 0, bufferStart_ = 0;
-    bool denied_ = false;
+    bool denied_ = false, ioError_ = false;
 };
 #endif
 // XMP initialization and namespace registration are shared Exiv2 state.
@@ -153,24 +160,26 @@ bool metadataWritable(QByteArray format) {
     return format == "jpeg" || format == "jpg" || format == "png" || format == "tiff" || format == "tif" ||
            format == "webp";
 }
-std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warning) {
+std::shared_ptr<const Metadata> readMetadata(QIODevice &device, const QString &path, QString &warning) {
 #ifdef IX_HAVE_EXIV2
     QMutexLocker metadataGuard(&metadataMutex);
     try {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly)) {
-            warning = file.errorString();
+        if (!device.isOpen() && !device.open(QIODevice::ReadOnly)) {
+            warning = QStringLiteral("Metadaten konnten nicht gelesen werden.");
             return {};
         }
-        if (file.size() > 128LL * 1024 * 1024) {
+        const qint64 fileSize = device.size();
+        if (fileSize > 128LL * 1024 * 1024) {
             warning = QStringLiteral("Metadaten nicht eingelesen: Quelldatei größer als 128 MiB.");
             return {};
         }
 #if EXIV2_TEST_VERSION(0, 28, 0)
-        auto image = Exiv2::ImageFactory::open(std::make_unique<MetadataIo>(file));
+        auto image = Exiv2::ImageFactory::open(
+            std::make_unique<MetadataIo>(device, path.toUtf8().toStdString()));
 #else
         // Retain compatibility with distributions still shipping Exiv2 0.27.
-        auto bytes = file.readAll();
+        device.seek(0);
+        auto bytes = device.readAll();
         auto image = Exiv2::ImageFactory::open(reinterpret_cast<const Exiv2::byte *>(bytes.constData()),
                                                size_t(bytes.size()));
 #endif
@@ -196,7 +205,7 @@ std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warni
                         payload += std::clamp<qint64>(tag.sizeDataArea(), 0, limit);
                 } catch (const Exiv2::Error &) {
                     // Accounting must not discard otherwise readable metadata.
-                    payload = std::max(payload, std::min(file.size(), limit));
+                    payload = std::max(payload, std::min(fileSize, limit));
                 }
                 md->nativeBytes = std::min(limit, md->nativeBytes + payload +
                                                    std::min<qint64>(key.size(), limit) + 128);
@@ -212,10 +221,25 @@ std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warni
         return {};
     }
 #else
+    Q_UNUSED(device);
     Q_UNUSED(path);
     warning = QStringLiteral("Exiv2 ist in diesem Build nicht verfügbar.");
     return {};
 #endif
+}
+std::shared_ptr<const Metadata> readMetadata(const QString &path, QString &warning) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        warning = file.errorString();
+        return {};
+    }
+    return readMetadata(static_cast<QIODevice &>(file), path, warning);
+}
+std::shared_ptr<const Metadata> readMetadata(const QByteArray &data, const QString &path, QString &warning) {
+    QByteArray holder = data; // QBuffer needs a non-const owner; reads never detach.
+    QBuffer buffer(&holder);
+    buffer.open(QIODevice::ReadOnly);
+    return readMetadata(static_cast<QIODevice &>(buffer), path, warning);
 }
 QByteArray attachMetadata(QByteArray encoded, const Metadata &md, QSize size, double dpiX, double dpiY,
                           bool modified, QString &error) {

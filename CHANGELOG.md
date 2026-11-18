@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Opening a JPEG now costs one file read instead of three: the turbo codec's
+  `accepts()` header probe is cached per file revision (repeated probes no
+  longer reopen the file), and metadata is parsed by Exiv2 from the already
+  loaded buffer instead of reopening the file. Measured on a 1920x1041 JPEG
+  with 15 registry reads: process read operations dropped from 3 to 1 per read
+  (45 to 15 total) and read bytes from 8.6 to 6.6 MB, with identical pixels and
+  metadata. On cold antivirus caches each saved open also skips a scan.
+
 - Display preparation for file-backed 8-bit images with color management and
   display sharpening both enabled now fuses profile conversion and sharpening
   into a single output buffer (three converted rows feed the shared native

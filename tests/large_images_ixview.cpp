@@ -353,6 +353,23 @@ private slots:
         QImageReader reference(path);
         QCOMPARE(read.document.pixels.colorSpace(), reference.read().colorSpace());
     }
+    // The accepts() header probe is cached per file revision; rewriting the same
+    // path must never be answered from the stale entry.
+    void turboJpegAcceptsCacheFollowsFileRevision() {
+        ix::configureImageStorage({false, 0, temp_.path()});
+        ix::TurboJpegCodec codec;
+        const auto path = temp_.filePath(QStringLiteral("accept-cache.jpg"));
+        QImage plain(48, 32, QImage::Format_RGB32); plain.fill(Qt::darkGreen);
+        QVERIFY(plain.save(path, "jpeg", 90));
+        QVERIFY(codec.accepts(path)); // cold probe, then cached
+        QVERIFY(codec.accepts(path)); // warm probe, same decision
+        QImage icc(48, 32, QImage::Format_RGB32); icc.fill(Qt::red);
+        icc.setColorSpace(QColorSpace::DisplayP3); // embedded ICC keeps Qt on the decode path
+        QVERIFY(icc.save(path, "jpeg", 90));
+        QVERIFY(!codec.accepts(path));
+        QVERIFY(plain.save(path, "jpeg", 90));
+        QVERIFY(codec.accepts(path));
+    }
     // Every width alignment must decode identically: QImage's 24-bit stride is
     // 32-bit aligned, so a fast path that assumes a tight pitch shears rows.
     void turboJpegMatchesQtForUnalignedWidths() {
