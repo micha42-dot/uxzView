@@ -68,6 +68,13 @@ Settings snapshots portable values through the existing profile transaction;
 writer discovery occurs only on the Save page. A never-visited page retains an
 existing fixed-format key, including a temporarily unavailable format.
 
+`CodecRegistry::encodeImage` splits pixel preparation (ICC drop, alpha
+flatten) into `prepareEncodePixels` and encoding into `encodeImagePrepared`.
+`optimizeForTargetSize` prepares once and shares that copy across all quality
+probes, instead of repeating the full-image conversion per probe; the probes
+run the same limit checks and metadata attach, so measured sizes and the chosen
+quality are identical to the final save.
+
 `ImageDocument` holds original pixel precision, metadata, source revision and page/animation state. `core/image_loading.*` owns the load pipeline (optional RAW preview, revision-aware cache read and presentation conversion) with an explicit `ImageLoadRequest`. `displayImage` prepares presentation pixels. `ImageView` owns fitting, scrolling, selection and its bounded optional display cache. Display caches must never supply pixels for save/export.
 
 `ui/crop_geometry.h` computes edge/corner adjustments using half-open image-pixel

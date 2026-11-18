@@ -424,8 +424,83 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
         return file.errorString();
     return {};
 }
+QImage CodecRegistry::prepareEncodePixels(const QImage &pixels, const QByteArray &format,
+                                           const EncodeOptions &encode, QString &error) const {
+    const bool jpegli = format == "jpeg" && jpegliEnabled();
+    QImage output = pixels;
+    if (!encode.keepIcc && output.colorSpace().isValid()) {
+        // Changing metadata on a shared QImage detaches its entire buffer.
+        // The read-only header borrows pixels from `pixels` for this encode.
+        output = QImage(pixels.constBits(), pixels.width(), pixels.height(), pixels.bytesPerLine(), pixels.format());
+        if (output.isNull()) {
+            error = IX_TEXT("Speicher nicht verfügbar.");
+            return {};
+        }
+        if (pixels.colorCount() > 0)
+            output.setColorTable(pixels.colorTable());
+        inheritImageProperties(pixels, output);
+        output.setColorSpace(QColorSpace());
+        output.setDevicePixelRatio(pixels.devicePixelRatio());
+        output.setOffset(pixels.offset());
+    }
+    // alphaWhite != 0 (legacy default) flattens transparency onto white for
+    // formats without alpha. alphaWhite == 0 skips compositing.
+    // The save dialog resolves Ask mode before encoding. jpegli flattens internally,
+    // so JPEG only needs this pass when the Qt writer is selected.
+    if (!jpegli && encode.alphaWhite != 0 && output.hasAlphaChannel() &&
+        !alphaWritable(format) && imageHasRealTransparency(output)) {
+        QImage flat;
+        try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
+        catch (const std::exception &e) { error = localized(QString::fromUtf8(e.what())); return {}; }
+        // Premultiply once for the whole image when that copy fits the budget
+        // instead of allocating per row; on allocation failure fall back to
+        // the row-by-row path below. Same pixels either way.
+        QImage premultiplied;
+        try { premultiplied = output.convertToFormat(QImage::Format_ARGB32_Premultiplied); }
+        catch (const std::exception &) { premultiplied = QImage(); }
+        if (premultiplied.isNull())
+            premultiplied = QImage();
+        for (int y=0; y<output.height(); ++y) {
+            const QRgb *source = nullptr;
+            QImage rowPremultiplied;
+            if (!premultiplied.isNull()) {
+                source = reinterpret_cast<const QRgb *>(premultiplied.constScanLine(y));
+            } else {
+                QImage input(output.constScanLine(y),output.width(),1,output.bytesPerLine(),output.format());
+                input.setColorTable(output.colorTable());
+                rowPremultiplied = input.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                if (rowPremultiplied.isNull()) {
+                    error = IX_TEXT("Speicher nicht verfügbar.");
+                    return {};
+                }
+                source = reinterpret_cast<const QRgb *>(rowPremultiplied.constBits());
+            }
+            auto *target=reinterpret_cast<QRgb *>(flat.scanLine(y));
+            for (int x=0;x<flat.width();++x) {
+                const auto pixel=source[x]; const int white=255-qAlpha(pixel);
+                target[x]=qRgb(qRed(pixel)+white,qGreen(pixel)+white,qBlue(pixel)+white);
+            }
+        }
+        inheritImageProperties(output, flat);
+        output = flat;
+    }
+    return output;
+}
 QString CodecRegistry::encodeImage(const ImageDocument &document, QIODevice &device,
                                    const QByteArray &format, const EncodeOptions &encode) const {
+    if (document.empty())
+        return IX_TEXT("Kein Bild geladen.");
+    // Prepare once here; target-size probes share the prepared copy via
+    // encodeImagePrepared instead of repeating this per quality.
+    QString prepError;
+    const QImage prepared = prepareEncodePixels(document.pixels, format, encode, prepError);
+    if (!prepError.isEmpty())
+        return prepError;
+    return encodeImagePrepared(document, prepared, device, format, encode);
+}
+QString CodecRegistry::encodeImagePrepared(const ImageDocument &document, const QImage &prepared,
+                                            QIODevice &device, const QByteArray &format,
+                                            const EncodeOptions &encode) const {
     if (document.empty())
         return IX_TEXT("Kein Bild geladen.");
     const int quality = std::clamp(encode.quality, 0, 100);
@@ -469,59 +544,7 @@ QString CodecRegistry::encodeImage(const ImageDocument &document, QIODevice &dev
     // Note: Qt's QImageWriter exposes no GIF interlace switch, so
     // encode.interlaced is accepted (UI + profiles) but currently a no-op.
     Q_UNUSED(encode.interlaced);
-    QImage output = document.pixels;
-    if (!encode.keepIcc && output.colorSpace().isValid()) {
-        // Changing metadata on a shared QImage detaches its entire buffer.
-        // The read-only header borrows pixels from document for this encode.
-        const auto &pixels = document.pixels;
-        output = QImage(pixels.constBits(), pixels.width(), pixels.height(), pixels.bytesPerLine(), pixels.format());
-        if (output.isNull())
-            return IX_TEXT("Speicher nicht verfügbar.");
-        if (pixels.colorCount() > 0)
-            output.setColorTable(pixels.colorTable());
-        inheritImageProperties(pixels, output);
-        output.setColorSpace(QColorSpace());
-        output.setDevicePixelRatio(pixels.devicePixelRatio());
-        output.setOffset(pixels.offset());
-    }
-    // alphaWhite != 0 (legacy default) flattens transparency onto white for
-    // formats without alpha. alphaWhite == 0 skips compositing.
-    // The save dialog resolves Ask mode before encoding. jpegli flattens internally,
-    // so JPEG only needs this pass when the Qt writer is selected.
-    if (!jpegli && encode.alphaWhite != 0 && output.hasAlphaChannel() &&
-        !alphaWritable(format) && imageHasRealTransparency(output)) {
-        QImage flat;
-        try { flat = allocateImage(output.size(), QImage::Format_RGB32, imageIsFileBacked(output) ? 0 : output.sizeInBytes()); }
-        catch (const std::exception &error) { return localized(QString::fromUtf8(error.what())); }
-        // Premultiply once for the whole image when that copy fits the budget
-        // instead of allocating per row; on allocation failure fall back to
-        // the row-by-row path below. Same pixels either way.
-        QImage premultiplied;
-        try { premultiplied = output.convertToFormat(QImage::Format_ARGB32_Premultiplied); }
-        catch (const std::exception &) { premultiplied = QImage(); }
-        if (premultiplied.isNull())
-            premultiplied = QImage();
-        for (int y=0; y<output.height(); ++y) {
-            const QRgb *source = nullptr;
-            QImage rowPremultiplied;
-            if (!premultiplied.isNull()) {
-                source = reinterpret_cast<const QRgb *>(premultiplied.constScanLine(y));
-            } else {
-                QImage input(output.constScanLine(y),output.width(),1,output.bytesPerLine(),output.format());
-                input.setColorTable(output.colorTable());
-                rowPremultiplied = input.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-                if (rowPremultiplied.isNull()) { return IX_TEXT("Speicher nicht verfügbar."); }
-                source = reinterpret_cast<const QRgb *>(rowPremultiplied.constBits());
-            }
-            auto *target=reinterpret_cast<QRgb *>(flat.scanLine(y));
-            for (int x=0;x<flat.width();++x) {
-                const auto pixel=source[x]; const int white=255-qAlpha(pixel);
-                target[x]=qRgb(qRed(pixel)+white,qGreen(pixel)+white,qBlue(pixel)+white);
-            }
-        }
-        inheritImageProperties(output, flat);
-        output = flat;
-    }
+    const QImage &output = prepared;
     QString encodeError;
     if (jpegli) {
         encodeError = writeJpegli(*destination, output, quality,

@@ -30,14 +30,14 @@ protected:
     }
 };
 
-qint64 encodeSize(const ImageDocument &document, const SaveOptions &options,
+qint64 encodeSize(const ImageDocument &document, const QImage &prepared, const SaveOptions &options,
                   const CodecRegistry &registry, CodecRegistry::EncodeOptions encode,
                   int quality, QString &error) {
     SizeCounter counter;
     counter.open(QIODevice::WriteOnly);
     encode.quality = quality;
     try {
-        error = registry.encodeImage(document, counter, options.format, encode);
+        error = registry.encodeImagePrepared(document, prepared, counter, options.format, encode);
     } catch (const std::exception &ex) {
         error = localized(QString::fromUtf8(ex.what()));
     } catch (...) {
@@ -210,6 +210,15 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
         return result;
     }
     const auto encode = saveEncodeOptions(options);
+    // Prepare pixels once: every quality probe shares this copy instead of
+    // repeating the ICC drop / alpha flatten per encode. The preparation is the
+    // same code the final save runs, so measured sizes are unchanged.
+    QString prepError;
+    const QImage prepared = registry.prepareEncodePixels(document.pixels, options.format, encode, prepError);
+    if (!prepError.isEmpty()) {
+        result.error = prepError;
+        return result;
+    }
     std::array<std::optional<qint64>, 101> measured;
     int completed = 0;
     const int maxProbes = encode.lossless ? 1 : 13;
@@ -224,7 +233,7 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
             result.error = IX_TEXT("Abgebrochen.");
             return -1;
         }
-        const auto bytes = encodeSize(document, options, registry, encode, quality, result.error);
+        const auto bytes = encodeSize(document, prepared, options, registry, encode, quality, result.error);
         if (cancel.load()) {
             result.error = IX_TEXT("Abgebrochen.");
             return -1;

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Target-size optimization prepares the export pixels (ICC drop, alpha flatten)
+  once and shares the copy across all quality probes instead of repeating the
+  full-image conversion per probe. Measured on a 6 MP P3 image with alpha,
+  keepIcc off and a 2 MB target: JPEG quality search 1457→713 ms (about 2x),
+  WebP faster as well; chosen quality and resulting file size are unchanged
+  (verified identical before/after and by the saving tests).
+
 - Opening a JPEG now costs one file read instead of three: the turbo codec's
   `accepts()` header probe is cached per file revision (repeated probes no
   longer reopen the file), and metadata is parsed by Exiv2 from the already

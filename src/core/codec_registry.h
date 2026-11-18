@@ -73,6 +73,17 @@ class CodecRegistry {
     // Shared encoding path for staged file output and target-size measurement.
     QString encodeImage(const ImageDocument &document, QIODevice &destination,
                         const QByteArray &format, const EncodeOptions &encode) const;
+    // Pixel preparation (ICC drop, alpha flatten) split out of encodeImage, so
+    // target-size probes can prepare once and share the copy across qualities.
+    // Returns the pixels to encode (shares `pixels` when no preparation applies);
+    // on failure sets error and returns a null image.
+    QImage prepareEncodePixels(const QImage &pixels, const QByteArray &format,
+                               const EncodeOptions &encode, QString &error) const;
+    // encodeImage with already-prepared pixels: same limit checks, writer setup
+    // and metadata attach, so measured probe sizes match the final save exactly.
+    QString encodeImagePrepared(const ImageDocument &document, const QImage &prepared,
+                                QIODevice &destination, const QByteArray &format,
+                                const EncodeOptions &encode) const;
     QList<FormatCapability> capabilities() const;
     QStringList extensions() const;
     QString openFilter() const;
