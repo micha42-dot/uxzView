@@ -190,7 +190,7 @@ jobs:
           # suites that write only to files.
           if [[ $status -ne 0 ]]; then
             echo "::group::Failing test assertions"
-            grep -H -E '^(FAIL!|QFATAL)' build/native/*-test-results.txt || echo "(no FAIL! line recorded)"
+            grep -H -E '^(FAIL!|QFATAL)' build/native/*test-results.txt || echo "(no FAIL! line recorded)"
             echo "::endgroup::"
           fi
           exit $status

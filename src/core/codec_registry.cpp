@@ -554,8 +554,7 @@ QString CodecRegistry::encodeImagePrepared(const ImageDocument &document, const 
     } else if (format == "avif" || format == "heif" || format == "heic" ||
         format == "jxl" || format == "png" || format == "tiff")
         writer.setCompression(encode.effort);
-    // Note: Qt's QImageWriter exposes no GIF interlace switch, so
-    // encode.interlaced is accepted (UI + profiles) but currently a no-op.
+    // Older profiles may request GIF interlacing, which this writer cannot configure.
     Q_UNUSED(encode.interlaced);
     const QImage &output = prepared.pixels;
     QString encodeError;
