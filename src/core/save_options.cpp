@@ -124,7 +124,8 @@ SaveOptions SaveOptions::fromJson(const QJsonObject &object) {
     options.fixOrientation = object.value(QStringLiteral("fixOrientation")).toBool(true);
     options.targetSizeEnabled = object.value(QStringLiteral("targetSizeEnabled")).toBool(false);
     options.targetBytes =
-        qint64(std::clamp(object.value(QStringLiteral("targetBytes")).toDouble(150 * 1024), 1024.0, 2e9));
+        qint64(std::clamp(object.value(QStringLiteral("targetBytes")).toDouble(150 * 1024),
+                          1024.0, double(MaxTargetBytes)));
     return options;
 }
 

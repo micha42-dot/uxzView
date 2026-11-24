@@ -4803,7 +4803,7 @@ class IxTests : public QObject {
     void selectionExportRemovesOriginalExifThumbnail() {
 #ifdef IX_TEST_EXIV2
         const auto source = dir(QStringLiteral("thumbnail-source.jpg"));
-        const auto target = dir(QStringLiteral("thumbnail-crop.jpg"));
+        auto target = dir(QStringLiteral("thumbnail-crop.jpg"));
         auto pixels = pattern(100, 80);
         QVERIFY(pixels.save(source));
         QByteArray thumbnail;
@@ -4847,6 +4847,26 @@ class IxTests : public QObject {
 #else
         QCOMPARE(savedThumbnail.size_, 0L);
 #endif
+        window.dispatch(QStringLiteral("crop"));
+        QTRY_VERIFY(!window.isBusy() && window.document().modified);
+        for (const auto &name : {QStringLiteral("edited.jpg"), QStringLiteral("edited-again.jpg")}) {
+            target = dir(name);
+            selected = false;
+            timer.start(20);
+            window.dispatch(QStringLiteral("saveAs"));
+            timer.stop();
+            QVERIFY(selected);
+            QCOMPARE(window.document().path, target);
+            QVERIFY(!window.document().modified);
+            auto exported = Exiv2::ImageFactory::open(target.toStdString());
+            exported->readMetadata();
+            const auto thumb = Exiv2::ExifThumb(exported->exifData()).copy();
+#if EXIV2_TEST_VERSION(0, 28, 0)
+            QCOMPARE(thumb.size(), size_t(0));
+#else
+            QCOMPARE(thumb.size_, 0L);
+#endif
+        }
 #endif
     }
 

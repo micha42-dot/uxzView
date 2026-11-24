@@ -248,7 +248,7 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     targetEnabled_ = new QCheckBox(IX_TEXT("Zieldateigröße:"), this);
     targetEnabled_->setObjectName(QStringLiteral("compressionTargetEnabled"));
     targetValue_ = new QDoubleSpinBox(this);
-    targetValue_->setRange(1.0, 2048.0);
+    targetValue_->setRange(1.0, double(SaveOptions::MaxTargetBytes / MiB));
     targetValue_->setDecimals(2);
     targetValue_->setValue(150.0);
     targetValue_->setObjectName(QStringLiteral("compressionTargetValue"));
@@ -289,12 +289,11 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     rowsLayout->addWidget(targetRow_);
     optimizeTimer_ = new QTimer(this);
     optimizeTimer_->setSingleShot(true);
-    optimizeTimer_->setInterval(600);
     connect(optimizeTimer_, &QTimer::timeout, this, &SaveOptionsDialog::runTargetOptimization);
     connect(&targetWatcher_, &QFutureWatcherBase::finished, this, &SaveOptionsDialog::targetOptimizationFinished);
-    connect(targetEnabled_, &QCheckBox::toggled, this, &SaveOptionsDialog::collect);
-    connect(targetValue_, &QDoubleSpinBox::valueChanged, this, &SaveOptionsDialog::collect);
-    connect(targetUnit_, &QComboBox::currentIndexChanged, this, &SaveOptionsDialog::collect);
+    connect(targetEnabled_, &QCheckBox::toggled, this, [this] { collect(); });
+    connect(targetValue_, &QDoubleSpinBox::valueChanged, this, [this] { collect(true); });
+    connect(targetUnit_, &QComboBox::currentIndexChanged, this, [this] { collect(true); });
     rowsLayout->addSpacing(6);
     auto *profileLabel = new QLabel(IX_TEXT("Profile:"), this);
     profileCombo_ = new QComboBox(this);
@@ -638,7 +637,7 @@ void SaveOptionsDialog::rebuild() {
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
 }
-void SaveOptionsDialog::collect() {
+void SaveOptionsDialog::collect(bool targetSizeEdited) {
     if (rebuilding_)
         return;
     const auto previous = options_;
@@ -662,8 +661,8 @@ void SaveOptionsDialog::collect() {
     options_.keepIcc = keepIcc_->isChecked();
     options_.fixOrientation = fixOrientation_->isChecked();
     options_.targetSizeEnabled = targetEnabled_->isChecked();
-    options_.targetBytes =
-        qint64(targetValue_->value() * targetUnit_->currentData().toInt());
+    if (targetSizeEdited)
+        options_.targetBytes = qRound64(targetValue_->value() * targetUnit_->currentData().toInt());
     qualitySlider_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     qualitySpin_->setEnabled(!options_.targetSizeEnabled || !caps_.targetSize);
     if (options_ == previous)
@@ -694,7 +693,7 @@ void SaveOptionsDialog::scheduleTargetOptimization() {
     if (wanted) {
         targetResult_->setText(IX_TEXT("Optimiere Qualität …"));
         if (isVisible())
-            optimizeTimer_->start();
+            optimizeTimer_->start(600);
     } else {
         targetResult_->clear();
     }

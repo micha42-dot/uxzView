@@ -353,14 +353,32 @@ class SavingTests : public QObject {
         ix::MainWindow window;window.show();window.openPath(source);
         QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy()&&!window.document().empty(),10000);
         window.dispatch(QStringLiteral("grayscale"));QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy()&&window.document().modified,10000);
-        if(command==QStringLiteral("saveSelection")) window.findChild<ix::ImageView *>()->setSelection({3,4,31,23});
+        const bool selection = command == QStringLiteral("saveSelection");
+        const QRect selectedArea(3, 4, 31, 23);
+        const auto previousJpeg = ix::loadSaveOptions("jpeg");
+        const auto restoreOptions = qScopeGuard([&] {
+            if (selection) ix::storeSaveOptions(previousJpeg);
+        });
+        if (selection) {
+            window.findChild<ix::ImageView *>()->setSelection(selectedArea);
+            auto options = previousJpeg;
+            options.targetSizeEnabled = true;
+            options.targetBytes = 4096;
+            ix::storeSaveOptions(options);
+        }
         const auto suffix=fixed&&!overridePng?QStringLiteral("jpg"):QStringLiteral("png");
         const auto target = temp_.filePath(QStringLiteral("export-%1.%2").arg(dataTag, suffix));
+        int previewQuality = -1;
         bool seen=false,timedOut=false;QString initialFilter;QElapsedTimer elapsed;elapsed.start();QTimer driver;
         connect(&driver,&QTimer::timeout,&window,[&] {
             auto *modal=QApplication::activeModalWidget();
             if(elapsed.elapsed()>(largeJpeg?30000:10000)) {timedOut=true;if(auto *d=qobject_cast<QDialog *>(modal))d->reject();return;}
             if(auto *picker=qobject_cast<QFileDialog *>(modal);picker&&!seen) {
+                if (selection) {
+                    auto *companion = picker->findChild<ix::SaveOptionsDialog *>();
+                    if (!companion || companion->options().autoQuality < 0) return;
+                    previewQuality = companion->options().autoQuality;
+                }
                 seen=true;initialFilter=picker->selectedNameFilter();
                 if(overridePng)picker->selectNameFilter(QStringLiteral("PNG (*.png)"));
                 auto *editor=picker->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
@@ -384,7 +402,17 @@ class SavingTests : public QObject {
         if(command!=QStringLiteral("saveSelection")) {
             QCOMPARE(window.document().path,target);QVERIFY(!window.document().modified);
             if(suffix==QStringLiteral("jpg")) { const auto saved=contents(target);window.dispatch(QStringLiteral("save"));QCOMPARE(contents(target),saved); }
-        } else { QCOMPARE(window.document().path,source);QVERIFY(window.document().modified); }
+        } else {
+            QCOMPARE(window.document().path,source);QVERIFY(window.document().modified);
+            auto crop = window.document();
+            crop.pixels = ix::copyImageRegion(crop.pixels, selectedArea);
+            auto encode = ix::saveEncodeOptions(ix::loadSaveOptions("jpeg"));
+            encode.quality = previewQuality;
+            QBuffer expected;
+            QVERIFY(expected.open(QIODevice::WriteOnly));
+            QVERIFY(ix::CodecRegistry().encodeImage(crop, expected, "jpeg", encode).isEmpty());
+            QCOMPARE(contents(target), expected.data());
+        }
     }
     void compressionOptionsAffectOutput();
     void pngCompressionLevelsChangeEncodedSize();
@@ -662,7 +690,7 @@ void SavingTests::companionRefreshesTargetAfterMetadataChange() {
     document.pixels = sample();
     auto options = ix::defaultSaveOptions("jpeg");
     options.quality = 77;
-    options.targetBytes = 4096;
+    options.targetBytes = 4101;
     options.targetSizeEnabled = true;
 
     QWidget owner;
@@ -675,6 +703,11 @@ void SavingTests::companionRefreshesTargetAfterMetadataChange() {
     auto *icc = companion.findChild<QCheckBox *>(QStringLiteral("compressionKeepIcc"));
     QVERIFY(icc);
     icc->setChecked(false);
+    QCOMPARE(companion.options().targetBytes, options.targetBytes);
+    const auto timers = companion.findChildren<QTimer *>(QString(), Qt::FindDirectChildrenOnly);
+    QVERIFY(std::any_of(timers.cbegin(), timers.cend(), [](const QTimer *timer) {
+        return timer->isActive() && timer->interval() > 0;
+    }));
     QCOMPARE(companion.options().autoQuality, -1);
     QTRY_VERIFY(companion.options().autoQuality >= 0);
     const std::atomic_bool cancel = false;
@@ -784,6 +817,9 @@ void SavingTests::compressionProfilesRoundTrip() {
     QVERIFY(!restored.keepXmp);
     QVERIFY(restored.targetSizeEnabled);
     QCOMPARE(restored.targetBytes, 200 * 1024);
+    auto maximum = options;
+    maximum.targetBytes = 2048 * ix::MiB;
+    QCOMPARE(ix::SaveOptions::fromJson(maximum.toJson()).targetBytes, maximum.targetBytes);
     ix::storeSaveOptions(options);
     QCOMPARE(ix::loadSaveOptions("jpeg").quality, 77);
     QCOMPARE(ix::loadSaveOptions("jpeg").autoQuality, -1);

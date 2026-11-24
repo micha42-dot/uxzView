@@ -48,6 +48,7 @@ struct SaveOptions {
     // for a future tag-normalization step and currently changes nothing.
     bool fixOrientation = true;
     bool targetSizeEnabled = false;
+    static constexpr qint64 MaxTargetBytes = 2048 * MiB;
     qint64 targetBytes = 150 * 1024; // Target file size in bytes.
     // Effective quality for this image and option set. Never persisted.
     int autoQuality = -1;

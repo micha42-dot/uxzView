@@ -115,7 +115,7 @@ class SaveOptionsDialog final : public QDialog {
     void releaseFixedSize();
     void freezeSizeToLayout();
     void rebuild();
-    void collect();
+    void collect(bool targetSizeEdited = false);
     void runTargetOptimization();
     void targetOptimizationFinished();
     void cancelTargetOptimization();

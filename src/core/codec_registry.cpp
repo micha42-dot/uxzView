@@ -578,7 +578,7 @@ QString CodecRegistry::encodeImagePrepared(const ImageDocument &document, const 
     metadata.hasXmp &= encode.keepXmp;
     QString error;
     encoded = attachMetadata(std::move(encoded), metadata, output.size(), document.dpiX(), document.dpiY(),
-                             document.modified, error);
+                             document.modified || document.staleExifThumbnail, error);
     if (!error.isEmpty())
         return error;
     if (device.write(encoded) != encoded.size())

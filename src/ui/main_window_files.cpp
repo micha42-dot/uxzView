@@ -116,7 +116,23 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     });
     stopAnimation();
     ImageDocument output = document_;
-    const QRect selectedArea = view_->selection();
+    if (selection) {
+        const QRect selectedArea = view_->selection();
+        if (selectedArea.isEmpty())
+            return false;
+        // The size preview and the writer must see the same pixels and metadata.
+        struct SelectionResult { QImage pixels; QString error; };
+        auto result = runGuiWorker([pixels = output.pixels, selectedArea] {
+            try {
+                return SelectionResult{copyImageRegion(pixels, selectedArea), {}};
+            } catch (const std::exception &error) {
+                return SelectionResult{{}, localized(QString::fromUtf8(error.what()))};
+            }
+        });
+        if (!result.error.isEmpty()) { showError(result.error); return false; }
+        output.pixels = std::move(result.pixels);
+        output.modified = true;
+    }
     QString path = output.path;
     if (!saveFormatsWarmup_.isFinished()) {
         QFutureWatcher<QList<SaveFormat>> watcher;
@@ -281,11 +297,10 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         const bool accepted = chooser.exec() == QDialog::Accepted;
         if (accepted)
             target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
-        // End the companion session on every exit. An accepted full-image save
-        // can take over a running probe with matching options.
+        // An accepted save can take over a running probe with matching options.
         if (companion) {
             saveOptions = companion->options();
-            if (accepted && !selection && saveOptions.targetSizeEnabled && saveOptions.autoQuality < 0 &&
+            if (accepted && saveOptions.targetSizeEnabled && saveOptions.autoQuality < 0 &&
                 saveOptions.format == target.format.id)
                 targetOptimization = companion->takeTargetOptimization();
             companion->endSession();
@@ -319,21 +334,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         if (QMessageBox::question(this, IX_TEXT("Speichern"), question) !=
             QMessageBox::Yes)
             return false;
-    }
-    if (selection) {
-        // Selection copies can themselves be multi-GB mapped images. Prepare
-        // original pixels in a worker before calculating export losses.
-        struct SelectionResult { QImage pixels; QString error; };
-        auto result = runGuiWorker([pixels = output.pixels, selectedArea] {
-            try {
-                return SelectionResult{copyImageRegion(pixels, selectedArea), {}};
-            } catch (const std::exception &error) {
-                return SelectionResult{{}, localized(QString::fromUtf8(error.what()))};
-            }
-        });
-        if (!result.error.isEmpty()) { showError(result.error); return false; }
-        output.pixels = std::move(result.pixels);
-        output.modified = true;
     }
     const auto format = target.format.id;
     if (const auto error = CodecRegistry::encodeLimitError(output.pixels, format); !error.isEmpty()) {
@@ -402,7 +402,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         if (cancelSave->load())
             return SaveResult{abortText, {}};
         auto effective = encode;
-        if (targetSize && (selection || saveOptions.autoQuality < 0)) {
+        if (targetSize && saveOptions.autoQuality < 0) {
             const auto optimized = targetOptimization.cancel ? targetOptimization.future.result()
                 : optimizeForTargetSize(output, saveOptions, registry, {}, *cancelSave);
             if (!optimized.quality)
@@ -440,6 +440,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
              (encode.keepIptc && metadata->hasIptc) ||
              (encode.keepXmp && metadata->hasXmp));
         const auto updateSource = [&](ImageDocument &document) {
+            document.staleExifThumbnail |= document.modified;
             document.path = targetPath;
             document.page = 0;
             document.pageCount = 1;
