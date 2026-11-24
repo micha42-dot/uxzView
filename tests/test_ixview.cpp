@@ -5299,8 +5299,10 @@ class IxTests : public QObject {
             }
         };
         auto codec = std::make_shared<MetadataCodec>();
-        ix::CodecRegistry registry; registry.add(codec);
-        const auto filter = registry.openFilter();
+        ix::CodecRegistry registry;
+        QVERIFY(!registry.cachedOpenFilter().contains(QStringLiteral("*.readerfixture")));
+        registry.add(codec);
+        const auto filter = registry.cachedOpenFilter();
         QCOMPARE(codec->capabilityQueries, 0);
         const auto filters = filter.split(QStringLiteral(";;"));
         QVERIFY(filters.first().contains(QStringLiteral("*.readerfixture")));
@@ -5309,6 +5311,12 @@ class IxTests : public QObject {
         QVERIFY(filters.last().endsWith(QStringLiteral("(*)")));
         QVERIFY(filter.contains(QStringLiteral("*.png")));
         QVERIFY(filter.contains(QStringLiteral("*.apng")));
+        const auto previousLanguage = ix::uiLanguage();
+        const auto restore = qScopeGuard([&] { ix::setUiLanguage(previousLanguage); });
+        for (const auto code : {"en", "fr"}) {
+            QVERIFY(ix::setUiLanguage(QString::fromLatin1(code)));
+            QCOMPARE(registry.cachedOpenFilter(), registry.openFilter());
+        }
     }
     void selectionStartsOutsideImage_data() {
         QTest::addColumn<int>("edge"); QTest::addColumn<bool>("constrained");

@@ -102,6 +102,6 @@ class CodecRegistry {
 
   private:
     QList<std::shared_ptr<ImageCodec>> codecs_;
-    mutable QString cachedSaveFilter_, cachedOpenFilter_;
+    mutable QString cachedSaveFilter_, cachedOpenFilter_, openFilterLanguage_;
 };
 } // namespace ix

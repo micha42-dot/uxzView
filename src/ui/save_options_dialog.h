@@ -79,7 +79,7 @@ class SaveOptionsDialog final : public QDialog {
     QLabel *title_ = nullptr;
     QSlider *qualitySlider_ = nullptr;
     QSpinBox *qualitySpin_ = nullptr;
-    QCheckBox *progressive_ = nullptr, *subsampling_ = nullptr, *interlaced_ = nullptr;
+    QCheckBox *progressive_ = nullptr, *subsampling_ = nullptr;
     QCheckBox *lossless_ = nullptr;
     QSlider *effortSlider_ = nullptr;
     QSpinBox *effortSpin_ = nullptr;
@@ -90,8 +90,7 @@ class SaveOptionsDialog final : public QDialog {
     QLabel *targetResult_ = nullptr;
     QProgressBar *targetProgress_ = nullptr;
     QPushButton *targetCancel_ = nullptr;
-    QCheckBox *keepExif_ = nullptr, *keepIptc_ = nullptr, *keepXmp_ = nullptr, *keepIcc_ = nullptr,
-              *fixOrientation_ = nullptr;
+    QCheckBox *keepExif_ = nullptr, *keepIptc_ = nullptr, *keepXmp_ = nullptr, *keepIcc_ = nullptr;
     QRadioButton *alphaWhite_ = nullptr, *alphaKeep_ = nullptr, *alphaAsk_ = nullptr;
     QWidget *alphaBox_ = nullptr;
     QTimer *optimizeTimer_ = nullptr;
@@ -105,7 +104,7 @@ class SaveOptionsDialog final : public QDialog {
     // A null caption marks a bare row (lossless_); only the row is toggled.
     QList<QPair<QLabel *, QWidget *>> captions_;
     QWidget *qualityRow_ = nullptr, *effortRow_ = nullptr, *pngRow_ = nullptr, *jpegRow_ = nullptr,
-            *gifRow_ = nullptr, *targetRow_ = nullptr, *metaBox_ = nullptr;
+            *targetRow_ = nullptr, *metaBox_ = nullptr;
     bool rebuilding_ = false;
     bool autoPlaced_ = false; // True only inside a programmatic placement move.
     void applyOptions(SaveOptions options);

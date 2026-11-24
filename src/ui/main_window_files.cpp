@@ -57,7 +57,7 @@ void MainWindow::scheduleSaveUiWarmup() {
     // touching each DLL) is the single largest first-open/save cost.
     saveFormatsWarmup_ = QtConcurrent::run([registry = registry_] {
         auto formats = writableSaveFormats(registry);
-        (void)registry.cachedOpenFilter();
+        (void)registry.extensions();
         // Warm jpegli's lazy initialisation (SIMD dispatch tables, quant/
         // Huffman tables, colour-transform + ICC path) on this background
         // thread. Without it the FIRST PNG->JPEG export paid all of this

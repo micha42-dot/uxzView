@@ -304,6 +304,8 @@ CodecRegistry::CodecRegistry() {
 }
 void CodecRegistry::add(std::shared_ptr<ImageCodec> c) {
     codecs_.prepend(std::move(c));
+    cachedOpenFilter_.clear();
+    cachedSaveFilter_.clear();
 }
 ImageResult CodecRegistry::read(const QString &p, int page) const {
     if (!PluginStore::formatEnabled(QFileInfo(p).suffix().toLower().toLatin1()))
@@ -625,8 +627,11 @@ const QString &CodecRegistry::cachedSaveFilter() const {
     return cachedSaveFilter_;
 }
 const QString &CodecRegistry::cachedOpenFilter() const {
-    if (cachedOpenFilter_.isEmpty())
+    const auto language = uiLanguage();
+    if (cachedOpenFilter_.isEmpty() || openFilterLanguage_ != language) {
         cachedOpenFilter_ = openFilter();
+        openFilterLanguage_ = language;
+    }
     return cachedOpenFilter_;
 }
 } // namespace ix

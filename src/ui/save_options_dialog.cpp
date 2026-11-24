@@ -176,16 +176,6 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     rowsLayout->addWidget(pngCaption);
     rowsLayout->addWidget(pngRow_);
     connect(pngLevel_, &QSpinBox::valueChanged, this, [this] { collect(); });
-    gifRow_ = new QWidget(this);
-    auto *gifLayout = new QVBoxLayout(gifRow_);
-    gifLayout->setContentsMargins(0, 0, 0, 0);
-    interlaced_ = new QCheckBox(IX_TEXT("Interlaced speichern"), gifRow_);
-    interlaced_->setObjectName(QStringLiteral("compressionInterlaced"));
-    gifLayout->addWidget(interlaced_);
-    auto *gifCaption = new QLabel(IX_TEXT("GIF:"), this);
-    rowsLayout->addWidget(gifCaption);
-    rowsLayout->addWidget(gifRow_);
-    connect(interlaced_, &QCheckBox::toggled, this, [this] { collect(); });
     // Transparency handling for formats without alpha (screenshot: Farbe des
     // Hauptfensters / Transparenter Farbwert / Vorschau): White flattens
     // onto white, Keep preserves the pixels, Ask resolves per save.
@@ -222,22 +212,14 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     keepXmp_->setObjectName(QStringLiteral("compressionKeepXmp"));
     keepIcc_ = new QCheckBox(IX_TEXT("ICC-Farbprofil erhalten"), metaBox_);
     keepIcc_->setObjectName(QStringLiteral("compressionKeepIcc"));
-    fixOrientation_ = new QCheckBox(IX_TEXT("EXIF-Ausrichtung korrigieren"), metaBox_);
-    fixOrientation_->setObjectName(QStringLiteral("compressionFixOrientation"));
-    // No encoder honors this yet (orientation is already baked into pixels on
-    // decode; a future tag-normalization step will use the flag). Show it
-    // disabled rather than silently ignoring a user click.
-    fixOrientation_->setEnabled(false);
-    fixOrientation_->setToolTip(IX_TEXT("Derzeit ohne Wirkung — die Ausrichtung ist bereits in den Pixeln enthalten."));
     metaLayout->addWidget(keepExif_);
     metaLayout->addWidget(keepIptc_);
     metaLayout->addWidget(keepXmp_);
     metaLayout->addWidget(keepIcc_);
-    metaLayout->addWidget(fixOrientation_);
     auto *metaCaption = new QLabel(IX_TEXT("Metadaten:"), this);
     rowsLayout->addWidget(metaCaption);
     rowsLayout->addWidget(metaBox_);
-    for (auto *box : {keepExif_, keepIptc_, keepXmp_, keepIcc_, fixOrientation_})
+    for (auto *box : {keepExif_, keepIptc_, keepXmp_, keepIcc_})
         connect(box, &QCheckBox::toggled, this, [this] { collect(); });
     targetRow_ = new QWidget(this);
     auto *targetLayout = new QVBoxLayout(targetRow_);
@@ -329,7 +311,6 @@ SaveOptionsDialog::SaveOptionsDialog(const CodecRegistry &registry, QWidget *own
     captions_.append({qualityCaption, qualityRow_});
     captions_.append({jpegCaption, jpegRow_});
     captions_.append({pngCaption, pngRow_});
-    captions_.append({gifCaption, gifRow_});
     captions_.append({alphaCaption, alphaBox_});
     captions_.append({metaCaption, metaBox_});
     captions_.append({effortCaption, effortRow_});
@@ -543,12 +524,10 @@ void SaveOptionsDialog::rebuild() {
     const QSignalBlocker blockSubsampling(subsampling_);
     const QSignalBlocker blockLossless(lossless_);
     const QSignalBlocker blockPng(pngLevel_);
-    const QSignalBlocker blockInterlaced(interlaced_);
     const QSignalBlocker blockExif(keepExif_);
     const QSignalBlocker blockIptc(keepIptc_);
     const QSignalBlocker blockXmp(keepXmp_);
     const QSignalBlocker blockIcc(keepIcc_);
-    const QSignalBlocker blockFix(fixOrientation_);
     const QSignalBlocker blockAlphaWhite(alphaWhite_);
     const QSignalBlocker blockAlphaKeep(alphaKeep_);
     const QSignalBlocker blockAlphaAsk(alphaAsk_);
@@ -571,12 +550,10 @@ void SaveOptionsDialog::rebuild() {
     effortSlider_->setValue(options_.effort);
     effortSpin_->setValue(options_.effort);
     pngLevel_->setValue(options_.pngLevel);
-    interlaced_->setChecked(options_.interlaced);
     keepExif_->setChecked(options_.keepExif);
     keepIptc_->setChecked(options_.keepIptc);
     keepXmp_->setChecked(options_.keepXmp);
     keepIcc_->setChecked(options_.keepIcc);
-    fixOrientation_->setChecked(options_.fixOrientation);
     // Alpha handling only matters for formats without alpha; otherwise the
     // section stays hidden but the stored choice is preserved.
     if (options_.alphaMode == SaveOptions::AlphaMode::Keep)
@@ -610,15 +587,13 @@ void SaveOptionsDialog::rebuild() {
     lossless_->setVisible(caps_.lossless);
     effortRow_->setVisible(caps_.effort);
     pngRow_->setVisible(caps_.pngLevel);
-    gifRow_->setVisible(caps_.interlaced);
     const bool hasMeta = caps_.metadataExif || caps_.metadataIptc || caps_.metadataXmp ||
-                         caps_.metadataIcc || caps_.orientation;
+                         caps_.metadataIcc;
     metaBox_->setVisible(hasMeta);
     keepExif_->setVisible(caps_.metadataExif);
     keepIptc_->setVisible(caps_.metadataIptc);
     keepXmp_->setVisible(caps_.metadataXmp);
     keepIcc_->setVisible(caps_.metadataIcc);
-    fixOrientation_->setVisible(caps_.orientation);
     targetRow_->setVisible(caps_.targetSize);
     // Captions follow their rows: a caption without its row (or vice versa)
     // left the stale overlaps. The profile box is always visible. Bare rows
@@ -648,7 +623,6 @@ void SaveOptionsDialog::collect(bool targetSizeEdited) {
     options_.lossless = lossless_->isChecked();
     options_.effort = effortSlider_->value();
     options_.pngLevel = pngLevel_->value();
-    options_.interlaced = interlaced_->isChecked();
     if (alphaWhite_->isChecked())
         options_.alphaMode = SaveOptions::AlphaMode::White;
     else if (alphaKeep_->isChecked())
@@ -659,7 +633,6 @@ void SaveOptionsDialog::collect(bool targetSizeEdited) {
     options_.keepIptc = keepIptc_->isChecked();
     options_.keepXmp = keepXmp_->isChecked();
     options_.keepIcc = keepIcc_->isChecked();
-    options_.fixOrientation = fixOrientation_->isChecked();
     options_.targetSizeEnabled = targetEnabled_->isChecked();
     if (targetSizeEdited)
         options_.targetBytes = qRound64(targetValue_->value() * targetUnit_->currentData().toInt());

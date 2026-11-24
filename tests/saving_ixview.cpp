@@ -23,6 +23,7 @@
 #include <QtTest>
 #include <QtWidgets>
 #include <QtConcurrent>
+#include <algorithm>
 #include <cmath>
 #ifdef IX_TEST_EXIV2
 #include <exiv2/exiv2.hpp>

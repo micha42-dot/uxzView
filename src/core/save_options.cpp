@@ -59,7 +59,7 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
         // the user explicitly activates jpegli.
         caps.progressive = caps.subsampling = jpegliEnabled();
         caps.targetSize = true;
-        caps.metadataIcc = caps.orientation = true;
+        caps.metadataIcc = true;
     } else if (format == "webp") {
         caps.quality = true;
         caps.defaultQuality = 95;
@@ -79,8 +79,6 @@ SaveCapabilities saveCapabilities(const QByteArray &format) {
     } else if (format == "png") {
         caps.pngLevel = true;
         caps.metadataIcc = true;
-    } else if (format == "gif") {
-        caps.interlaced = true;
     } else if (format == "tiff") {
         caps.metadataIcc = true;
     }

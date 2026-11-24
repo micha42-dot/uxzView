@@ -21,9 +21,9 @@ struct ImageDocument {
     int loopCount = 0;
     bool animated = false;
     bool modified = false;
+    bool sourceHasExif = false;
     // The retained EXIF thumbnail can predate the pixels even after a successful save.
     bool staleExifThumbnail = false;
-    bool sourceHasExif = false;
     QString metadataWarning;
     std::shared_ptr<const Metadata> metadata;
     qint64 fileBytes = 0;
