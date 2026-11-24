@@ -20,11 +20,6 @@ QString SaveFormat::filter() const {
     return label + QStringLiteral(" (") + patterns.join(QLatin1Char(' ')) + QLatin1Char(')');
 }
 QList<SaveFormat> writableSaveFormats(const CodecRegistry &registry) {
-    // No cache here: callers pass short-lived temporaries (tests, batch) as
-    // well as the long-lived MainWindow registry. A pointer-keyed cache would
-    // go stale or dangle when a temporary dies and another reuses its address.
-    // The scan itself is cheap (capabilities + canWrite); the expensive
-    // string joins live in cachedSaveFilter()/cachedOpenFilter() instead.
     QList<SaveFormat> result;
     for (const auto &cap : registry.capabilities()) {
         if (!cap.write || cap.extensions.isEmpty()) continue;

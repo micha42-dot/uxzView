@@ -30,7 +30,7 @@ protected:
     }
 };
 
-qint64 encodeSize(const ImageDocument &document, const QImage &prepared, const SaveOptions &options,
+qint64 encodeSize(const ImageDocument &document, const CodecRegistry::PreparedEncode &prepared, const SaveOptions &options,
                   const CodecRegistry &registry, CodecRegistry::EncodeOptions encode,
                   int quality, QString &error) {
     SizeCounter counter;
@@ -155,8 +155,11 @@ void storeSaveOptions(const SaveOptions &options) {
     preferences.autoQuality = -1;
     gOptionsCache.insert(options.format, preferences);
     QSettings settings;
-    settings.setValue(QStringLiteral("save/options/") + QString::fromLatin1(options.format),
-                      options.toJson());
+    const auto key = QStringLiteral("save/options/") + QString::fromLatin1(options.format);
+    const auto json = preferences.toJson();
+    if (settings.value(key).toJsonObject() == json)
+        return;
+    settings.setValue(key, json);
     settings.sync();
 }
 void storeSaveProfiles(const QJsonObject &profiles) {
@@ -204,24 +207,35 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
                                        const std::function<bool(int, int)> &progress,
                                        const std::atomic_bool &cancel) {
     TargetSizeResult result;
+    const auto aborted = [] { return TargetSizeResult{{}, -1, IX_TEXT("Abgebrochen.")}; };
+    if (cancel.load())
+        return aborted();
     if (options.format != "jpeg" && options.format != "webp" && options.format != "avif" &&
         options.format != "heif" && options.format != "heic") {
         result.error = IX_TEXT("Zieldateigröße wird für dieses Format nicht unterstützt.");
         return result;
     }
     const auto encode = saveEncodeOptions(options);
+    const int maxProbes = encode.lossless ? 1 : 13;
+    if ((progress && !progress(0, maxProbes)) || cancel.load())
+        return aborted();
     // Prepare pixels once: every quality probe shares this copy instead of
     // repeating the ICC drop / alpha flatten per encode. The preparation is the
     // same code the final save runs, so measured sizes are unchanged.
-    QString prepError;
-    const QImage prepared = registry.prepareEncodePixels(document.pixels, options.format, encode, prepError);
-    if (!prepError.isEmpty()) {
-        result.error = prepError;
-        return result;
+    CodecRegistry::PreparedEncode prepared;
+    try {
+        prepared = registry.prepareEncodePixels(document.pixels, options.format, encode, result.error);
+    } catch (const std::exception &ex) {
+        result.error = localized(QString::fromUtf8(ex.what()));
+    } catch (...) {
+        result.error = IX_TEXT("Speicher nicht verfügbar.");
     }
+    if (cancel.load())
+        return aborted();
+    if (!result.error.isEmpty())
+        return result;
     std::array<std::optional<qint64>, 101> measured;
     int completed = 0;
-    const int maxProbes = encode.lossless ? 1 : 13;
     const auto measure = [&](int quality) -> qint64 {
         if (cancel.load()) {
             result.error = IX_TEXT("Abgebrochen.");
@@ -229,7 +243,7 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
         }
         if (measured[quality])
             return *measured[quality];
-        if (progress && !progress(completed, maxProbes)) {
+        if (completed && progress && !progress(completed, maxProbes)) {
             result.error = IX_TEXT("Abgebrochen.");
             return -1;
         }
@@ -246,7 +260,7 @@ TargetSizeResult optimizeForTargetSize(const ImageDocument &document, const Save
         if (bytes < 0)
             return result;
         if (cancel.load() || (progress && !progress(maxProbes, maxProbes)))
-            return {{}, -1, IX_TEXT("Abgebrochen.")};
+            return aborted();
         return {quality, bytes, {}};
     };
     if (encode.lossless)

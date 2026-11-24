@@ -56,9 +56,8 @@ void MainWindow::scheduleSaveUiWarmup() {
     // loads every imageformats DLL, which on a cold Windows start (antivirus
     // touching each DLL) is the single largest first-open/save cost.
     saveFormatsWarmup_ = QtConcurrent::run([registry = registry_] {
-        (void)writableSaveFormats(registry);
+        auto formats = writableSaveFormats(registry);
         (void)registry.cachedOpenFilter();
-        (void)registry.cachedSaveFilter();
         // Warm jpegli's lazy initialisation (SIMD dispatch tables, quant/
         // Huffman tables, colour-transform + ICC path) on this background
         // thread. Without it the FIRST PNG->JPEG export paid all of this
@@ -68,6 +67,7 @@ void MainWindow::scheduleSaveUiWarmup() {
         // jpegli encoder is active — Qt's writer needs no such warmup.
         if (jpegliEnabled())
             (void)warmJpegEncoder();
+        return formats;
     });
     if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
         return;
@@ -118,7 +118,12 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     ImageDocument output = document_;
     const QRect selectedArea = view_->selection();
     QString path = output.path;
-    const auto formats = writableSaveFormats(registry_);
+    if (!saveFormatsWarmup_.isFinished()) {
+        QFutureWatcher<QList<SaveFormat>> watcher;
+        watcher.setFuture(saveFormatsWarmup_);
+        waitForGuiWorker(watcher);
+    }
+    const auto formats = saveFormatsWarmup_.result();
     // One QSettings instance per save: each construction stats the registry /
     // INI file, so batch the handful of reads instead of one instance per key.
     const QSettings settings;
@@ -133,6 +138,11 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     auto target = preferredSaveTarget(path, output.format, formats, preferOriginal, fixedFormat);
     if (target.format.id.isEmpty()) { showError(IX_TEXT("Kein schreibbares Bildformat verfügbar.")); return false; }
     SaveOptions saveOptions = loadSaveOptions(target.format.id);
+    SaveOptionsDialog::TargetOptimization targetOptimization;
+    const auto cancelOptimization = qScopeGuard([&] {
+        if (targetOptimization.cancel)
+            targetOptimization.cancel->store(true);
+    });
     if (forceDialog || target.needsDialog) {
         QString suggested = target.suggestedPath;
         if (suggested.isEmpty()) suggested = QDir(lastDirectory)
@@ -148,7 +158,10 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         chooser.setWindowTitle(IX_TEXT("Speichern unter"));
         chooser.setAcceptMode(QFileDialog::AcceptSave);
         chooser.setFileMode(QFileDialog::AnyFile);
-        chooser.setNameFilters(registry_.cachedSaveFilter().split(QStringLiteral(";;")));
+        QStringList filters;
+        for (const auto &format : formats)
+            filters.append(format.filter());
+        chooser.setNameFilters(filters);
         const QFileInfo suggestedFile(suggested);
         chooser.setDirectory(suggestedFile.absolutePath());
         chooser.selectFile(suggested);
@@ -266,11 +279,15 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // The native dialog runs its own modal loop; the companion is a child
         // tool window and stays interactive while it is open.
         const bool accepted = chooser.exec() == QDialog::Accepted;
-        // Esc (in either window) closes both: the companions reject() forwards
-        // to the chooser, and the chooser's own Esc/reject path lands here —
-        // always end the session so no orphaned window or worker survives.
+        if (accepted)
+            target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
+        // End the companion session on every exit. An accepted full-image save
+        // can take over a running probe with matching options.
         if (companion) {
             saveOptions = companion->options();
+            if (accepted && !selection && saveOptions.targetSizeEnabled && saveOptions.autoQuality < 0 &&
+                saveOptions.format == target.format.id)
+                targetOptimization = companion->takeTargetOptimization();
             companion->endSession();
         }
         // Flush a still-pending companion position before the locals die.
@@ -279,7 +296,6 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             QSettings().setValue(QStringLiteral("save/companionPos"), pendingCompanionPos);
         }
         if (!accepted) return false;
-        target = selectedSaveTarget(chooser.selectedFiles().value(0), chooser.selectedNameFilter(), formats);
         path = target.suggestedPath;
         if (path.isEmpty()) return false;
         if (saveOptions.format != target.format.id)
@@ -287,7 +303,9 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         else if (companion)
             storeSaveOptions(saveOptions);
     }
-    const auto targetRevision = QFileInfo::exists(path) ? imageFileKey(path) : QString();
+    const auto targetRevision = runGuiWorker([path] {
+        return QFileInfo::exists(path) ? imageFileKey(path) : QString();
+    });
     // The chooser above never confirms overwrites, so ask exactly once here,
     // including Save As onto a different existing file.
     if (!targetRevision.isEmpty()) {
@@ -318,6 +336,10 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         output.modified = true;
     }
     const auto format = target.format.id;
+    if (const auto error = CodecRegistry::encodeLimitError(output.pixels, format); !error.isEmpty()) {
+        showError(error);
+        return false;
+    }
     auto registry = registry_;
     const bool warnLosses = settings.value(QStringLiteral("save/warnLosses"), true).toBool();
     const bool askAlpha = saveOptions.alphaMode == SaveOptions::AlphaMode::Ask && format != "jpeg";
@@ -344,6 +366,10 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         saveOptions.alphaMode = clicked == whiteButton ? SaveOptions::AlphaMode::White
                                                        : SaveOptions::AlphaMode::Keep;
         saveOptions.autoQuality = -1;
+        if (targetOptimization.cancel) {
+            targetOptimization.cancel->store(true);
+            targetOptimization = {};
+        }
     }
     const bool targetSize = saveOptions.targetSizeEnabled && saveCapabilities(format).targetSize;
     if (!targetSize)
@@ -365,7 +391,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     // cancel flag reaches CodecRegistry::save through beforeCommit, so a click
     // discards the staged QSaveFile instead of publishing a partial export.
     const QString abortText = IX_TEXT("Abgebrochen.");
-    auto cancelSave = std::make_shared<std::atomic_bool>(false);
+    auto cancelSave = targetOptimization.cancel ? targetOptimization.cancel : std::make_shared<std::atomic_bool>(false);
     QProgressDialog progress(IX_TEXT("Bild wird gespeichert …"), IX_TEXT("Abbrechen"), 0, 0, this);
     progress.setWindowModality(Qt::ApplicationModal);
     connect(&progress, &QProgressDialog::canceled, &progress, [cancelSave] { cancelSave->store(true); });
@@ -373,9 +399,12 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     QFutureWatcher<SaveResult> watcher;
     connect(&watcher, &QFutureWatcherBase::finished, &progress, &QProgressDialog::accept);
     watcher.setFuture(QtConcurrent::run([=] {
+        if (cancelSave->load())
+            return SaveResult{abortText, {}};
         auto effective = encode;
         if (targetSize && (selection || saveOptions.autoQuality < 0)) {
-            const auto optimized = optimizeForTargetSize(output, saveOptions, registry, {}, *cancelSave);
+            const auto optimized = targetOptimization.cancel ? targetOptimization.future.result()
+                : optimizeForTargetSize(output, saveOptions, registry, {}, *cancelSave);
             if (!optimized.quality)
                 return SaveResult{optimized.error, {}};
             effective.quality = *optimized.quality;

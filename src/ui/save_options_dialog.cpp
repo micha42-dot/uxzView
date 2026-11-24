@@ -453,9 +453,14 @@ void SaveOptionsDialog::prepare(const ImageDocument &document, SaveOptions optio
     }
 }
 
+SaveOptionsDialog::TargetOptimization SaveOptionsDialog::takeTargetOptimization() {
+    if (!activeCancel_ || activeCancel_->load())
+        return {};
+    return {targetWatcher_.future(), std::exchange(activeCancel_, {})};
+}
+
 void SaveOptionsDialog::endSession() {
-    // A finished/cancelled save must not leave a stale auto result or a live
-    // worker behind: the next session starts from neutral state.
+    // Reset the preview and cancel any probe still owned by the companion.
     cancelTargetOptimization();
     hide();
     if (auto *panel = std::exchange(panel_, nullptr)) {
@@ -712,13 +717,13 @@ void SaveOptionsDialog::runTargetOptimization() {
 
 void SaveOptionsDialog::targetOptimizationFinished() {
     const auto cancel = std::exchange(activeCancel_, {});
-    const auto result = targetWatcher_.future().takeResult();
     if (std::exchange(optimizationPending_, false)) {
         runTargetOptimization();
         return;
     }
     if (!cancel || cancel->load() || !chooser_ || !isVisible())
         return;
+    const auto result = targetWatcher_.result();
     targetProgress_->hide();
     targetCancel_->hide();
     if (!result.quality) {

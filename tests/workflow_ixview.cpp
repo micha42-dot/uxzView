@@ -1336,13 +1336,14 @@ class WorkflowTests : public QObject {
         const auto path = photo(QStringLiteral("live-language/image.png"), QColor(30, 100, 210));
         const auto sourceHash = ix::sha256File(path);
         ix::MainWindow window;
+        QSignalSpy rescanned(window.findChild<ix::DirectoryIndexService *>(), &ix::DirectoryIndexService::ready);
         window.show();
         window.openPath(path);
         QTRY_VERIFY(!window.isBusy() && window.document().path == path);
         const auto original = window.document().pixels;
         window.dispatch(QStringLiteral("grayscale"));
         QTRY_VERIFY(!window.isBusy() && window.document().modified);
-        QTest::qWait(150);
+        QTRY_VERIFY(!rescanned.isEmpty());
         if (fullscreen) { window.dispatch(QStringLiteral("fullscreen")); QTRY_VERIFY(window.isFullScreen()); }
         auto *view = window.findChild<ix::ImageView *>();
         auto *search = window.findChild<ix::ActionSearch *>();
@@ -1368,7 +1369,7 @@ class WorkflowTests : public QObject {
         for (int i = 0; i < model->rowCount(); ++i)
             if (model->index(i, 0).data(Qt::UserRole).value<QObject *>() == resize) row = model->index(i, 0);
         QVERIFY(row.isValid());
-        QSignalSpy rescanned(window.findChild<ix::DirectoryIndexService *>(), &ix::DirectoryIndexService::ready);
+        rescanned.clear();
         for (const auto &code : {QStringLiteral("en"), QStringLiteral("ko"), QStringLiteral("ja"),
                                  QStringLiteral("fr"), QStringLiteral("de")}) {
             bool handled = false;

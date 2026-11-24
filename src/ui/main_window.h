@@ -4,6 +4,7 @@
 #include "core/codec_registry.h"
 #include "core/batch_processor.h"
 #include "core/document_history.h"
+#include "core/save_formats.h"
 #include "document_activity.h"
 #include "folder_traversal.h"
 #include "image_view.h"
@@ -70,7 +71,7 @@ class MainWindow : public QMainWindow {
     // codec capabilities are the two costs that made Save As feel slow.
     SaveOptionsDialog *saveOptionsDialog_ = nullptr;
     QString saveOptionsLanguage_;
-    QFuture<void> saveFormatsWarmup_;
+    QFuture<QList<SaveFormat>> saveFormatsWarmup_;
     bool saveUiWarmupScheduled_ = false;
     ImageDocument document_;
     ImageView *view_;

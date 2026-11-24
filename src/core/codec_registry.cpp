@@ -385,6 +385,8 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
     if (normalized(QFileInfo(path).suffix().toLatin1()) != format)
         return IX_TEXT("Dateiendung und Ausgabeformat stimmen nicht überein.");
     if (!allowLoss) {
+        if (const auto error = encodeLimitError(document.pixels, format); !error.isEmpty())
+            return error;
         const auto losses = exportLosses(document, format, &encode);
         if (!losses.isEmpty()) return losses.join(QLatin1Char('\n'));
     }
@@ -424,9 +426,34 @@ QString CodecRegistry::saveWithOptions(const ImageDocument &document, const QStr
         return file.errorString();
     return {};
 }
-QImage CodecRegistry::prepareEncodePixels(const QImage &pixels, const QByteArray &format,
-                                           const EncodeOptions &encode, QString &error) const {
+namespace {
+QString checkEncodeLimits(const QImage &pixels, const QByteArray &format, bool streaming, bool jpegli) {
+    if (pixels.isNull())
+        return IX_TEXT("Kein Bild geladen.");
+    if (format == "jpeg" && (pixels.width() > 65500 || pixels.height() > 65500))
+        return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
+    if (!streaming)
+        return {};
+    if (qint64(pixels.width()) * 64 + qint64(pixels.height()) * qint64(sizeof(void *)) > imageMemoryLimit())
+        return imageSizeLimitError({pixels.width(), 1}, 64);
+    if (format != "png" && format != "jpeg")
+        return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
+    if (format == "jpeg" && !jpegli)
+        return IX_TEXT("Für dieses große Bild ist der JPEG-Export nur mit aktiviertem Jpegli-Encoder möglich.");
+    return {};
+}
+} // namespace
+QString CodecRegistry::encodeLimitError(const QImage &pixels, const QByteArray &format) {
+    const bool streaming = exportNeedsStreaming(pixels);
+    return checkEncodeLimits(pixels, format, streaming, streaming && format == "jpeg" && jpegliEnabled());
+}
+CodecRegistry::PreparedEncode CodecRegistry::prepareEncodePixels(const QImage &pixels, const QByteArray &format,
+                                                                const EncodeOptions &encode, QString &error) const {
+    const bool streaming = exportNeedsStreaming(pixels);
     const bool jpegli = format == "jpeg" && jpegliEnabled();
+    error = checkEncodeLimits(pixels, format, streaming, jpegli);
+    if (!error.isEmpty())
+        return {};
     QImage output = pixels;
     if (!encode.keepIcc && output.colorSpace().isValid()) {
         // Changing metadata on a shared QImage detaches its entire buffer.
@@ -484,44 +511,28 @@ QImage CodecRegistry::prepareEncodePixels(const QImage &pixels, const QByteArray
         inheritImageProperties(output, flat);
         output = flat;
     }
-    return output;
+    return {std::move(output), streaming, jpegli};
 }
 QString CodecRegistry::encodeImage(const ImageDocument &document, QIODevice &device,
                                    const QByteArray &format, const EncodeOptions &encode) const {
-    if (document.empty())
-        return IX_TEXT("Kein Bild geladen.");
     // Prepare once here; target-size probes share the prepared copy via
     // encodeImagePrepared instead of repeating this per quality.
     QString prepError;
-    const QImage prepared = prepareEncodePixels(document.pixels, format, encode, prepError);
+    const auto prepared = prepareEncodePixels(document.pixels, format, encode, prepError);
     if (!prepError.isEmpty())
         return prepError;
     return encodeImagePrepared(document, prepared, device, format, encode);
 }
-QString CodecRegistry::encodeImagePrepared(const ImageDocument &document, const QImage &prepared,
+QString CodecRegistry::encodeImagePrepared(const ImageDocument &document, const PreparedEncode &prepared,
                                             QIODevice &device, const QByteArray &format,
                                             const EncodeOptions &encode) const {
-    if (document.empty())
-        return IX_TEXT("Kein Bild geladen.");
     const int quality = std::clamp(encode.quality, 0, 100);
-    const bool large = exportNeedsStreaming(document.pixels);
-    const bool jpegli = format == "jpeg" && jpegliEnabled();
-    if (format == "jpeg" && (document.pixels.width()>65500 || document.pixels.height()>65500))
-        return IX_TEXT("JPEG unterstützt höchstens 65.500 Pixel pro Achse. Bitte PNG verwenden.");
-    if (large && qint64(document.pixels.width())*64 + qint64(document.pixels.height())*qint64(sizeof(void *)) > imageMemoryLimit())
-        return imageSizeLimitError({document.pixels.width(),1},64);
-    if (large && format != "png" && format != "jpeg")
-        return IX_TEXT("Für dieses große Bild ist nur der zeilenweise PNG- oder JPEG-Export freigegeben.");
-    // Only jpegli streams MCU rows; Qt's writer needs the whole image resident.
-    // Refuse instead of risking an allocation failure deep in the plugin.
-    if (large && format == "jpeg" && !jpegli)
-        return IX_TEXT("Für dieses große Bild ist der JPEG-Export nur mit aktiviertem Jpegli-Encoder möglich.");
     QByteArray encoded;
     QBuffer buffer(&encoded);
     // A successful Exiv2 read can own an entirely empty metadata container.
     // Do not collect/rewrite the complete encoded file merely for that object;
     // ICC, text and density already belong to the image encoder's output.
-    const bool attach = document.metadata && document.metadata->data && metadataWritable(format) && !large &&
+    const bool attach = document.metadata && document.metadata->data && metadataWritable(format) && !prepared.streaming &&
                         ((encode.keepExif && document.metadata->hasExif) ||
                          (encode.keepIptc && document.metadata->hasIptc) ||
                          (encode.keepXmp && document.metadata->hasXmp));
@@ -544,9 +555,9 @@ QString CodecRegistry::encodeImagePrepared(const ImageDocument &document, const 
     // Note: Qt's QImageWriter exposes no GIF interlace switch, so
     // encode.interlaced is accepted (UI + profiles) but currently a no-op.
     Q_UNUSED(encode.interlaced);
-    const QImage &output = prepared;
+    const QImage &output = prepared.pixels;
     QString encodeError;
-    if (jpegli) {
+    if (prepared.jpegli) {
         encodeError = writeJpegli(*destination, output, quality,
                                   JpegliOptions{encode.progressive, encode.noSubsampling,
                                                 encode.alphaWhite != 0});

@@ -38,6 +38,11 @@ class SaveOptionsDialog final : public QDialog {
     // already complete. A panel hosts the controls inside a widget file picker.
     void prepare(const ImageDocument &document, SaveOptions options,
                  const QJsonObject &profiles, QDialog &chooser, QScrollArea *panel = nullptr);
+    struct TargetOptimization {
+        QFuture<TargetSizeResult> future;
+        std::shared_ptr<std::atomic_bool> cancel;
+    };
+    TargetOptimization takeTargetOptimization();
     // Ends the session: hide, cancel workers, clear the stale auto result and
     // give the window back to its owner so the next save can reuse it.
     void endSession();

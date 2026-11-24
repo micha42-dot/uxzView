@@ -18,6 +18,8 @@
 #include <QColorSpace>
 #include <QImageReader>
 #include <QImageWriter>
+#include <QLockFile>
+#include <QSemaphore>
 #include <QtTest>
 #include <QtWidgets>
 #include <QtConcurrent>
@@ -330,15 +332,21 @@ class SavingTests : public QObject {
     }
     void saveRoutes_data() {
         QTest::addColumn<QString>("command");QTest::addColumn<bool>("fixed");QTest::addColumn<bool>("overridePng");
-        QTest::newRow("save-converts-safely")<<QStringLiteral("save")<<true<<false;
-        QTest::newRow("save-as-original")<<QStringLiteral("saveAs")<<false<<false;
-        QTest::newRow("save-as-override")<<QStringLiteral("saveAs")<<true<<true;
-        QTest::newRow("selection-fixed")<<QStringLiteral("saveSelection")<<true<<false;
+        QTest::addColumn<bool>("largeJpeg");
+        QTest::newRow("save-converts-safely")<<QStringLiteral("save")<<true<<false<<false;
+        QTest::newRow("save-as-original")<<QStringLiteral("saveAs")<<false<<false<<false;
+        QTest::newRow("save-as-override")<<QStringLiteral("saveAs")<<true<<true<<false;
+        QTest::newRow("selection-fixed")<<QStringLiteral("saveSelection")<<true<<false<<false;
+        QTest::newRow("large-qt-jpeg")<<QStringLiteral("saveAs")<<true<<false<<true;
     }
     void saveRoutes() {
         QFETCH(QString,command);QFETCH(bool,fixed);QFETCH(bool,overridePng);
-        const auto source=temp_.filePath(QStringLiteral("route-%1-%2.png").arg(command).arg(overridePng));
-        QVERIFY(sample().save(source));const auto original=contents(source);
+        QFETCH(bool,largeJpeg);
+        const auto source=temp_.filePath(QStringLiteral("route-%1.png").arg(QTest::currentDataTag()));
+        const QSize sourceSize = largeJpeg ? QSize(4608, 3072) : sample().size();
+        if (largeJpeg)
+            QSettings().setValue(QStringLiteral("experimental/jpegli"), false);
+        QVERIFY(sample().scaled(sourceSize).save(source));const auto original=contents(source);
         QSettings().setValue(QStringLiteral("save/preferOriginal"),!fixed);
         QSettings().setValue(QStringLiteral("save/format"),QStringLiteral("jpeg"));
         ix::MainWindow window;window.show();window.openPath(source);
@@ -346,11 +354,11 @@ class SavingTests : public QObject {
         window.dispatch(QStringLiteral("grayscale"));QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy()&&window.document().modified,10000);
         if(command==QStringLiteral("saveSelection")) window.findChild<ix::ImageView *>()->setSelection({3,4,31,23});
         const auto suffix=fixed&&!overridePng?QStringLiteral("jpg"):QStringLiteral("png");
-        const auto target=temp_.filePath(QStringLiteral("export-%1-%2.").arg(command).arg(overridePng)+suffix);
+        const auto target=temp_.filePath(QStringLiteral("export-%1.").arg(QTest::currentDataTag())+suffix);
         bool seen=false,timedOut=false;QString initialFilter;QElapsedTimer elapsed;elapsed.start();QTimer driver;
         connect(&driver,&QTimer::timeout,&window,[&] {
             auto *modal=QApplication::activeModalWidget();
-            if(elapsed.elapsed()>10000) {timedOut=true;if(auto *d=qobject_cast<QDialog *>(modal))d->reject();return;}
+            if(elapsed.elapsed()>(largeJpeg?30000:10000)) {timedOut=true;if(auto *d=qobject_cast<QDialog *>(modal))d->reject();return;}
             if(auto *picker=qobject_cast<QFileDialog *>(modal);picker&&!seen) {
                 seen=true;initialFilter=picker->selectedNameFilter();
                 if(overridePng)picker->selectNameFilter(QStringLiteral("PNG (*.png)"));
@@ -370,7 +378,7 @@ class SavingTests : public QObject {
         QVERIFY2(QFileInfo::exists(target),qPrintable(QStringLiteral("Actual saved path: ")+window.document().path));QCOMPARE(contents(source),original);
         QImageReader reader(target);QCOMPARE(reader.format(),suffix==QStringLiteral("jpg")?QByteArray("jpeg"):QByteArray("png"));
         const auto image=reader.read();QVERIFY(!image.isNull());
-        QCOMPARE(image.size(),command==QStringLiteral("saveSelection")?QSize(31,23):sample().size());
+        QCOMPARE(image.size(),command==QStringLiteral("saveSelection")?QSize(31,23):sourceSize);
         QCOMPARE(QSettings().value(QStringLiteral("save/format")).toString(),QStringLiteral("jpeg"));
         if(command!=QStringLiteral("saveSelection")) {
             QCOMPARE(window.document().path,target);QVERIFY(!window.document().modified);
@@ -381,13 +389,16 @@ class SavingTests : public QObject {
     void pngCompressionLevelsChangeEncodedSize();
     void targetSizeOptimizationRespectsBudget_data();
     void targetSizeOptimizationRespectsBudget();
+    void jpegLimitsAndCancellationPrecedePixelPreparation();
     void companionWarmupKeepsWaylandWindowUncreated();
     void waylandSaveOpensOneResizableWindow();
     void embeddedCompressionSharesSaveWindow();
     void companionRefreshesTargetAfterMetadataChange();
+    void pendingTargetSizeResultSurvivesEndOfSaveSession();
     void companionProfilesFitBeforeFirstShow_data();
     void companionProfilesFitBeforeFirstShow();
     void compressionProfilesRoundTrip();
+    void unchangedJpegOptionsDoNotWaitForProfileWriter();
     void perTypeMetadataMaskingDropsOnlyDeselected();
     void alphaModeControlsFlattening();
     void transparencyDetectionUsesEveryNativeAlphaSample();
@@ -499,6 +510,31 @@ void SavingTests::targetSizeOptimizationRespectsBudget() {
     const auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
     QVERIFY(!cancelled.quality.has_value());
     QVERIFY(!cancelled.error.isEmpty());
+}
+void SavingTests::jpegLimitsAndCancellationPrecedePixelPreparation() {
+    const auto storage = ix::imageStorageOptions();
+    const auto restore = qScopeGuard([storage] { ix::configureImageStorage(storage); });
+    ix::configureImageStorage({false, 0, {}, 1});
+    QSettings().setValue(QStringLiteral("experimental/jpegli"), false);
+    ix::CodecRegistry registry;
+    ix::ImageDocument document;
+    document.pixels = QImage(65501, 2, QImage::Format_ARGB32);
+    QVERIFY(!document.pixels.isNull());
+    document.pixels.fill(Qt::transparent);
+    const auto options = ix::defaultSaveOptions("jpeg");
+    const auto path = temp_.filePath(QStringLiteral("too-wide-transparent.jpg"));
+    const auto error = registry.saveWithOptions(document, path, "jpeg", ix::saveEncodeOptions(options), true);
+    QVERIFY2(error.contains(QStringLiteral("65.500")), qPrintable(error));
+    QVERIFY(!QFileInfo::exists(path));
+
+    const std::atomic_bool cancel{false};
+    const auto rejected = ix::optimizeForTargetSize(document, options, registry, {}, cancel);
+    QCOMPARE(rejected.error, error);
+    const auto cancelled = ix::optimizeForTargetSize(document, options, registry, {}, std::atomic_bool{true});
+    QCOMPARE(cancelled.error, QStringLiteral("Abgebrochen."));
+    const auto cancelledByProgress = ix::optimizeForTargetSize(
+        document, options, registry, [](int, int) { return false; }, cancel);
+    QCOMPARE(cancelledByProgress.error, cancelled.error);
 }
 void SavingTests::companionWarmupKeepsWaylandWindowUncreated() {
     const auto source = temp_.filePath(QStringLiteral("warmup.png"));
@@ -654,6 +690,42 @@ void SavingTests::companionRefreshesTargetAfterMetadataChange() {
     QCOMPARE(quality->value(), 77);
     companion.endSession();
 }
+void SavingTests::pendingTargetSizeResultSurvivesEndOfSaveSession() {
+    auto *pool = QThreadPool::globalInstance();
+    const auto previous = pool->maxThreadCount();
+    pool->setMaxThreadCount(1);
+    const auto restorePool = qScopeGuard([pool, previous] { pool->setMaxThreadCount(previous); });
+    QSemaphore unblock;
+    auto blocker = QtConcurrent::run([&] { unblock.acquire(); });
+    auto releaseWorker = qScopeGuard([&] {
+        unblock.release();
+        blocker.waitForFinished();
+    });
+
+    QWidget owner;
+    QDialog chooser(&owner);
+    ix::CodecRegistry registry;
+    ix::SaveOptionsDialog companion(registry, &owner);
+    ix::ImageDocument document;
+    document.pixels = sample();
+    auto options = ix::defaultSaveOptions("jpeg");
+    options.targetSizeEnabled = true;
+    companion.prepare(document, options, {}, chooser);
+    companion.show();
+
+    ix::SaveOptionsDialog::TargetOptimization pending;
+    QTRY_VERIFY(pending.cancel || (pending = companion.takeTargetOptimization()).cancel);
+    QVERIFY(!pending.future.isFinished());
+    companion.endSession();
+    QVERIFY(!pending.cancel->load());
+    unblock.release();
+    blocker.waitForFinished();
+    releaseWorker.dismiss();
+    QTRY_VERIFY(pending.future.isFinished());
+    const auto result = pending.future.result();
+    QVERIFY2(result.quality.has_value(), qPrintable(result.error));
+    QVERIFY(result.bytes > 0);
+}
 void SavingTests::companionProfilesFitBeforeFirstShow_data() {
     QTest::addColumn<QString>("language");
     for (const auto *language : {"de", "en", "fr", "ko", "ja"})
@@ -723,6 +795,29 @@ void SavingTests::compressionProfilesRoundTrip() {
     QVERIFY(!ix::saveProfileError(QStringLiteral("web-photo"), profiles, false).isEmpty());
     QVERIFY(ix::saveProfileError(QStringLiteral("web-photo"), profiles, true).isEmpty());
     QVERIFY(ix::saveProfileError(QStringLiteral("other"), profiles, false).isEmpty());
+}
+void SavingTests::unchangedJpegOptionsDoNotWaitForProfileWriter() {
+    auto options = ix::defaultSaveOptions("jpeg");
+    options.quality = 78;
+    ix::storeSaveOptions(options);
+    const QString lockPath = QSettings().fileName() + QStringLiteral(".lock");
+    QSemaphore ready, saved;
+    auto writer = QtConcurrent::run([&] {
+        QLockFile lock(lockPath);
+        const bool locked = lock.tryLock();
+        ready.release();
+        return locked && saved.tryAcquire(1, 1500);
+    });
+    ready.acquire();
+    options.autoQuality = 41; // The measured quality applies only to this image.
+    QElapsedTimer elapsed;
+    elapsed.start();
+    ix::storeSaveOptions(options);
+    const auto milliseconds = elapsed.elapsed();
+    saved.release();
+    qInfo() << "Repeated JPEG preferences under profile lock (ms):" << milliseconds;
+    QVERIFY2(writer.result(), "An unchanged JPEG option set waited for the portable profile lock");
+    QCOMPARE(QSettings().value(QStringLiteral("save/options/jpeg")).toJsonObject(), options.toJson());
 }
 void SavingTests::perTypeMetadataMaskingDropsOnlyDeselected() {
 #ifndef IX_TEST_EXIV2
