@@ -342,7 +342,8 @@ class SavingTests : public QObject {
     void saveRoutes() {
         QFETCH(QString,command);QFETCH(bool,fixed);QFETCH(bool,overridePng);
         QFETCH(bool,largeJpeg);
-        const auto source=temp_.filePath(QStringLiteral("route-%1.png").arg(QTest::currentDataTag()));
+        const auto dataTag = QString::fromLatin1(QTest::currentDataTag());
+        const auto source = temp_.filePath(QStringLiteral("route-%1.png").arg(dataTag));
         const QSize sourceSize = largeJpeg ? QSize(4608, 3072) : sample().size();
         if (largeJpeg)
             QSettings().setValue(QStringLiteral("experimental/jpegli"), false);
@@ -354,7 +355,7 @@ class SavingTests : public QObject {
         window.dispatch(QStringLiteral("grayscale"));QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy()&&window.document().modified,10000);
         if(command==QStringLiteral("saveSelection")) window.findChild<ix::ImageView *>()->setSelection({3,4,31,23});
         const auto suffix=fixed&&!overridePng?QStringLiteral("jpg"):QStringLiteral("png");
-        const auto target=temp_.filePath(QStringLiteral("export-%1.").arg(QTest::currentDataTag())+suffix);
+        const auto target = temp_.filePath(QStringLiteral("export-%1.%2").arg(dataTag, suffix));
         bool seen=false,timedOut=false;QString initialFilter;QElapsedTimer elapsed;elapsed.start();QTimer driver;
         connect(&driver,&QTimer::timeout,&window,[&] {
             auto *modal=QApplication::activeModalWidget();
