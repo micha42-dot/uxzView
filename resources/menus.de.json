@@ -979,7 +979,7 @@
           "label": "Optionen für Symbolleiste anzeigen...",
           "originalId": 50,
           "shortcut": "",
-          "command": "settings",
+          "command": "toolbarSettings",
           "verification": "observed-ui-2026-10-17",
           "accessKey": null
         },
@@ -1007,7 +1007,7 @@
           "label": "Vollbild-Optionen anzeigen...",
           "originalId": 44,
           "shortcut": "",
-          "command": "settings",
+          "command": "fullscreenSettings",
           "verification": "observed-ui-2026-10-17",
           "accessKey": null
         },

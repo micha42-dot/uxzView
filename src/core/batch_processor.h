@@ -47,6 +47,6 @@ class BatchProcessor {
     static QList<BatchEntry> run(const BatchOptions &, const std::atomic_bool &cancel,
                                  const std::function<void(int, int)> &progress = {});
     static QString outputName(const QString &input, const QString &pattern, int index,
-                              const QByteArray &extension);
+                              QAnyStringView extension);
 };
 } // namespace ix

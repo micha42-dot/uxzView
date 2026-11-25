@@ -24,9 +24,9 @@
     {"key":"Strg+Ziffer / Strg+Shift+Ziffer", "action":"Um Ziffer Bilder vor / zurück springen; 0 entspricht 10", "context":"Bildansicht"},
     {"key":"Shift+T", "action":"Zoom-Eingabefeld fokussieren", "context":"Sichtbare Symbolleiste"},
     {"key":"Shift+P", "action":"Aktuellen Dateipfad kopieren", "context":"Geöffnete Datei"},
-    {"key":"Strg+N", "action":"Datei in einem weiteren IxView-Fenster öffnen", "context":"Geöffnete Datei"},
+    {"key":"Strg+N", "action":"Datei in einem weiteren üxzView-Fenster öffnen", "context":"Geöffnete Datei"},
     {"key":"F1", "action":"Diese Tastenkürzel-Hilfe", "context":"Hauptfenster"},
-    {"key":"A", "action":"Über IxView", "context":"Hauptfenster"}
+    {"key":"A", "action":"Über üxzView", "context":"Hauptfenster"}
   ],
   "mouse": [
     {"key":"Linksklick / Rechtsklick", "action":"Vorheriges / nächstes Bild; Ziehen blättert nicht", "context":"Vollbild"},

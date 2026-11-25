@@ -126,7 +126,8 @@ int main(int argc, char **argv) {
     startupStage("storage");
     if (!storageError.isEmpty()) {
         QTextStream(stderr) << storageError << Qt::endl;
-        if (!parser.isSet(QStringLiteral("storage-info")) && !parser.isSet(QStringLiteral("probe-image")))
+        if (!parser.isSet(QStringLiteral("storage-info")) && !parser.isSet(QStringLiteral("probe-image")) &&
+            !parser.isSet(QStringLiteral("memory-info")))
             QMessageBox::critical(nullptr, QStringLiteral("üxzView"), storageError);
         return 3;
     }

@@ -17,6 +17,7 @@
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QUrl>
+#include <algorithm>
 #include <memory>
 #include <vector>
 namespace ix {
@@ -177,54 +178,60 @@ QString relocate(const QString &data, const QString &before, const QString &afte
     }
     return {};
 }
+QString copyFile(const QFileInfo &info, const QString &destination, const std::atomic_bool &cancel) {
+    const auto path = info.filePath();
+    if (!info.isFile() || !QDir().mkpath(QFileInfo(destination).absolutePath()))
+        return QStringLiteral("Datei konnte nicht kopiert werden: ") + path;
+    const auto revision = imageFileKey(path);
+    QFile input(path);
+    QSaveFile output(destination);
+    if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly))
+        return QStringLiteral("Datei konnte nicht kopiert werden: ") + path;
+    while (!input.atEnd()) {
+        if (cancel.load())
+            return QStringLiteral("Kopieren abgebrochen.");
+        const auto bytes = input.read(1024 * 1024);
+        if (bytes.isEmpty() || output.write(bytes) != bytes.size())
+            return QStringLiteral("Datei konnte nicht kopiert werden: ") + path;
+    }
+    if (input.error() != QFileDevice::NoError || imageFileKey(path) != revision ||
+        !output.setPermissions(info.permissions()) || !output.commit())
+        return QStringLiteral("Datei wurde beim Kopieren geändert oder konnte nicht gespeichert werden: ") + path;
+    return {};
+}
 QString copyTree(const QString &source, const QString &target, const std::atomic_bool &cancel,
                  const QStringList &excluded = {}) {
     if (!QFileInfo::exists(source))
         return {};
-    QDirIterator entries(source, QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot,
-                         QDirIterator::Subdirectories);
-    while (entries.hasNext()) {
-        if (cancel.load())
-            return QStringLiteral("Kopieren abgebrochen.");
-        const auto path = entries.next();
-        const auto info = entries.fileInfo();
-        if (info.isSymLink() || info.isJunction())
-            return QStringLiteral("Verknüpfung im Benutzerprofil wird nicht kopiert: ") + path;
-        const auto relative = QDir(source).relativeFilePath(path);
-        if (relative.split(QLatin1Char('/')).contains(QStringLiteral(".tool-use"))) continue;
-        bool skip = false;
-        for (const auto &name : excluded)
-            skip |= relative == name || relative.startsWith(name + QLatin1Char('/'));
-        if (skip) continue;
-        if (relative == QStringLiteral("catalog.json.lock") ||
-            relative == QStringLiteral("file-journal/journal.lock") ||
-            relative == QStringLiteral("extensions/install.lock") ||
-            relative == QStringLiteral("install.lock") ||
-            (relative.startsWith(QStringLiteral("settings/")) && info.fileName().endsWith(QStringLiteral(".lock"))))
-            continue;
-        const auto destination = QDir(target).filePath(relative);
-        if (info.isDir()) {
-            if (!QDir().mkpath(destination))
-                return QStringLiteral("Ordner konnte nicht kopiert werden: ") + destination;
-            continue;
-        }
-        if (!info.isFile() || !QDir().mkpath(QFileInfo(destination).absolutePath()))
-            return QStringLiteral("Datei konnte nicht kopiert werden: ") + path;
-        const auto revision = imageFileKey(path);
-        QFile input(path);
-        QSaveFile output(destination);
-        if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly))
-            return QStringLiteral("Datei konnte nicht kopiert werden: ") + path;
-        while (!input.atEnd()) {
+    const QDir from(source), to(target);
+    QStringList pending{source};
+    while (!pending.isEmpty()) {
+        QDirIterator entries(pending.takeLast(), QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
+        while (entries.hasNext()) {
             if (cancel.load())
                 return QStringLiteral("Kopieren abgebrochen.");
-            const auto bytes = input.read(1024 * 1024);
-            if (bytes.isEmpty() || output.write(bytes) != bytes.size())
-                return QStringLiteral("Datei konnte nicht kopiert werden: ") + path;
+            const auto path = entries.next();
+            const auto info = entries.fileInfo();
+            const auto relative = from.relativeFilePath(path);
+            if (info.fileName() == QStringLiteral(".tool-use") ||
+                std::any_of(excluded.cbegin(), excluded.cend(), [&](const QString &name) { return within(relative, name); }))
+                continue;
+            if (info.isSymLink() || info.isJunction())
+                return QStringLiteral("Verknüpfung im Benutzerprofil wird nicht kopiert: ") + path;
+            if (relative == QStringLiteral("catalog.json.lock") ||
+                relative == QStringLiteral("file-journal/journal.lock") ||
+                relative == QStringLiteral("extensions/install.lock") ||
+                relative == QStringLiteral("install.lock") ||
+                (relative.startsWith(QStringLiteral("settings/")) && info.fileName().endsWith(QStringLiteral(".lock"))))
+                continue;
+            const auto destination = to.filePath(relative);
+            if (info.isDir()) {
+                if (!QDir().mkpath(destination))
+                    return QStringLiteral("Ordner konnte nicht kopiert werden: ") + destination;
+                pending.append(path);
+            } else if (const auto error = copyFile(info, destination, cancel); !error.isEmpty())
+                return error;
         }
-        if (input.error() != QFileDevice::NoError || imageFileKey(path) != revision ||
-            !output.setPermissions(info.permissions()) || !output.commit())
-            return QStringLiteral("Datei wurde beim Kopieren geändert oder konnte nicht gespeichert werden: ") + path;
     }
     return {};
 }
@@ -384,6 +391,20 @@ QString AppStorage::preparePortable(const QString &requestedHome, const QVariant
     // Retired application history must not travel into a new portable profile.
     // Do not destroy old backup originals in the source profile.
     QStringList excluded{QStringLiteral("file-journal")};
+    auto cache = QDir::cleanPath(cacheRoot());
+    auto cacheBase = source;
+    if (!within(cache, source) && !physicalSource.isEmpty()) {
+        cache = QFileInfo(cache).canonicalFilePath();
+        cacheBase = physicalSource;
+    }
+    if (within(cache, cacheBase)) {
+        const auto relative = QDir(cacheBase).relativeFilePath(cache);
+        if (relative == QStringLiteral(".")) {
+            // XDG data and cache locations can explicitly share one directory.
+            excluded.append({QStringLiteral("swap"), QStringLiteral("previews"), QStringLiteral("tool-jobs")});
+        } else
+            excluded.append(relative);
+    }
     if (customRoot) {
         const auto extensionInfo = QFileInfo(customExtensions);
         const auto extensionPath = QDir::cleanPath(extensionInfo.absoluteFilePath());

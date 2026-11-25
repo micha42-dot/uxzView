@@ -8,12 +8,14 @@
 #include <QHash>
 #include <QImage>
 #include <QJsonObject>
+#include <QMutex>
 #include <QSettings>
 #include <algorithm>
 #include <array>
 namespace ix {
 namespace {
 QHash<QByteArray, SaveOptions> gOptionsCache;
+QMutex gOptionsCacheMutex;
 QJsonObject gProfilesCache;
 bool gProfilesCached = false;
 // Encoders write sequentially for the formats with a target-size option.
@@ -138,6 +140,7 @@ SaveOptions defaultSaveOptions(const QByteArray &format) {
 SaveOptions loadSaveOptions(const QByteArray &format) {
     // Dialog-open fast path: options are read once per format and refreshed
     // on every store, so repeated saves skip QSettings + JSON parsing.
+    QMutexLocker lock(&gOptionsCacheMutex);
     if (const auto it = gOptionsCache.constFind(format); it != gOptionsCache.cend())
         return *it;
     const QSettings settings;
@@ -152,7 +155,10 @@ SaveOptions loadSaveOptions(const QByteArray &format) {
 void storeSaveOptions(const SaveOptions &options) {
     auto preferences = options;
     preferences.autoQuality = -1;
-    gOptionsCache.insert(options.format, preferences);
+    {
+        QMutexLocker lock(&gOptionsCacheMutex);
+        gOptionsCache.insert(options.format, preferences);
+    }
     QSettings settings;
     const auto key = QStringLiteral("save/options/") + QString::fromLatin1(options.format);
     const auto json = preferences.toJson();

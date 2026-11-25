@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "rotation_dialog.h"
+#include "core/image_geometry.h"
 #include "dialog_layout.h"
 #include "core/localization.h"
 #include "platform_support.h"
@@ -19,7 +20,7 @@ class RotationPreview : public QWidget {
 
   protected:
     QRect imageRect() const {
-        auto size = image.size().scaled(this->size() - QSize(4, 4), Qt::KeepAspectRatio);
+        auto size = fitPixelSize(image.size(), this->size() - QSize(4, 4));
         return {(width() - size.width()) / 2, (height() - size.height()) / 2, size.width(), size.height()};
     }
     void paintEvent(QPaintEvent *) override {

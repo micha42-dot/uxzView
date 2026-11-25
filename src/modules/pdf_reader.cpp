@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/image_document.h"
+#include "core/image_geometry.h"
 #include <QColorSpace>
 #include <QFileInfo>
 #include <QPainter>
@@ -22,7 +23,7 @@ static ix::ImageResult readPdf(const QString &path, int page, qint64 budget, QSi
         width > ix::ImageAxisLimit || height > ix::ImageAxisLimit || width * height > budget / 8)
         return {{}, QStringLiteral("PDF-Seite überschreitet das Speicherlimit.")};
     auto size = QSize(int(width), int(height));
-    if (bounds.isValid()) size.scale(bounds, Qt::KeepAspectRatio);
+    if (bounds.isValid()) size = ix::fitPixelSize(size, bounds);
     auto image = pdf.render(page, size);
     if (image.isNull()) return {{}, QStringLiteral("PDF-Seite konnte nicht dargestellt werden.")};
     // PDF canvas is white. Fill behind transparent marks without another full raster.
@@ -51,6 +52,6 @@ extern "C" Q_DECL_EXPORT ix::ImageResult ixReadPdf(const QString &path, int page
     return readPdf(path, page, budget);
 }
 extern "C" Q_DECL_EXPORT QImage ixReadPdfPreview(const QString &path, QSize bounds, qint64 budget) {
-    if (!bounds.isValid() || bounds.width() > 2048 || bounds.height() > 2048) return {};
+    if (bounds.isEmpty() || bounds.width() > 2048 || bounds.height() > 2048) return {};
     return readPdf(path, 0, budget, bounds).document.pixels;
 }

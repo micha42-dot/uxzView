@@ -355,10 +355,12 @@ class SavingTests : public QObject {
         QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy()&&!window.document().empty(),10000);
         window.dispatch(QStringLiteral("grayscale"));QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy()&&window.document().modified,10000);
         const bool selection = command == QStringLiteral("saveSelection");
+        const bool changeQuality = dataTag == QStringLiteral("save-converts-safely");
         const QRect selectedArea(3, 4, 31, 23);
         const auto previousJpeg = ix::loadSaveOptions("jpeg");
+        const int changedQuality = previousJpeg.quality == 76 ? 77 : 76;
         const auto restoreOptions = qScopeGuard([&] {
-            if (selection) ix::storeSaveOptions(previousJpeg);
+            if (selection || changeQuality) ix::storeSaveOptions(previousJpeg);
         });
         if (selection) {
             window.findChild<ix::ImageView *>()->setSelection(selectedArea);
@@ -375,6 +377,11 @@ class SavingTests : public QObject {
             auto *modal=QApplication::activeModalWidget();
             if(elapsed.elapsed()>(largeJpeg?30000:10000)) {timedOut=true;if(auto *d=qobject_cast<QDialog *>(modal))d->reject();return;}
             if(auto *picker=qobject_cast<QFileDialog *>(modal);picker&&!seen) {
+                if (changeQuality) {
+                    auto *spin = picker->findChild<QSpinBox *>(QStringLiteral("compressionQualityValue"));
+                    if (!spin) { timedOut = true; picker->reject(); return; }
+                    spin->setValue(changedQuality);
+                }
                 if (selection) {
                     auto *companion = picker->findChild<ix::SaveOptionsDialog *>();
                     if (!companion || companion->options().autoQuality < 0) return;
@@ -400,6 +407,11 @@ class SavingTests : public QObject {
         const auto image=reader.read();QVERIFY(!image.isNull());
         QCOMPARE(image.size(),command==QStringLiteral("saveSelection")?QSize(31,23):sourceSize);
         QCOMPARE(QSettings().value(QStringLiteral("save/format")).toString(),QStringLiteral("jpeg"));
+        if (changeQuality) {
+            QCOMPARE(ix::loadSaveOptions("jpeg").quality, changedQuality);
+            QCOMPARE(QSettings().value(QStringLiteral("save/options/jpeg")).toJsonObject()
+                         .value(QStringLiteral("quality")).toInt(), changedQuality);
+        }
         if(command!=QStringLiteral("saveSelection")) {
             QCOMPARE(window.document().path,target);QVERIFY(!window.document().modified);
             if(suffix==QStringLiteral("jpg")) { const auto saved=contents(target);window.dispatch(QStringLiteral("save"));QCOMPARE(contents(target),saved); }
@@ -428,11 +440,14 @@ class SavingTests : public QObject {
     void companionProfilesFitBeforeFirstShow_data();
     void companionProfilesFitBeforeFirstShow();
     void compressionProfilesRoundTrip();
+    void unchangedJpegSaveKeepsGuiResponsive();
     void unchangedJpegOptionsDoNotWaitForProfileWriter();
     void perTypeMetadataMaskingDropsOnlyDeselected();
     void alphaModeControlsFlattening();
     void transparencyDetectionUsesEveryNativeAlphaSample();
     void exportWithoutIccPreservesPaletteAndProperties();
+    void unsupportedIccRespectsExportChoice_data();
+    void unsupportedIccRespectsExportChoice();
     void jpegFilterMatchesCanonicalFormat();
     void everyWritableCapabilityIdIsCanonicalAndWritable();
 };
@@ -834,6 +849,45 @@ void SavingTests::compressionProfilesRoundTrip() {
     QVERIFY(ix::saveProfileError(QStringLiteral("web-photo"), profiles, true).isEmpty());
     QVERIFY(ix::saveProfileError(QStringLiteral("other"), profiles, false).isEmpty());
 }
+void SavingTests::unchangedJpegSaveKeepsGuiResponsive() {
+    const auto path = temp_.filePath(QStringLiteral("unchanged.jpg"));
+    QVERIFY(sample().save(path));
+    const auto original = contents(path);
+    ix::MainWindow window;
+    window.show();
+    window.openPath(path);
+    QTRY_VERIFY_WITH_TIMEOUT(!window.isBusy() && !window.document().empty(), 10000);
+
+    auto *pool = QThreadPool::globalInstance();
+    const int previous = pool->maxThreadCount();
+    pool->setMaxThreadCount(1);
+    QSemaphore started, resume;
+    auto blocker = QtConcurrent::run([&] {
+        started.release();
+        return resume.tryAcquire(1, 10000);
+    });
+    const auto restorePool = qScopeGuard([&] {
+        resume.release();
+        blocker.waitForFinished();
+        pool->setMaxThreadCount(previous);
+    });
+    QVERIFY(started.tryAcquire(1, 10000));
+    bool busyDuringCheck = false;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &window, [&] {
+        busyDuringCheck = window.isBusy();
+        window.dispatch(QStringLiteral("grayscale"));
+        resume.release();
+    });
+    timer.start(0);
+    window.dispatch(QStringLiteral("save"));
+    QVERIFY(busyDuringCheck);
+    QVERIFY(blocker.result());
+    QVERIFY(!window.isBusy());
+    QVERIFY(!window.document().modified);
+    QCOMPARE(contents(path), original);
+}
 void SavingTests::unchangedJpegOptionsDoNotWaitForProfileWriter() {
     auto options = ix::defaultSaveOptions("jpeg");
     options.quality = 78;
@@ -979,6 +1033,35 @@ void SavingTests::exportWithoutIccPreservesPaletteAndProperties() {
     QCOMPARE(saved.text(QStringLiteral("Description")), pixels.text(QStringLiteral("Description")));
     QCOMPARE(pixels.colorSpace(), QColorSpace(QColorSpace::DisplayP3));
     QCOMPARE(pixels.cacheKey(), key);
+}
+void SavingTests::unsupportedIccRespectsExportChoice_data() {
+    QTest::addColumn<bool>("jpegli");
+    QTest::newRow("qt") << false;
+    QTest::newRow("jpegli") << true;
+}
+void SavingTests::unsupportedIccRespectsExportChoice() {
+    QFETCH(bool, jpegli);
+    auto profile = QColorSpace(QColorSpace::SRgb).iccProfile();
+    QVERIFY(profile.size() > 36);
+    profile[36] = 'x';
+    ix::ImageDocument document;
+    document.pixels = sample();
+    document.pixels.setColorSpace(QColorSpace::fromIccProfile(profile));
+    QVERIFY(!document.pixels.colorSpace().isValid());
+    QCOMPARE(document.pixels.colorSpace().iccProfile(), profile);
+    QSettings().setValue(QStringLiteral("experimental/jpegli"), jpegli);
+    ix::CodecRegistry registry;
+    ix::CodecRegistry::EncodeOptions options;
+    const auto path = temp_.filePath(QStringLiteral("unsupported-icc.jpg"));
+    QVERIFY(!registry.exportLosses(document, "bmp", &options).isEmpty());
+    QVERIFY(registry.saveWithOptions(document, path, "jpeg", options, true).isEmpty());
+    QVERIFY(contents(path).contains(profile));
+    options.keepIcc = false;
+    QVERIFY(registry.exportLosses(document, "bmp", &options).isEmpty());
+    QVERIFY(registry.saveWithOptions(document, path, "jpeg", options, true).isEmpty());
+    QVERIFY(!contents(path).contains("ICC_PROFILE"));
+    QVERIFY(!QImage(path).isNull());
+    QCOMPARE(document.pixels.colorSpace().iccProfile(), profile);
 }
 void SavingTests::jpegFilterMatchesCanonicalFormat() {
     // A JFIF-labeled filter (as advertised by some Qt builds) must resolve

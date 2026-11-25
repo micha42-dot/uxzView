@@ -37,11 +37,11 @@ ImageCatalog::ImageCatalog(QString file)
     : file_(file.isEmpty() ? AppStorage::dataRoot() +
                                  QStringLiteral("/catalog.json")
                            : std::move(file)) {}
-QJsonObject ImageCatalog::read() const {
-    QFile file(file_);
-    if (!file.open(QIODevice::ReadOnly) || file.size() > 256 * 1024 * 1024)
-        return {};
-    return QJsonDocument::fromJson(file.readAll()).object();
+QJsonObject ImageCatalog::read(QString *error) const {
+    QJsonDocument document;
+    const auto status = jsonStorageError(file_, false, 256 * 1024 * 1024, &document);
+    if (error) *error = status;
+    return document.object();
 }
 QString ImageCatalog::write(const QJsonObject &object) const {
     auto bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
@@ -75,17 +75,21 @@ QString ImageCatalog::setAnnotations(const QStringList &paths, int rating, const
     QLockFile lock(file_ + QStringLiteral(".lock"));
     if (!lock.tryLock(5000))
         return QStringLiteral("Bildkatalog ist belegt.");
-    auto storageError = jsonStorageError(file_, false, 256 * 1024 * 1024);
+    QString storageError;
+    auto object = read(&storageError);
     if (!storageError.isEmpty())
         return storageError;
-    auto object = read();
+    bool changed = false;
     for (const auto &path : paths) {
         auto r = object.value(key(path)).toObject();
+        if (r.value(QStringLiteral("rating")) == QJsonValue(rating) &&
+            r.value(QStringLiteral("color")) == QJsonValue(color)) continue;
         r.insert(QStringLiteral("rating"), rating);
         r.insert(QStringLiteral("color"), color);
         object.insert(key(path), r);
+        changed = true;
     }
-    return write(object);
+    return changed ? write(object) : QString();
 }
 QString ImageCatalog::relocate(const QString &from, const QString &to) {
     QMutexLocker guard(&catalogMutex);
@@ -94,10 +98,10 @@ QString ImageCatalog::relocate(const QString &from, const QString &to) {
     QLockFile lock(file_ + QStringLiteral(".lock"));
     if (!lock.tryLock(5000))
         return QStringLiteral("Bildkatalog ist belegt.");
-    auto storageError = jsonStorageError(file_, false, 256 * 1024 * 1024);
+    QString storageError;
+    auto object = read(&storageError);
     if (!storageError.isEmpty())
         return storageError;
-    auto object = read();
     auto value = object.take(key(from));
     if (value.isUndefined()) return {};
     object.insert(key(to), value);
@@ -110,9 +114,9 @@ QString ImageCatalog::relocate(const QList<QPair<QString, QString>> &moves) {
     if (!QFileInfo::exists(file_)) return {};
     QLockFile lock(file_ + QStringLiteral(".lock"));
     if (!lock.tryLock(5000)) return QStringLiteral("Bildkatalog ist belegt.");
-    const auto storageError = jsonStorageError(file_, false, 256 * 1024 * 1024);
+    QString storageError;
+    const auto snapshot = read(&storageError);
     if (!storageError.isEmpty()) return storageError;
-    const auto snapshot = read();
     if (std::none_of(moves.cbegin(), moves.cend(), [&](const auto &move) {
         return snapshot.contains(key(move.first));
     })) return {};
@@ -133,31 +137,36 @@ QString ImageCatalog::relocate(const QList<QPair<QString, QString>> &moves) {
 }
 QStringList ImageCatalog::search(const QStringList &files, const QString &text, int minimum,
                                  const QString &color) const {
-    QMutexLocker guard(&catalogMutex);
-    const auto all = read();
+    const auto all = records();
     QStringList result;
     const auto terms = text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const auto &path : files) {
-        auto r = all.value(key(path)).toObject();
-        if (r.value(QStringLiteral("rating")).toInt() < minimum ||
-            (!color.isEmpty() && r.value(QStringLiteral("color")).toString() != color))
-            continue;
-        QString haystack = path + QLatin1Char(' ') + r.value(QStringLiteral("metadataText")).toString();
-        bool match = true;
-        for (const auto &term : terms)
-            if (!haystack.contains(term, Qt::CaseInsensitive)) {
-                match = false;
-                break;
-            }
-        if (match)
+        if (matches(path, all.value(key(path)).toObject(), terms, minimum, color))
             result.append(path);
     }
     return result;
 }
+bool ImageCatalog::matches(const QString &path, const QJsonObject &record, const QStringList &terms,
+                           int minimumRating, const QString &color) {
+    if (record.value(QStringLiteral("rating")).toInt() < minimumRating ||
+        (!color.isEmpty() && record.value(QStringLiteral("color")).toString() != color))
+        return false;
+    if (terms.isEmpty()) return true;
+    const auto metadata = record.value(QStringLiteral("metadataText")).toString();
+    return std::all_of(terms.cbegin(), terms.cend(), [&](const QString &term) {
+        return path.contains(term, Qt::CaseInsensitive) || metadata.contains(term, Qt::CaseInsensitive);
+    });
+}
 QString ImageCatalog::index(const QStringList &files, const std::atomic_bool &cancel,
                             const std::function<void(int, int)> &progress) {
     QJsonObject updates;
-    const auto snapshot = records();
+    QString storageError;
+    QJsonObject snapshot;
+    {
+        QMutexLocker guard(&catalogMutex);
+        snapshot = read(&storageError);
+    }
+    if (!storageError.isEmpty()) return storageError;
     for (int i = 0; i < files.size(); ++i) {
         if (cancel.load())
             break;
@@ -184,23 +193,26 @@ QString ImageCatalog::index(const QStringList &files, const std::atomic_bool &ca
         if (progress)
             progress(i + 1, files.size());
     }
+    if (updates.isEmpty()) return {};
     QMutexLocker guard(&catalogMutex);
     QDir().mkpath(QFileInfo(file_).absolutePath());
     QLockFile lock(file_ + QStringLiteral(".lock"));
     if (!lock.tryLock(5000))
         return QStringLiteral("Bildkatalog ist belegt.");
-    auto storageError = jsonStorageError(file_, false, 256 * 1024 * 1024);
+    auto all = read(&storageError);
     if (!storageError.isEmpty())
         return storageError;
-    auto all = read();
-    for (auto it = updates.begin(); it != updates.end(); ++it) {
+    bool changed = false;
+    for (auto it = updates.constBegin(); it != updates.constEnd(); ++it) {
+        const auto data = it.value().toObject();
+        if (imageFileKey(it.key()) != data.value(QStringLiteral("stamp")).toString()) continue;
         auto r = all.value(it.key()).toObject();
-        auto data = it.value().toObject();
         for (auto p = data.begin(); p != data.end(); ++p)
             r.insert(p.key(), p.value());
         all.insert(it.key(), r);
+        changed = true;
     }
-    return write(all);
+    return changed ? write(all) : QString();
 }
 quint64 ImageCatalog::differenceHash(const QImage &image) {
     if (image.isNull())
@@ -220,6 +232,18 @@ DuplicateResult ImageCatalog::duplicates(const QStringList &files, bool perceptu
                                          const std::function<void(int, int)> &progress) {
     DuplicateResult result;
     threshold = std::clamp(threshold, 0, 16);
+    QList<qint64> sizes;
+    QHash<qint64, qsizetype> sizeCounts;
+    if (!perceptual) {
+        sizes.reserve(files.size());
+        for (const auto &path : files) {
+            if (cancel.load()) return result;
+            const QFileInfo info(path);
+            const qint64 size = info.isFile() ? info.size() : -1;
+            sizes.append(size);
+            if (size >= 0) ++sizeCounts[size];
+        }
+    }
     QHash<QString, QString> exact;
     struct Fingerprint {
         QString file;
@@ -244,21 +268,30 @@ DuplicateResult ImageCatalog::duplicates(const QStringList &files, bool perceptu
             break;
         const auto &path = files[i];
         if (!perceptual) {
-            auto hash = sha256File(path, &cancel);
-            if (hash.isEmpty()) {
-                if (!cancel.load())
+            const auto size = sizes.at(i);
+            if (size < 0) {
+                result.errors.append(path);
+            } else if (sizeCounts.value(size) == 1) {
+                // No other candidate has this length. Still report inaccessible or changed files.
+                QFile file(path);
+                if (!file.open(QIODevice::ReadOnly) || file.size() != size)
                     result.errors.append(path);
-                continue;
+            } else {
+                const auto hash = sha256File(path, &cancel);
+                if (cancel.load()) break;
+                if (hash.isEmpty() || QFileInfo(path).size() != size)
+                    result.errors.append(path);
+                else if (const auto it = exact.constFind(hash); it != exact.cend())
+                    append(it.value(), path, 0, true);
+                else
+                    exact.insert(hash, path);
             }
-            if (exact.contains(hash))
-                append(exact.value(hash), path, 0, true);
-            else
-                exact.insert(hash, path);
         } else {
             auto preview = loadPreview(path, {144, 128}, &cancel);
             if (preview.isNull()) {
-                if (!cancel.load())
-                    result.errors.append(path);
+                if (cancel.load()) break;
+                result.errors.append(path);
+                if (progress) progress(i + 1, files.size());
                 continue;
             }
             const auto hash = differenceHash(preview);

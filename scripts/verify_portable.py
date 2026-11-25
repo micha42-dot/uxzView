@@ -123,6 +123,9 @@ try:
   extension.write_text(json.dumps({'disabledFormats':['png']}))
   disabled=subprocess.run([str(after/'uxzView.exe'),'-platform','offscreen','--probe-image',str(root/'tests/fixtures/smoke.png')],cwd=after,env=env,capture_output=True,text=True,timeout=30)
   assert disabled.returncode==2 and 'error' in json.loads(disabled.stdout),disabled
+  (after/'IxView-data/location.json').write_text('broken',encoding='utf-8')
+  invalid_profile=subprocess.run([str(after/'uxzView.exe'),'-platform','offscreen','--memory-info'],cwd=after,env=env,capture_output=True,timeout=30)
+  assert invalid_profile.returncode==3 and b'Standortdaten' in invalid_profile.stderr,invalid_profile
   (root/'build/portable-storage-startup.json').write_text(json.dumps({'first':first,'moved':moved,'private_plugin_preferences_used':True},indent=2)+'\n')
  print('Bundled QR and OCR engines, all five models and relocated tools folder passed without the SDK in PATH.')
  print('Portable runtime tests and relocated-profile startup passed without the SDK in PATH.')

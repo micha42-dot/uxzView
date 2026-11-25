@@ -31,6 +31,8 @@ class ImageCatalog {
     QString relocate(const QList<QPair<QString, QString>> &moves);
     QStringList search(const QStringList &files, const QString &text, int minimumRating = 0,
                        const QString &color = {}) const;
+    static bool matches(const QString &path, const QJsonObject &record, const QStringList &terms,
+                        int minimumRating, const QString &color);
     QString index(const QStringList &files, const std::atomic_bool &cancel,
                   const std::function<void(int, int)> &progress = {});
     static DuplicateResult duplicates(const QStringList &files, bool perceptual, int threshold,
@@ -40,7 +42,7 @@ class ImageCatalog {
 
   private:
     QString file_;
-    QJsonObject read() const;
+    QJsonObject read(QString *error = nullptr) const;
     QString write(const QJsonObject &object) const;
 };
 } // namespace ix

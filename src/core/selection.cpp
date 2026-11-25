@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "selection.h"
+#include "image_geometry.h"
 #include "image_storage.h"
 #include "image_document.h"
 #include <cstring>
 #include <stdexcept>
 namespace ix {
 QRect centeredMaximalSelection(QSize image, QSize ratio) {
-    if (!image.isValid() || !ratio.isValid())
+    if (image.isEmpty() || ratio.isEmpty())
         return {};
-    auto size = ratio.scaled(image, Qt::KeepAspectRatio);
+    auto size = fitPixelSize(ratio, image);
     return {(image.width() - size.width()) / 2, (image.height() - size.height()) / 2, size.width(),
             size.height()};
 }

@@ -39,6 +39,11 @@ bool alphaWritable(const QByteArray &f) {
     return formats.contains(f);
 }
 namespace {
+bool hasColorProfile(const QImage &pixels) {
+    const auto color = pixels.colorSpace();
+    // Qt can retain and re-export an ICC payload it cannot use for a color transform.
+    return color.isValid() || !color.iccProfile().isEmpty();
+}
 #ifdef IX_PDF_MODULE
 ImageResult readPdf(const QString &path, int page) {
     static QLibrary module(optionalModulePath(QStringLiteral(IX_PDF_MODULE)));
@@ -360,8 +365,8 @@ QStringList CodecRegistry::exportLosses(const ImageDocument &d, const QByteArray
         losses.append(IX_TEXT("HDR-Gleitkommawerte können auf den Bereich 0–1 begrenzt werden."));
     if (imageChannelBits(d.pixels) > 8 && format != "png" && format != "tiff" && format != "exr")
         losses.append(IX_TEXT("Die Farbtiefe wird auf 8 Bit pro Kanal reduziert."));
-    if (warnIcc && d.pixels.colorSpace().isValid() && format != "png" && format != "jpeg" && format != "tiff" &&
-        format != "webp")
+    if (warnIcc && format != "png" && format != "jpeg" && format != "tiff" &&
+        format != "webp" && hasColorProfile(d.pixels))
         losses.append(IX_TEXT("Das ICC-Farbprofil wird in diesem Format nicht zuverlässig gespeichert."));
     return losses;
 }
@@ -457,7 +462,7 @@ CodecRegistry::PreparedEncode CodecRegistry::prepareEncodePixels(const QImage &p
     if (!error.isEmpty())
         return {};
     QImage output = pixels;
-    if (!encode.keepIcc && output.colorSpace().isValid()) {
+    if (!encode.keepIcc && hasColorProfile(output)) {
         // Changing metadata on a shared QImage detaches its entire buffer.
         // The read-only header borrows pixels from `pixels` for this encode.
         output = QImage(pixels.constBits(), pixels.width(), pixels.height(), pixels.bytesPerLine(), pixels.format());

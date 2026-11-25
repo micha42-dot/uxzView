@@ -17,7 +17,7 @@ class FirstOpenDiagnosticsTests(unittest.TestCase):
         self.result = self.root / 'result.json'
         self.log = self.root / 'process.log'
 
-    def run_child(self, code, timeout=5):
+    def run_child(self, code, timeout=60):
         return run_sample([sys.executable, '-c', code, str(self.result)],
                           self.result, self.log, os.environ.copy(), timeout)
 

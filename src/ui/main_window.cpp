@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "main_window.h"
+#include "core/image_geometry.h"
 #include "menu_support.h"
 #include "worker_wait.h"
 #include "image_file_dialog.h"
@@ -91,6 +92,7 @@ QKeySequence shortcut(QString s) {
 const QSet<QString> globalCommands{QStringLiteral("open"),           QStringLiteral("paste"),
                                    QStringLiteral("clearClipboard"), QStringLiteral("new"),
                                    QStringLiteral("exit"),           QStringLiteral("settings"),
+                                   QStringLiteral("toolbarSettings"), QStringLiteral("fullscreenSettings"),
                                    QStringLiteral("minimize"),       QStringLiteral("onTop"),
                                    QStringLiteral("statusbar"),      QStringLiteral("toolbar"),
                                    QStringLiteral("menubar"),        QStringLiteral("titlebar"),
@@ -514,8 +516,9 @@ void MainWindow::showKeyboardHelp() {
         for (auto group : {QStringLiteral("contextKeys"), QStringLiteral("mouse")})
             for (auto item : data.value(group).toArray()) {
                 auto o = item.toObject();
-                row(o.value(QStringLiteral("key")).toString(), o.value(QStringLiteral("action")).toString(),
-                    o.value(QStringLiteral("context")).toString());
+                row(localized(o.value(QStringLiteral("key")).toString()),
+                    localized(o.value(QStringLiteral("action")).toString()),
+                    localized(o.value(QStringLiteral("context")).toString()));
             }
     }
     table->resizeColumnsToContents();
@@ -545,6 +548,7 @@ void MainWindow::populateMenu(QMenu *menu, const QJsonObject &object) {
         const auto source = item.value(QStringLiteral("label")).toString();
         if (!dynamic.isEmpty()) {
             auto *child = new QMenu(menu);
+            child->setObjectName(dynamic);
             bindUiText(child, "title", source);
             menu->addMenu(child);
             connect(child, &QMenu::aboutToShow, this, [this, child, dynamic] { recentMenu(child, dynamic); });
@@ -777,7 +781,8 @@ void MainWindow::reconcileFilePath(const BatchFileChanges &changes) {
 void MainWindow::recentMenu(QMenu *menu, const QString &key) {
     menu->clear();
     for (const auto &path : QSettings().value(QStringLiteral("files/") + key).toStringList()) {
-        auto *a = menu->addAction(path);
+        auto label = path;
+        auto *a = menu->addAction(label.replace(QLatin1Char('&'), QStringLiteral("&&")));
         connect(a, &QAction::triggered, this, [this, path] { openPath(path); });
     }
 }
@@ -1131,6 +1136,8 @@ void MainWindow::updatePreviews() {
 void MainWindow::refreshFiles(bool force) {
     if (document_.path.isEmpty() && watchedFolder_.isEmpty()) {
         directoryIndex_->cancel();
+        const auto watched = directoryWatcher_.directories();
+        if (!watched.isEmpty()) directoryWatcher_.removePaths(watched);
         files_.clear();
         filePositions_.clear();
         fileIndex_ = -1;
@@ -1161,10 +1168,12 @@ void MainWindow::refreshFiles(bool force) {
     indexedSort_ = sorting;
     indexedReverse_ = reverse;
     indexedAllFiles_ = allFiles;
-    if (!directoryWatcher_.directories().isEmpty())
-        directoryWatcher_.removePaths(directoryWatcher_.directories());
-    if (!directoryWatcher_.addPath(directory))
-        qWarning() << "Cannot monitor image directory; use Refresh to rescan:" << directory;
+    const auto watched = directoryWatcher_.directories();
+    if (!watched.contains(directory)) {
+        if (!watched.isEmpty()) directoryWatcher_.removePaths(watched);
+        if (!directoryWatcher_.addPath(directory))
+            qWarning() << "Cannot monitor image directory; use Refresh to rescan:" << directory;
+    }
     indexReady_ = false;
     const bool latest = !watchedFolder_.isEmpty();
     directoryIndex_->request({directory, {}, sorting, reverse, latest, true, allFiles});
@@ -1866,7 +1875,8 @@ void MainWindow::dispatch(const QString &cmd) {
         }
         return;
     }
-    if (cmd == QStringLiteral("settings") || cmd == QStringLiteral("cropSettings")) {
+    if (cmd == QStringLiteral("settings") || cmd == QStringLiteral("cropSettings") ||
+        cmd == QStringLiteral("toolbarSettings") || cmd == QStringLiteral("fullscreenSettings")) {
         const QSettings before;
         const auto fit = before.value(QStringLiteral("view/fit"), int(ImageView::Fit::LargeOnly)).toInt();
         const auto sort = before.value(QStringLiteral("navigation/sort"), 0).toInt();
@@ -1878,6 +1888,10 @@ void MainWindow::dispatch(const QString &cmd) {
         SettingsDialog dialog(this);
         if (cmd == QStringLiteral("cropSettings"))
             dialog.selectPage(QStringLiteral("cropSettingsPage"));
+        else if (cmd == QStringLiteral("toolbarSettings"))
+            dialog.selectPage(QStringLiteral("toolbar/iconSize"));
+        else if (cmd == QStringLiteral("fullscreenSettings"))
+            dialog.selectPage(QStringLiteral("fullscreen/fit"));
         if (dialog.exec() == QDialog::Accepted) {
             const QSettings after;
             const auto language = after.value(QStringLiteral("ui/language"), uiLanguage()).toString();
@@ -2490,11 +2504,17 @@ void MainWindow::dispatch(const QString &cmd) {
     }
     if (cmd == QStringLiteral("smooth") || cmd == QStringLiteral("smoothFit") ||
         cmd == QStringLiteral("center")) {
-        QSettings().setValue(cmd == QStringLiteral("center") ? QStringLiteral("view/center")
-                            : cmd == QStringLiteral("smoothFit") ? QStringLiteral("view/smoothFit")
-                                                                 : QStringLiteral("view/smooth"),
-                             actions_[cmd]->isChecked());
-        applySettings();
+        const bool enabled = actions_.value(cmd)->isChecked();
+        QSettings().setValue(QStringLiteral("view/") + cmd, enabled);
+        if (cmd == QStringLiteral("center")) {
+            view_->setCentered(isFullScreen() || enabled);
+        } else {
+            if (cmd == QStringLiteral("smooth"))
+                smoothZoom_ = enabled;
+            else
+                smoothFit_ = enabled;
+            view_->setSmooth(view_->fit() == ImageView::Fit::Original ? smoothZoom_ : smoothFit_);
+        }
         return;
     }
     if (cmd == QStringLiteral("sharpenDisplay")) {
@@ -2584,7 +2604,7 @@ void MainWindow::dispatch(const QString &cmd) {
             return;
         }
         QRect page = printer.pageLayout().paintRectPixels(printer.resolution());
-        QSize size = document_.pixels.size().scaled(page.size(), Qt::KeepAspectRatio);
+        QSize size = fitPixelSize(document_.pixels.size(), page.size());
         QRect target(QPoint((page.width() - size.width()) / 2, (page.height() - size.height()) / 2), size);
         painter.drawImage(target, document_.pixels);
         return;

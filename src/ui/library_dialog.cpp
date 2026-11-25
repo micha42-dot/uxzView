@@ -154,27 +154,14 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
         items.clear();
         requested.clear();
         list->clear();
-        QStringList matches;
         const auto terms = search->text().simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        const auto placeholder = uiIcon(QStringLiteral("image"), list->palette());
+        const auto filterColor = colors.at(color->currentIndex());
         for (const auto &path : files) {
-            const auto data = snapshot.value(QFileInfo(path).absoluteFilePath()).toObject();
-            if (data.value(QStringLiteral("rating")).toInt() < minimum->value() ||
-                (color->currentIndex() &&
-                 data.value(QStringLiteral("color")).toString() != colors[color->currentIndex()]))
+            const QFileInfo info(path);
+            const auto data = snapshot.value(info.absoluteFilePath()).toObject();
+            if (!ImageCatalog::matches(path, data, terms, minimum->value(), filterColor))
                 continue;
-            const auto haystack =
-                path + QLatin1Char(' ') + data.value(QStringLiteral("metadataText")).toString();
-            bool match = true;
-            for (const auto &term : terms)
-                if (!haystack.contains(term, Qt::CaseInsensitive)) {
-                    match = false;
-                    break;
-                }
-            if (match)
-                matches.append(path);
-        }
-        for (const auto &path : matches) {
-            auto data = snapshot.value(QFileInfo(path).absoluteFilePath()).toObject();
             QStringList annotations;
             const int stars = std::clamp(data.value(QStringLiteral("rating")).toInt(), 0, 5);
             if (stars)
@@ -182,13 +169,13 @@ void libraryDialog(QWidget *parent, const QStringList &requestedFiles, const std
             const auto colorIndex = colors.indexOf(data.value(QStringLiteral("color")).toString());
             if (colorIndex > 0)
                 annotations.append(labels.at(colorIndex));
-            auto label = QFileInfo(path).fileName();
+            auto label = info.fileName();
             if (!annotations.isEmpty())
                 label += QLatin1Char('\n') + annotations.join(QStringLiteral(" · "));
             auto *item = new QListWidgetItem(label, list);
             item->setSizeHint({160, 132});
             item->setTextAlignment(Qt::AlignHCenter);
-            item->setIcon(uiIcon(QStringLiteral("image"), list->palette()));
+            item->setIcon(placeholder);
             item->setData(Qt::UserRole, path);
             item->setToolTip(path + QLatin1Char('\n') +
                              data.value(QStringLiteral("metadataText")).toString());

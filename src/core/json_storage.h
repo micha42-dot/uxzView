@@ -4,7 +4,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 namespace ix {
-inline QString jsonStorageError(const QString &path, bool array, qint64 limit) {
+inline QString jsonStorageError(const QString &path, bool array, qint64 limit, QJsonDocument *parsed = nullptr) {
     QFile file(path);
     if (!file.exists())
         return {};
@@ -13,9 +13,12 @@ inline QString jsonStorageError(const QString &path, bool array, qint64 limit) {
     if (file.size() > limit)
         return QStringLiteral("Datenspeicher ist zu groß: ") + path;
     QJsonParseError error;
-    const auto document = QJsonDocument::fromJson(file.readAll(), &error);
+    const auto bytes = file.readAll();
+    if (file.error() != QFileDevice::NoError) return file.errorString();
+    const auto document = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError || (array ? !document.isArray() : !document.isObject()))
         return QStringLiteral("Beschädigter Datenspeicher; keine Änderung vorgenommen: ") + path;
+    if (parsed) *parsed = document;
     return {};
 }
 } // namespace ix

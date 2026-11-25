@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "batch_processor.h"
+#include "image_geometry.h"
 #include "file_operations.h"
 #include "file_revision.h"
 #include "save_options.h"
@@ -43,23 +44,25 @@ std::optional<BatchRelocation> BatchFileChanges::relocation(const QString &origi
     return current.value();
 }
 QString BatchProcessor::outputName(const QString &input, const QString &pattern, int index,
-                                   const QByteArray &ext) {
+                                   QAnyStringView ext) {
     QString name = pattern;
+    const auto start = name.indexOf(QLatin1Char('#'));
+    if (start >= 0) {
+        auto end = start + 1;
+        while (end < name.size() && name.at(end) == QLatin1Char('#')) ++end;
+        name.replace(start, end - start, QString::number(index).rightJustified(end - start, QLatin1Char('0')));
+    }
     name.replace(QStringLiteral("{name}"), QFileInfo(input).completeBaseName());
-    QRegularExpression rx(QStringLiteral("#+"));
-    auto match = rx.match(name);
-    if (match.hasMatch())
-        name.replace(match.capturedStart(), match.capturedLength(),
-                     QString::number(index).rightJustified(match.capturedLength(), QLatin1Char('0')));
-    if (name.isEmpty() || name.contains(QRegularExpression(QStringLiteral("[<>:\"/\\\\|?*]"))) ||
-        name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')) || name == QStringLiteral(".") ||
-        name == QStringLiteral("..") ||
-        QRegularExpression(QStringLiteral("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.|$)"),
-                           QRegularExpression::CaseInsensitiveOption)
-            .match(name)
-            .hasMatch())
+    if (name.isEmpty() || name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
         return {};
-    return name + QLatin1Char('.') + QString::fromLatin1(ext);
+    if (!ext.isEmpty()) name += QLatin1Char('.') + ext.toString();
+    static const QRegularExpression forbidden(QStringLiteral("[<>:\"/\\\\|?*\\x00-\\x1f]"));
+    static const QRegularExpression reserved(QStringLiteral("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.|$)"),
+                                             QRegularExpression::CaseInsensitiveOption);
+    if (name.contains(forbidden) || reserved.match(name).hasMatch() ||
+        name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
+        return {};
+    return name;
 }
 QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_bool &cancel,
                                       const std::function<void(int, int)> &progress) {
@@ -77,7 +80,7 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
         if (cancel.load())
             break;
         BatchEntry e{o.inputs[i], {}, {}};
-        auto ext = o.renameOnly ? QFileInfo(e.input).suffix().toLatin1() : o.format;
+        const auto ext = o.renameOnly ? QFileInfo(e.input).suffix() : QString::fromLatin1(o.format);
         auto name = outputName(e.input, o.namePattern, o.start + i, ext);
         if (name.isEmpty()) {
             e.error = QStringLiteral("Ungültiges Namensmuster.");
@@ -103,8 +106,7 @@ QList<BatchEntry> BatchProcessor::run(const BatchOptions &o, const std::atomic_b
                     else {
                         if (o.resizeTo.isValid()) {
                             ResizeOptions resize;
-                            resize.size =
-                                image.document.pixels.size().scaled(o.resizeTo, Qt::KeepAspectRatio);
+                            resize.size = fitPixelSize(image.document.pixels.size(), o.resizeTo);
                             resize.dpi = image.document.dpiX();
                             try {
                                 image.document.pixels = resample(image.document.pixels, resize, &cancel);

@@ -12,9 +12,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import package as release_package
+import package_native
 import dependency_sources
 from runtime_files import clean_runtime, runtime_files, private_part
-from source_archive import source_files, documentation_files, ROOT_FILES
+from source_archive import source_files, documentation_files, ROOT_FILES, staged_packages
 from bundle_tools import IDS, prepare as prepare_tools, release_tools
 from build_tool_packs import pack
 from package_native import archive_stage
@@ -230,6 +231,69 @@ class ReleaseRuntimeTests(unittest.TestCase):
             private_path.parent.mkdir(parents=True, exist_ok=True)
             private_path.write_text('local data')
             self.assertNotIn(private_path, set(source_files(self.root)))
+
+    def test_zip_write_failure_preserves_previous_downloads(self):
+        dist = self.runtime.parent
+        previous = {name: ('old ' + name).encode() for name in
+                    ('uxzView-source.zip', 'uxzView-win64.zip', 'SHA256.json', 'SHA256SUMS.txt')}
+        for name, data in previous.items():
+            (dist / name).write_bytes(data)
+        (self.root / 'CMakeLists.txt').write_text('project(IxView VERSION 1.2.3)')
+        def new_source(path):
+            path.write_bytes(b'new source')
+            return path
+        with patch.object(release_package, 'audit'), patch.object(release_package, 'create_source_archive', new_source), \
+                patch.object(zipfile.ZipFile, 'write', side_effect=OSError('write failed')):
+            with self.assertRaisesRegex(OSError, 'write failed'):
+                release_package.package()
+        for name, data in previous.items():
+            self.assertEqual((dist / name).read_bytes(), data)
+        self.assertEqual(list(dist.glob('.package-*')), [])
+
+    def test_tar_write_failure_preserves_previous_downloads(self):
+        dist = self.runtime.parent
+        stage = dist / 'native'
+        (stage / 'bin').mkdir(parents=True)
+        (stage / 'bin/uxzView').touch()
+        previous = {name: ('old ' + name).encode() for name in
+                    ('uxzView-source.zip', 'test-native.tar.gz', 'test-native.sha256.json')}
+        for name, data in previous.items():
+            (dist / name).write_bytes(data)
+        def new_source(path):
+            path.write_bytes(b'new source')
+            return path
+        with patch.object(package_native, 'ROOT', self.root), patch.object(package_native, 'create_source_archive', new_source), \
+                patch.object(sys, 'argv', ['package_native.py', '--name', 'test-native']), \
+                patch.object(tarfile.TarFile, 'add', side_effect=OSError('write failed')):
+            with self.assertRaisesRegex(OSError, 'write failed'):
+                package_native.main()
+        for name, data in previous.items():
+            self.assertEqual((dist / name).read_bytes(), data)
+        self.assertEqual(list(dist.glob('.package-*')), [])
+
+    def test_publish_error_restores_replaced_and_new_assets(self):
+        dist = self.runtime.parent
+        names = ['binary.zip', 'source.zip', 'checksums.json']
+        (dist / names[0]).write_bytes(b'old binary')
+        (dist / names[2]).write_bytes(b'old sums')
+        replace = Path.replace
+        published = []
+
+        def fail_last(path, target):
+            if path.parent.name.startswith('.package-'):
+                published.append(target.name)
+                if len(published) == len(names):
+                    raise PermissionError('locked destination')
+            return replace(path, target)
+
+        with patch.object(Path, 'replace', fail_last), self.assertRaisesRegex(PermissionError, 'locked destination'):
+            with staged_packages(dist) as stage:
+                for name in names:
+                    (stage / name).write_bytes(b'new asset')
+        self.assertEqual(len(published), len(names))
+        self.assertEqual((dist / names[0]).read_bytes(), b'old binary')
+        self.assertFalse((dist / names[1]).exists())
+        self.assertEqual((dist / names[2]).read_bytes(), b'old sums')
 
     def test_native_archives_exclude_personal_tool_stores(self):
         stage = self.root / 'native'

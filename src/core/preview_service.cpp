@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "preview_service.h"
+#include "image_geometry.h"
 #include "apng_codec.h"
 #include "plugin_store.h"
 #include "localization.h"
@@ -140,7 +141,7 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
         return {};
     if (!PluginStore::formatEnabled(QFileInfo(path).suffix().toLatin1().toLower()))
         return {};
-    if (!bounds.isValid() || bounds.width() > 2048 || bounds.height() > 2048 || (cancel && cancel->load()))
+    if (bounds.isEmpty() || bounds.width() > 2048 || bounds.height() > 2048 || (cancel && cancel->load()))
         return {};
     const auto revision = imageFileKey(path);
     const auto absolute = QFileInfo(path).absoluteFilePath();
@@ -224,7 +225,7 @@ QImage loadPreview(const QString &path, QSize bounds, const std::atomic_bool *ca
             auto decodeBounds = bounds;
             if (reader.transformation().testFlag(QImageIOHandler::TransformationRotate90))
                 decodeBounds.transpose();
-            reader.setScaledSize(size.scaled(decodeBounds, Qt::KeepAspectRatio));
+            reader.setScaledSize(fitPixelSize(size, decodeBounds));
         }
         if (cancel && cancel->load())
             return {};

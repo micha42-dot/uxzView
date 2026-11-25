@@ -2318,6 +2318,18 @@ class IxTests : public QObject {
         QVERIFY(catalog.search({source}, {}, 5).isEmpty());
         QCOMPARE(catalog.records().size(), 1);
         QCOMPARE(catalog.record(source).value(QStringLiteral("rating")).toInt(), 4);
+        const auto revision = ix::imageFileKey(catalog.path());
+        QVERIFY(catalog.index({source}, cancel).isEmpty());
+        QVERIFY(catalog.setAnnotation(source, 4, QStringLiteral("blue")).isEmpty());
+        QCOMPARE(ix::imageFileKey(catalog.path()), revision);
+        QVERIFY(pattern(24, 16).save(source));
+        // A newer scan can finish while the older indexer is reporting progress.
+        QVERIFY(catalog.index({source}, cancel, [&](int, int) {
+            QVERIFY(pattern(17, 11).save(source));
+            QVERIFY(catalog.index({source}, cancel).isEmpty());
+        }).isEmpty());
+        QCOMPARE(catalog.record(source).value(QStringLiteral("width")).toInt(), 17);
+        QCOMPARE(catalog.record(source).value(QStringLiteral("rating")).toInt(), 4);
         QFile file(catalog.path());
         QVERIFY(file.open(QIODevice::WriteOnly));
         file.write("broken");
@@ -2347,6 +2359,33 @@ class IxTests : public QObject {
         QCOMPARE(similar.pairs.size(), 1);
         QVERIFY(!similar.pairs[0].identical);
         QVERIFY(ix::ImageCatalog::duplicates({red, white}, true, 6, cancel).pairs.isEmpty());
+    }
+    void exactDuplicateCandidatesAndErrors() {
+        QStringList paths;
+        for (const auto &bytes : {QByteArray("abc"), QByteArray("abc"), QByteArray("abd"),
+                                  QByteArray("alone"), QByteArray(), QByteArray()}) {
+            const auto path = dir(QStringLiteral("exact-%1").arg(paths.size()));
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(bytes), bytes.size());
+            paths.append(path);
+        }
+        paths.append(dir(QStringLiteral("exact-missing")));
+        std::atomic_bool cancel = false;
+        int completed = 0;
+        const auto result = ix::ImageCatalog::duplicates(paths, false, 0, cancel,
+            [&](int count, int total) { QCOMPARE(count, ++completed); QCOMPARE(total, paths.size()); });
+        QCOMPARE(completed, paths.size());
+        QCOMPARE(result.errors, QStringList{paths.last()});
+        QCOMPARE(result.pairs.size(), 2);
+        QCOMPARE(result.pairs[0].first, paths[0]);
+        QCOMPARE(result.pairs[0].second, paths[1]);
+        QCOMPARE(result.pairs[1].first, paths[4]);
+        QCOMPARE(result.pairs[1].second, paths[5]);
+        const auto stopped = ix::ImageCatalog::duplicates(paths, false, 0, cancel,
+            [&](int count, int) { if (count == 1) cancel = true; });
+        QVERIFY(stopped.pairs.isEmpty());
+        QVERIFY(stopped.errors.isEmpty());
     }
     void pluginManifestArchitectureAndHashGuards() {
         QJsonObject manifest{{QStringLiteral("schema"), 1},
@@ -2649,6 +2688,7 @@ class IxTests : public QObject {
         std::atomic_bool cancel = false;
         const auto result = ix::BatchPipeline::transform(source, profile, cancel);
         const auto expected = mark.convertedToColorSpace(source.pixels.colorSpace()).pixelColor(0, 0);
+        QVERIFY(result.modified);
         QCOMPARE(result.pixels.pixelColor(2, 2), expected);
         QCOMPARE(result.pixels.colorSpace(), source.pixels.colorSpace());
     }
@@ -3080,6 +3120,43 @@ class IxTests : public QObject {
         m.setPercentHeight(25);
         QCOMPARE(m.size(), QSize(125, 50));
     }
+    void thinImagesKeepOnePixelInProportionalResizes_data() {
+        QTest::addColumn<QSize>("source");
+        QTest::addColumn<QSize>("expected");
+        QTest::newRow("panorama") << QSize(12000, 2) << QSize(100, 1);
+        QTest::newRow("narrow-scan") << QSize(2, 12000) << QSize(1, 100);
+    }
+    void thinImagesKeepOnePixelInProportionalResizes() {
+        QFETCH(QSize, source);
+        QFETCH(QSize, expected);
+        const QSize bounds(100, 100);
+        ix::ResizeModel model(source);
+        model.preset(bounds);
+        QCOMPARE(model.size(), expected);
+        QCOMPARE(ix::centeredMaximalSelection(bounds, source).size(), expected);
+
+        ix::ImageDocument document;
+        document.pixels = QImage(source, QImage::Format_RGB32);
+        document.pixels.fill(Qt::white);
+        ix::PipelineProfile profile;
+        profile.steps = {{QStringLiteral("resize"), {{QStringLiteral("width"), 100}, {QStringLiteral("height"), 100}}},
+                         {QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
+        std::atomic_bool cancel = false;
+        QCOMPARE(ix::BatchPipeline::transform(document, profile, cancel).pixels.size(), expected);
+
+        const QString input = dir(QStringLiteral("thin-%1.png").arg(source.width()));
+        QVERIFY(document.pixels.save(input));
+        QCOMPARE(ix::loadPreview(input, bounds).size(), expected);
+        ix::BatchOptions options;
+        options.inputs = {input};
+        options.outputDirectory = dir(QStringLiteral("thin-output"));
+        options.resizeTo = bounds;
+        options.allowLoss = true;
+        const auto results = ix::BatchProcessor::run(options, cancel);
+        QCOMPARE(results.size(), 1);
+        QVERIFY2(results.front().error.isEmpty(), qPrintable(results.front().error));
+        QCOMPARE(QImageReader(results.front().output).size(), expected);
+    }
     void units() {
         ix::ResizeModel m({300, 600}, 300);
         m.setUnit(ix::ResizeModel::Unit::Inch);
@@ -3355,12 +3432,18 @@ class IxTests : public QObject {
                            {QStringLiteral("opacity"), 0.0}}},
                          {QStringLiteral("export"), {{QStringLiteral("format"), QStringLiteral("png")}}}};
         QVERIFY2(profile.validate().isEmpty(), qPrintable(profile.validate()));
+        const auto unchanged = ix::BatchPipeline::transform(document, profile, cancel);
+        QVERIFY(!unchanged.modified);
+        QCOMPARE(unchanged.pixels.cacheKey(), document.pixels.cacheKey());
+        profile.steps.removeFirst();
+        document.modified = true;
+        QVERIFY(ix::BatchPipeline::transform(document, profile, cancel).modified);
         const QList<QImage> results{
             ix::adjustColors(ramp, {}), ix::resample(ramp, resize),
             ix::applySelectionEffect(ramp, {30, 20, 90, 70}, false, identity),
             ix::applySelectionEffect(ramp, {30, 20, 90, 70}, true, identity),
             ix::canvas(ramp, 0, 0, 0, 0, Qt::black),
-            ix::BatchPipeline::transform(document, profile, cancel).pixels};
+            unchanged.pixels};
         for (const auto &result : results)
             QCOMPARE(result.convertToFormat(QImage::Format_RGBA64), expected);
         for (bool fast : {false, true}) {
@@ -3946,6 +4029,14 @@ class IxTests : public QObject {
         QCOMPARE(rendered.document.pixels.size(), QSize(20, 10));
     }
     void batchSafety() {
+        QCOMPARE(ix::BatchProcessor::outputName(QStringLiteral("Foto#2.jpg"), QStringLiteral("{name}_###"),
+                                                7, "jpg"), QStringLiteral("Foto#2_007.jpg"));
+        QCOMPARE(ix::BatchProcessor::outputName(QStringLiteral("Foto##.jpg"), QStringLiteral("{name}"),
+                                                7, "jpg"), QStringLiteral("Foto##.jpg"));
+        QCOMPARE(ix::BatchProcessor::outputName(QStringLiteral("scan"), QStringLiteral("{name}_#"), 2, ""),
+                 QStringLiteral("scan_2"));
+        QCOMPARE(ix::BatchProcessor::outputName(QStringLiteral("scan.画像"), QStringLiteral("{name}_#"), 2, u"画像"),
+                 QStringLiteral("scan_2.画像"));
         QVERIFY(ix::BatchProcessor::outputName(QStringLiteral("photo.jpg"), QStringLiteral("{name}_####"), 12,
                                                "png") == QStringLiteral("photo_0012.png"));
         for (const auto &name : {QStringLiteral("../bad"), QStringLiteral("CON"), QStringLiteral("AUX.txt"),

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 IxView contributors
 #include "resize_model.h"
+#include "image_geometry.h"
 #include "memory_policy.h"
 #include <algorithm>
 #include <cmath>
@@ -73,7 +74,7 @@ void ResizeModel::setMegapixels(double v) {
                   dim(std::sqrt(std::max(.000001, v) * 1e6 / ratio)));
 }
 void ResizeModel::preset(QSize s, bool keep) {
-    size_ = keep ? original_.scaled(s, Qt::KeepAspectRatio) : s;
+    size_ = keep ? fitPixelSize(original_, s) : s;
 }
 void ResizeModel::scale(double f) {
     size_ = QSize(dim(size_.width() * f), dim(size_.height() * f));

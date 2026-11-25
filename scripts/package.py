@@ -7,7 +7,7 @@ import re
 import shutil
 import zipfile
 from prepare_github import audit
-from source_archive import ROOT, create_source_archive
+from source_archive import ROOT, create_source_archive, staged_packages
 from runtime_files import release_files
 from dependency_sources import OWN_DLLS
 from native_dependencies import validate_notices
@@ -81,7 +81,12 @@ def package(release=False):
         validate_release(runtime)
     else:
         validate_own_runtime(runtime)
-    destination = ROOT / "dist"
+    with staged_packages(ROOT / "dist") as destination:
+        write_packages(destination, runtime, files, version, runtime_bytes, tool_bytes, release)
+    print(f"Windows packages: {ROOT / 'dist'}; version {version}; runtime {runtime_bytes/1e6:.2f} MB")
+
+
+def write_packages(destination, runtime, files, version, runtime_bytes, tool_bytes, release):
     source = create_source_archive(destination / "uxzView-source.zip")
     binary = destination / "uxzView-win64.zip"
     with zipfile.ZipFile(binary, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
@@ -104,7 +109,6 @@ def package(release=False):
     (destination / "SHA256.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     (destination / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
     if not release:
-        print(f"Packages: {binary.name}, {source.name}; version {version}")
         return
     notes = f"""# üxzView {version}
 
@@ -125,7 +129,6 @@ See `CHANGELOG.md` for the included changes. `docs/PERFORMANCE.md` records measu
 Native Windows 10, Linux and macOS validation remains outstanding. Complete camera metadata preservation, calibrated monitor profiles and broad desktop/DPI testing are not established. Format availability does not guarantee every variant. GPL-3.0-or-later; third-party libraries retain their licenses.
 """
     (destination / "release-notes.md").write_text(notes, encoding="utf-8")
-    print(f"Windows release assets: {destination}; version {version}; runtime {runtime_bytes/1e6:.2f} MB")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

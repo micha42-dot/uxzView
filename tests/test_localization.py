@@ -53,6 +53,17 @@ class LocalizationTests(unittest.TestCase):
                     continue  # channel-order notation is language independent
                 self.assertIn(label, known)
 
+    def test_keyboard_and_mouse_help_has_translations(self):
+        known = {r[0] for r in json.loads((ROOT / 'resources/languages.json').read_text(encoding='utf-8'))}
+        shortcuts = json.loads((ROOT / 'resources/shortcuts.de.json').read_text(encoding='utf-8'))
+        for group in ('contextKeys', 'mouse'):
+            for row in shortcuts[group]:
+                for field in ('key', 'action', 'context'):
+                    text = row[field]
+                    if field == 'key' and re.fullmatch(r'[A-Z]|F\d+', text):
+                        continue
+                    self.assertIn(text, known)
+
 
 if __name__ == '__main__':
     unittest.main()

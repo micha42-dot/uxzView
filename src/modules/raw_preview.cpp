@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QFile>
+#include "../core/image_geometry.h"
 #include <QBuffer>
 #include <QImage>
 #include <QImageReader>
 #include <QTransform>
 #include <libraw/libraw.h>
 extern "C" Q_DECL_EXPORT bool ixReadRawPreviewSized(const QString &path, QSize bounds, QImage &image) {
-    if (!bounds.isValid() || bounds.width() > 2048 || bounds.height() > 2048)
+    if (bounds.isEmpty() || bounds.width() > 2048 || bounds.height() > 2048)
         return false;
     LibRaw raw;
 #ifdef Q_OS_WIN
@@ -32,7 +33,7 @@ extern "C" Q_DECL_EXPORT bool ixReadRawPreviewSized(const QString &path, QSize b
         if (!size.isValid() || size.width() > 100000 || size.height() > 100000 ||
             qint64(size.width()) * size.height() > 512 * 1024 * 1024 / 8)
             return false;
-        reader.setScaledSize(size.scaled(decodeBounds, Qt::KeepAspectRatio));
+        reader.setScaledSize(ix::fitPixelSize(size, decodeBounds));
         image = reader.read();
     }
     else if (thumb.tformat == LIBRAW_THUMBNAIL_BITMAP && thumb.tcolors == 3 && thumb.twidth > 0 &&

@@ -106,14 +106,16 @@ bool MainWindow::confirmDiscard() {
 bool MainWindow::saveImage(bool selection, bool forceDialog) {
     if (document_.empty() || activity_.busy())
         return false;
-    if (!selection && !forceDialog && !document_.modified && !document_.path.isEmpty() &&
-        canonicalSaveFormat(document_.format) == "jpeg" && QFileInfo::exists(document_.path)) return true;
     activity_.begin(DocumentActivity::Phase::Saving);
     refreshState();
     auto release = qScopeGuard([this] {
         activity_.finish();
         refreshState();
     });
+    if (!selection && !forceDialog && !document_.modified && !document_.path.isEmpty() &&
+        canonicalSaveFormat(document_.format) == "jpeg" &&
+        runGuiWorker([path = document_.path] { return QFileInfo::exists(path); }))
+        return true;
     stopAnimation();
     ImageDocument output = document_;
     if (selection) {
@@ -154,6 +156,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
     auto target = preferredSaveTarget(path, output.format, formats, preferOriginal, fixedFormat);
     if (target.format.id.isEmpty()) { showError(IX_TEXT("Kein schreibbares Bildformat verfügbar.")); return false; }
     SaveOptions saveOptions = loadSaveOptions(target.format.id);
+    bool rememberOptions = false;
     SaveOptionsDialog::TargetOptimization targetOptimization;
     const auto cancelOptimization = qScopeGuard([&] {
         if (targetOptimization.cancel)
@@ -316,9 +319,11 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         if (saveOptions.format != target.format.id)
             saveOptions = loadSaveOptions(target.format.id);
         else if (companion)
-            storeSaveOptions(saveOptions);
+            rememberOptions = true;
     }
-    const auto targetRevision = runGuiWorker([path] {
+    const auto targetRevision = runGuiWorker([path, rememberOptions, saveOptions] {
+        if (rememberOptions)
+            storeSaveOptions(saveOptions);
         return QFileInfo::exists(path) ? imageFileKey(path) : QString();
     });
     // The chooser above never confirms overwrites, so ask exactly once here,

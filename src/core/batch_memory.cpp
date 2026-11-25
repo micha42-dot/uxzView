@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "batch_memory.h"
+#include "image_geometry.h"
 #include "batch_pipeline.h"
 #include "processing.h"
 #include "jpegli_encoder.h"
@@ -21,12 +22,14 @@ qint64 estimatedPipelineMemory(QSize size, QImage::Format format,
     qint64 peak = std::min(limit, bytes * 2); // Decoded pixels and a decode/orientation copy.
     for (const auto &step : profile.steps) {
         const auto &p = step.parameters;
+        if (step.type == QStringLiteral("watermark") && p.value(QStringLiteral("opacity")).toDouble(.65) == 0)
+            continue;
         if (step.type == QStringLiteral("resize")) {
             ResizeOptions options;
             options.size = QSize(p.value(QStringLiteral("width")).toInt(), p.value(QStringLiteral("height")).toInt());
             if (options.size.isEmpty() || options.size.width() > ImageAxisLimit || options.size.height() > ImageAxisLimit)
                 return limit;
-            if (p.value(QStringLiteral("proportional")).toBool(true)) options.size = size.scaled(options.size, Qt::KeepAspectRatio);
+            if (p.value(QStringLiteral("proportional")).toBool(true)) options.size = fitPixelSize(size, options.size);
             if (options.size.isEmpty()) return limit;
             options.filter = ResampleFilter(std::clamp(p.value(QStringLiteral("filter")).toInt(5), 0, 6));
             options.fastDownscale = p.value(QStringLiteral("fast")).toBool(true);

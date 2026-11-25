@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_storage.h"
 #include "batch_pipeline.h"
+#include "image_geometry.h"
 #include "batch_memory.h"
 #include "file_operations.h"
 #include "preview_service.h"
@@ -89,9 +90,8 @@ void watermark(QImage &image, const QJsonObject &p, const QHash<QString, QImage>
             if (mark.isNull())
                 throw std::runtime_error("Wasserzeichen-Farbprofil konnte nicht konvertiert werden.");
         }
-        auto size = mark.size().scaled(
-            QSize(std::max(1, int(area.width() * .35)), std::max(1, int(area.height() * .35))),
-            Qt::KeepAspectRatio);
+        const auto size = fitPixelSize(mark.size(),
+            {std::max(1, int(area.width() * .35)), std::max(1, int(area.height() * .35))});
         QPoint pos = anchor == QStringLiteral("topLeft") ? area.topLeft()
                      : anchor == QStringLiteral("center")
                          ? QPoint(area.x() + (area.width() - size.width()) / 2,
@@ -186,6 +186,9 @@ ImageDocument BatchPipeline::transform(ImageDocument d, const PipelineProfile &p
     for (const auto &s : profile.steps) {
         checkCancel(cancel);
         auto p = s.parameters;
+        if (s.type == QStringLiteral("export") ||
+            (s.type == QStringLiteral("watermark") && p.value(QStringLiteral("opacity")).toDouble(.65) == 0))
+            continue;
         if (s.type == QStringLiteral("resize") || s.type == QStringLiteral("sharpen")) {
             if (!allowLoss && d.pixels.pixelFormat().typeInterpretation() == QPixelFormat::FloatingPoint)
                 throw std::runtime_error("HDR-Verarbeitung benötigt die explizite Verlustfreigabe.");
@@ -194,7 +197,7 @@ ImageDocument BatchPipeline::transform(ImageDocument d, const PipelineProfile &p
             ResizeOptions o;
             QSize size(p.value(QStringLiteral("width")).toInt(), p.value(QStringLiteral("height")).toInt());
             o.size = p.value(QStringLiteral("proportional")).toBool(true)
-                         ? d.pixels.size().scaled(size, Qt::KeepAspectRatio)
+                         ? fitPixelSize(d.pixels.size(), size)
                          : size;
             o.dpi = d.dpiX();
             o.filter = ResampleFilter(std::clamp(p.value(QStringLiteral("filter")).toInt(5), 0, 6));
@@ -205,9 +208,9 @@ ImageDocument BatchPipeline::transform(ImageDocument d, const PipelineProfile &p
             d.pixels = convolve(d.pixels, {0, -v, 0, -v, 1 + 4 * v, -v, 0, -v, 0}, 3);
         } else if (s.type == QStringLiteral("watermark"))
             watermark(d.pixels, p, resources);
+        d.modified = true;
     }
     checkCancel(cancel);
-    d.modified = true;
     return d;
 }
 PipelinePreview BatchPipeline::preview(const PipelineJob &job, const QString &path,

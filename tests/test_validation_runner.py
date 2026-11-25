@@ -50,6 +50,8 @@ class ValidationRunnerTests(unittest.TestCase):
             self.assertEqual(validate.main(), 0)
         self.assertTrue(self.report()['success'])
         calls = run.call_args_list
+        ctest_call, = [call for call in calls if call.args[0][0] == 'ctest']
+        self.assertIsNone(ctest_call.kwargs['timeout'])
         self.assertEqual(len(self.report()['steps']), len(calls))
         self.assertNotIn('QT_QPA_PLATFORM', calls[0].kwargs['env'])
         self.assertNotIn('QT_SCALE_FACTOR', calls[0].kwargs['env'])

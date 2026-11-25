@@ -122,6 +122,43 @@ class StorageTests : public QObject {
         QCOMPARE(QSettings().value(QStringLiteral("ui/language")).toString(), QStringLiteral("fr"));
         QCOMPARE(QSettings().value(QStringLiteral("resize/presets")).toMap().value(QStringLiteral("small")).toInt(), 800);
     }
+    void cachedPixelsStayOutOfPortableSnapshot_data() {
+        QTest::addColumn<QString>("subdirectory");
+        QTest::newRow("nested cache") << QStringLiteral("/runtime/cache");
+        QTest::newRow("shared data and cache") << QString();
+    }
+    void cachedPixelsStayOutOfPortableSnapshot() {
+        QFETCH(QString, subdirectory);
+        const auto home = path(QStringLiteral("app")), source = path(QStringLiteral("user-data"));
+        const auto cache = source + subdirectory;
+        qApp->setProperty("ixStorageCache", cache);
+        QVERIFY(put(cache + QStringLiteral("/swap/mapped.bin"), "active pixels"));
+        QVERIFY(put(source + QStringLiteral("/runtime/cache-archive/keep.bin"), "keep"));
+        std::atomic_bool cancel = false;
+        const auto error = ix::AppStorage::preparePortable(home, {}, source, cancel);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        const auto data = home + QStringLiteral("/IxView-data");
+        QVERIFY(!QFileInfo::exists(data + subdirectory + QStringLiteral("/swap")));
+        QCOMPARE(get(data + QStringLiteral("/runtime/cache-archive/keep.bin")), QByteArray("keep"));
+        QCOMPARE(get(cache + QStringLiteral("/swap/mapped.bin")), QByteArray("active pixels"));
+    }
+    void excludedDirectoriesAreNeverTraversed() {
+        const auto home = path(QStringLiteral("app")), source = path(QStringLiteral("user-data"));
+        const auto journal = source + QStringLiteral("/file-journal/trash");
+        QVERIFY(QDir().mkpath(journal));
+        const auto original = path(QStringLiteral("external/original"));
+        QVERIFY(put(original, "keep"));
+        const auto link = journal + QStringLiteral("/archived.lnk");
+        QVERIFY(QFile::link(original, link));
+        QVERIFY(QFileInfo(link).isSymLink());
+        std::atomic_bool cancel = false;
+        const auto error = ix::AppStorage::preparePortable(home, {}, source, cancel);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(!QFileInfo::exists(home + QStringLiteral("/IxView-data/file-journal")));
+        QCOMPARE(get(original), QByteArray("keep"));
+        QVERIFY(QFile::link(original, source + QStringLiteral("/included.lnk")));
+        QVERIFY(!ix::AppStorage::preparePortable(path(QStringLiteral("other-app")), {}, source, cancel).isEmpty());
+    }
     void movedFolderRetainsRatingsAndOriginals() {
         const auto home = path(QStringLiteral("before")), moved = path(QStringLiteral("after"));
         const auto source = path(QStringLiteral("user-data"));

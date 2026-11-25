@@ -396,6 +396,57 @@ class WorkflowTests : public QObject {
         QTRY_VERIFY(!window.isBusy() && window.document().page==0);
         QCOMPARE(window.document().pixels.size(),QSize(160,120));
     }
+    void settingsMenusOpenTheirOwnPage_data() {
+        QTest::addColumn<QString>("command");
+        QTest::addColumn<QString>("control");
+        QTest::newRow("toolbar") << QStringLiteral("toolbarSettings") << QStringLiteral("toolbar/iconSize");
+        QTest::newRow("fullscreen") << QStringLiteral("fullscreenSettings") << QStringLiteral("fullscreen/fit");
+    }
+    void settingsMenusOpenTheirOwnPage() {
+        QFETCH(QString, command);
+        QFETCH(QString, control);
+        ix::MainWindow window;
+        auto *action = window.findChild<QAction *>(command);
+        QVERIFY(action);
+        QVERIFY(action->isEnabled());
+        bool correctPage = false;
+        QTimer::singleShot(0, &window, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            auto *pages = dialog->findChild<QStackedWidget *>(QStringLiteral("settingsPages"));
+            auto *field = dialog->findChild<QWidget *>(control);
+            correctPage = pages && field && pages->currentWidget()->isAncestorOf(field);
+            dialog->reject();
+        });
+        action->trigger();
+        QVERIFY(correctPage);
+    }
+    void recentMenusPreserveLiteralAmpersands() {
+        QSettings settings;
+        const QString recentKey = QStringLiteral("files/recent"), savedKey = QStringLiteral("files/saved");
+        const auto priorRecent = settings.value(recentKey), priorSaved = settings.value(savedKey);
+        const auto restore = qScopeGuard([&] {
+            if (priorRecent.isValid()) settings.setValue(recentKey, priorRecent); else settings.remove(recentKey);
+            if (priorSaved.isValid()) settings.setValue(savedKey, priorSaved); else settings.remove(savedKey);
+        });
+        ix::MainWindow window;
+        window.show();
+        for (const auto &id : {QStringLiteral("recent"), QStringLiteral("saved")}) {
+            const auto path = photo(QStringLiteral("A&B/%1&&image.png").arg(id), Qt::green);
+            QVERIFY(!path.isEmpty());
+            settings.setValue(QStringLiteral("files/") + id, QStringList{path});
+            auto *menu = window.findChild<QMenu *>(id);
+            QVERIFY(menu);
+            QVERIFY(QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection));
+            QCOMPARE(menu->actions().size(), 1);
+            auto expected = path;
+            expected.replace(QLatin1Char('&'), QStringLiteral("&&"));
+            auto *action = menu->actions().front();
+            QCOMPARE(action->text(), expected);
+            action->trigger();
+            QTRY_VERIFY(!window.isBusy() && window.document().path == path);
+        }
+    }
     void fitAndZoomSmoothingAreIndependent_data() {
         QTest::addColumn<bool>("legacy");
         QTest::newRow("legacy-smooth") << true;
@@ -432,7 +483,12 @@ class WorkflowTests : public QObject {
         view->setSmooth(true); const auto smoothFit = view->screenshot();
         QVERIFY(nearestFit != smoothFit);
         view->setSmooth(legacy);
+        auto *toolbar = window.findChild<QToolBar *>(QStringLiteral("mainToolbar"));
+        QVERIFY(toolbar);
+        const auto iconSize = toolbar->iconSize();
+        settings.setValue(QStringLiteral("toolbar/iconSize"), iconSize.width() == 32 ? 24 : 32);
         zoom->trigger();
+        QCOMPARE(toolbar->iconSize(), iconSize);
         QCOMPARE(fit->isChecked(),legacy);
         QCOMPARE(settings.value(QStringLiteral("view/smooth")).toBool(),!legacy);
         QCOMPARE(settings.value(QStringLiteral("view/smoothFit")).toBool(),legacy);

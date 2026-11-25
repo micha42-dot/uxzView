@@ -97,7 +97,8 @@ def main():
             run('python-tests', [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v'])
             ctest = shutil.which('ctest', path=env.get('PATH'))
             if not ctest: raise RuntimeError('CTest not found in PATH')
-            run('ctest', [ctest, '--test-dir', build, '--output-on-failure', '-j', '1'], timeout=600)
+            # CTest enforces each suite's TIMEOUT. Their combined runtime varies with host load.
+            run('ctest', [ctest, '--test-dir', build, '--output-on-failure', '-j', '1'], timeout=None)
         if args.suite in ('native', 'all'):
             for name, cases in NATIVE_GROUPS.items(): native(name, cases)
             native('native-workflow-test-results', [], engine='ixview_workflow_tests')
