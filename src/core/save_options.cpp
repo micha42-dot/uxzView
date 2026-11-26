@@ -162,7 +162,11 @@ void storeSaveOptions(const SaveOptions &options) {
     QSettings settings;
     const auto key = QStringLiteral("save/options/") + QString::fromLatin1(options.format);
     const auto json = preferences.toJson();
-    if (settings.value(key).toJsonObject() == json)
+    const auto stored = settings.value(key);
+    // A fresh profile already inherits these defaults. Saving with them need
+    // not acquire the profile's write lock before the image can be encoded.
+    if (stored.isValid() ? stored.toJsonObject() == json
+                         : defaultSaveOptions(options.format).toJson() == json)
         return;
     settings.setValue(key, json);
     settings.sync();

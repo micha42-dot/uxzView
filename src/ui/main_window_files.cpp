@@ -33,7 +33,27 @@ void applySource(ImageDocument &document, const SourceFileState &source) {
     document.fileBytes = source.bytes;
 }
 
+void configureSavePicker(QFileDialog &picker, bool wayland) {
+    auto options = QFileDialog::Options(QFileDialog::DontConfirmOverwrite | QFileDialog::DontUseCustomDirectoryIcons);
+    if (wayland) {
+        options |= QFileDialog::DontUseNativeDialog;
+        picker.setWindowFlag(Qt::WindowMinMaxButtonsHint);
+    }
+    picker.setOptions(options);
+    picker.setAcceptMode(QFileDialog::AcceptSave);
+    picker.setFileMode(QFileDialog::AnyFile);
+}
+
 } // namespace
+QFileDialog &MainWindow::savePicker() {
+    if (!savePicker_) {
+        savePicker_ = new QFileDialog(this);
+        savePicker_->setObjectName(QStringLiteral("imageSaveDialog"));
+        configureSavePicker(*savePicker_, false);
+    }
+    return *savePicker_;
+}
+
 SaveOptionsDialog &MainWindow::saveCompanion() {
     // One instance for the whole window: building ~20 widgets costs ~100 ms,
     // which is what made Save As feel slow. Rebuild only on language change,
@@ -48,8 +68,7 @@ SaveOptionsDialog &MainWindow::saveCompanion() {
 }
 
 void MainWindow::scheduleSaveUiWarmup() {
-    if (saveUiWarmupScheduled_)
-        return;
+    if (saveUiWarmupScheduled_) return;
     saveUiWarmupScheduled_ = true;
     // The format/codec warmup always runs, and it runs at startup now, not only
     // after the first image: QImageReader::supportedImageFormats() scans and
@@ -69,25 +88,21 @@ void MainWindow::scheduleSaveUiWarmup() {
             (void)warmJpegEncoder();
         return formats;
     });
-    if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
+    QTimer::singleShot(150, this, &MainWindow::warmSaveUi);
+}
+
+void MainWindow::warmSaveUi() {
+    if (saveUiWarmed_ || !isVisible() || activity_.busy() || QApplication::activeModalWidget()) return;
+    saveUiWarmed_ = true;
+    const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+    if (!wayland && !savePicker_)
+        savePicker().ensurePolished();
+    if (saveOptionsDialog_ || !QSettings().value(QStringLiteral("save/companion"), true).toBool())
         return;
-    // Build the hidden companion after the window has had time to paint:
-    // by the time the user hits Save As, the widgets already exist.
-    QTimer::singleShot(150, this, [this] {
-        // The companion is built at startup too (the warmup now runs before any
-        // image is open), so the empty-document guard is gone; it only needs the
-        // window to be visible and no modal dialog to be up.
-        if (!isVisible() || activity_.busy() || QApplication::activeModalWidget())
-            return;
-        if (!QSettings().value(QStringLiteral("save/companion"), true).toBool())
-            return;
-        auto &companion = saveCompanion();
-        companion.ensurePolished();
-        // Creating the hidden tool window during image startup can show a
-        // second title bar on Wayland. Let prepare() create it during Save As.
-        if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
-            companion.preCreateSurface();
-    });
+    auto &companion = saveCompanion();
+    companion.ensurePolished();
+    if (!wayland)
+        companion.preCreateSurface();
 }
 
 bool MainWindow::confirmDiscard() {
@@ -167,25 +182,25 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         if (suggested.isEmpty()) suggested = QDir(lastDirectory)
             .filePath(QStringLiteral("Bild.") + target.format.suffix());
         const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
-        QFileDialog chooser(this);
-        auto pickerOptions = QFileDialog::Options(QFileDialog::DontConfirmOverwrite);
+        std::unique_ptr<QFileDialog> embeddedPicker;
         if (wayland) {
-            pickerOptions |= QFileDialog::DontUseNativeDialog | QFileDialog::DontUseCustomDirectoryIcons;
-            chooser.setWindowFlag(Qt::WindowMinMaxButtonsHint);
+            embeddedPicker = std::make_unique<QFileDialog>(this);
+            configureSavePicker(*embeddedPicker, true);
         }
-        chooser.setOptions(pickerOptions);
+        auto &chooser = wayland ? *embeddedPicker : savePicker();
+        // Disconnect callbacks that refer to this invocation when it ends.
+        QObject session;
         chooser.setWindowTitle(IX_TEXT("Speichern unter"));
-        chooser.setAcceptMode(QFileDialog::AcceptSave);
-        chooser.setFileMode(QFileDialog::AnyFile);
         QStringList filters;
         for (const auto &format : formats)
             filters.append(format.filter());
-        chooser.setNameFilters(filters);
+        if (chooser.nameFilters() != filters)
+            chooser.setNameFilters(filters);
         const QFileInfo suggestedFile(suggested);
         chooser.setDirectory(suggestedFile.absolutePath());
-        chooser.selectFile(suggested);
         chooser.selectNameFilter(target.format.filter());
         chooser.setDefaultSuffix(target.format.suffix());
+        chooser.selectFile(suggestedFile.fileName());
         auto *companion = companionEnabled ? &saveCompanion() : nullptr;
         auto *panel = wayland ? addSavePickerControls(chooser, companion != nullptr) : nullptr;
         if (companion)
@@ -228,7 +243,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             }
             return formats.cend();
         };
-        connect(&chooser, &QFileDialog::filterSelected, &chooser, [&](const QString &filter) {
+        connect(&chooser, &QFileDialog::filterSelected, &session, [&](const QString &filter) {
             const auto next = formatForFilter(filter);
             if (next == formats.cend()) return;
             const auto name = chooser.selectedFiles().value(0);
@@ -240,7 +255,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
                 companion->setFormat(next->id);
         });
         if (companion) {
-            connect(companion, &SaveOptionsDialog::optionsChanged, &chooser,
+            connect(companion, &SaveOptionsDialog::optionsChanged, &session,
                     [&](const SaveOptions &updated) {
                         if (updated.format == previous.id)
                             return;
@@ -265,7 +280,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         QTimer companionPosTimer;
         companionPosTimer.setSingleShot(true);
         companionPosTimer.setInterval(800);
-        connect(&companionPosTimer, &QTimer::timeout, &chooser,
+        connect(&companionPosTimer, &QTimer::timeout, &session,
                 [&] { QSettings().setValue(QStringLiteral("save/companionPos"), pendingCompanionPos); });
         // The companion is shown alongside the chooser when enabled; closing
         // it only hides it for this save, the file dialog keeps running.
@@ -278,7 +293,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
         // by one event-loop turn (queued, not timed) puts it after the native
         // dialog exists, so the companion is created once, in final form.
         if (companion && !panel) {
-            connect(companion, &SaveOptionsDialog::movedByUser, &chooser,
+            connect(companion, &SaveOptionsDialog::movedByUser, &session,
                     [&](const QPoint &p) {
                         pendingCompanionPos = p;
                         companionPosTimer.start();
@@ -286,7 +301,7 @@ bool MainWindow::saveImage(bool selection, bool forceDialog) {
             companion->preparePlacement(&chooser, rememberedCompanionPos);
             QPointer<SaveOptionsDialog> guard(companion);
             QPointer<QDialog> chooserGuard(&chooser);
-            QTimer::singleShot(0, &chooser, [guard, chooserGuard] {
+            QTimer::singleShot(0, &session, [guard, chooserGuard] {
                 if (!guard || !chooserGuard)
                     return;
                 if (!guard->isVisible()) {

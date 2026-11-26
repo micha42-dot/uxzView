@@ -1124,10 +1124,9 @@ void MainWindow::installDocument(ImageDocument d, QImage display, bool clearHist
         animationTimer_.start(document_.delayMs);
     else if (!document_.animated)
         stopAnimation();
-    // Warm the Save As companion + format list once a real image is up, so the
-    // first Save As does not pay for widget construction or a codec rescan.
-    if (!document_.empty())
-        scheduleSaveUiWarmup();
+    // Startup warmup can be skipped while the first image is loading.
+    if (!document_.empty() && !saveUiWarmed_)
+        QTimer::singleShot(0, this, &MainWindow::warmSaveUi);
 }
 void MainWindow::updatePreviews() {
     if (previewStrip_ && !previewStrip_->isHidden())

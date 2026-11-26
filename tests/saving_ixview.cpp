@@ -428,6 +428,7 @@ class SavingTests : public QObject {
         }
     }
     void compressionOptionsAffectOutput();
+    void repeatedSaveDialogResetsDirectoryAndFormat();
     void pngCompressionLevelsChangeEncodedSize();
     void targetSizeOptimizationRespectsBudget_data();
     void targetSizeOptimizationRespectsBudget();
@@ -441,6 +442,7 @@ class SavingTests : public QObject {
     void companionProfilesFitBeforeFirstShow();
     void compressionProfilesRoundTrip();
     void unchangedJpegSaveKeepsGuiResponsive();
+    void unchangedJpegOptionsDoNotWaitForProfileWriter_data();
     void unchangedJpegOptionsDoNotWaitForProfileWriter();
     void perTypeMetadataMaskingDropsOnlyDeselected();
     void alphaModeControlsFlattening();
@@ -592,6 +594,58 @@ void SavingTests::companionWarmupKeepsWaylandWindowUncreated() {
     QVERIFY(!companion->isVisible());
     const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
     QCOMPARE(companion->internalWinId() == 0, wayland);
+}
+void SavingTests::repeatedSaveDialogResetsDirectoryAndFormat() {
+    const bool wayland = QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+    ix::MainWindow window;
+    window.show();
+    QPointer<QFileDialog> warmed;
+    if (!wayland) {
+        QTRY_VERIFY(window.findChild<QFileDialog *>(QStringLiteral("imageSaveDialog")));
+        warmed = window.findChild<QFileDialog *>(QStringLiteral("imageSaveDialog"));
+        QVERIFY(!warmed->isVisible());
+    }
+
+    const auto previous = ix::loadSaveOptions("jpeg");
+    int shown = 0;
+    for (const auto format : {QByteArray("jpeg"), QByteArray("png")}) {
+        const auto directory = temp_.filePath(QString::fromLatin1(format));
+        QVERIFY(QDir().mkpath(directory));
+        const auto source = QDir(directory).filePath(QStringLiteral("source.png"));
+        QVERIFY(sample().save(source));
+        window.openPath(source);
+        QTRY_VERIFY(!window.isBusy());
+        QTRY_COMPARE(window.document().path, source);
+        QSettings().setValue(QStringLiteral("save/preferOriginal"), false);
+        QSettings().setValue(QStringLiteral("save/format"), QString::fromLatin1(format));
+
+        QTimer driver;
+        connect(&driver, &QTimer::timeout, &window, [&] {
+            auto *picker = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+            if (!picker || !picker->isVisible()) return;
+            ++shown;
+            const auto closePicker = qScopeGuard([picker] { picker->reject(); });
+            if (!wayland) QCOMPARE(picker, warmed.data());
+            QCOMPARE(picker->directory().absolutePath(), directory);
+            QCOMPARE(QFileInfo(picker->selectedFiles().value(0)).fileName(),
+                     format == "jpeg" ? QStringLiteral("source.jpg") : QStringLiteral("source.png"));
+            auto *companion = picker->findChild<ix::SaveOptionsDialog *>();
+            QVERIFY(companion);
+            QCOMPARE(companion->options().format, format);
+            if (format == "jpeg") {
+                auto *quality = companion->findChild<QSpinBox *>(QStringLiteral("compressionQualityValue"));
+                QVERIFY(quality);
+                quality->setValue(previous.quality == 75 ? 76 : 75);
+            }
+        });
+        driver.start(10);
+        window.dispatch(QStringLiteral("saveAs"));
+        QVERIFY(!QApplication::activeModalWidget());
+        if (warmed) QVERIFY(!warmed->isVisible());
+        QCOMPARE(window.document().path, source);
+    }
+    QCOMPARE(shown, 2);
+    QCOMPARE(ix::loadSaveOptions("jpeg"), previous);
 }
 void SavingTests::waylandSaveOpensOneResizableWindow() {
     if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
@@ -888,10 +942,20 @@ void SavingTests::unchangedJpegSaveKeepsGuiResponsive() {
     QVERIFY(!window.document().modified);
     QCOMPARE(contents(path), original);
 }
+void SavingTests::unchangedJpegOptionsDoNotWaitForProfileWriter_data() {
+    QTest::addColumn<bool>("stored");
+    QTest::newRow("first-save-with-defaults") << false;
+    QTest::newRow("unchanged-stored-options") << true;
+}
 void SavingTests::unchangedJpegOptionsDoNotWaitForProfileWriter() {
+    QFETCH(bool, stored);
+    const auto key = QStringLiteral("save/options/jpeg");
     auto options = ix::defaultSaveOptions("jpeg");
-    options.quality = 78;
-    ix::storeSaveOptions(options);
+    if (stored) {
+        options.quality = 78;
+        ix::storeSaveOptions(options);
+    }
+    QCOMPARE(QSettings().contains(key), stored);
     const QString lockPath = QSettings().fileName() + QStringLiteral(".lock");
     QSemaphore ready, saved;
     auto writer = QtConcurrent::run([&] {
@@ -907,9 +971,10 @@ void SavingTests::unchangedJpegOptionsDoNotWaitForProfileWriter() {
     ix::storeSaveOptions(options);
     const auto milliseconds = elapsed.elapsed();
     saved.release();
-    qInfo() << "Repeated JPEG preferences under profile lock (ms):" << milliseconds;
+    qInfo() << "JPEG preferences under profile lock (ms):" << milliseconds;
     QVERIFY2(writer.result(), "An unchanged JPEG option set waited for the portable profile lock");
-    QCOMPARE(QSettings().value(QStringLiteral("save/options/jpeg")).toJsonObject(), options.toJson());
+    QCOMPARE(QSettings().contains(key), stored);
+    if (stored) QCOMPARE(QSettings().value(key).toJsonObject(), options.toJson());
 }
 void SavingTests::perTypeMetadataMaskingDropsOnlyDeselected() {
 #ifndef IX_TEST_EXIV2
